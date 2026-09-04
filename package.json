@@ -1,0 +1,74 @@
+{
+  "name": "harness-self-evolution",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness 全盘自进化升级插件",
+  "keywords": [
+    "harness",
+    "evolution",
+    "self-improvement",
+    "matt-pocock",
+    "hermes"
+  ],
+  "license": "MIT",
+  "author": "AI Agent Designer <Across2005@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Across2005/harness-self-evolution-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Across2005/harness-self-evolution-plugin/issues"
+  },
+  "homepage": "https://github.com/Across2005/harness-self-evolution-plugin",
+  "main": "dist/mcp/server.js",
+  "types": "dist/types/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "lint": "eslint src --ext .ts",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "fs-extra": "^11.2.0",
+    "glob": "^10.3.0",
+    "json5": "^2.2.3",
+    "uuid": "^9.0.0",
+    "zod": "^4.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.11.0",
+    "@types/uuid": "^9.0.7",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "rimraf": "^5.0.5",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "mcp": {
+    "server": "./dist/mcp/server.js",
+    "tools": [
+      "scan_plugins",
+      "get_plugin_metrics",
+      "propose_evolution",
+      "execute_evolution",
+      "list_proposals",
+      "approve_proposal",
+      "reject_proposal"
+    ],
+    "events": [
+      "on_plugin_call",
+      "on_user_feedback",
+      "on_evolution_proposed",
+      "on_evolution_executed"
+    ]
+  }
+}

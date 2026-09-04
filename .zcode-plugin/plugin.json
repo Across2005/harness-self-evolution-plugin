@@ -1,0 +1,86 @@
+{
+  "name": "harness-self-evolution",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness 全盘自进化升级插件 - 启动扫描、实时监控、智能进化、自主迭代",
+  "author": {
+    "name": "AI Agent Designer",
+    "email": "Across2005@users.noreply.github.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "harness",
+    "evolution",
+    "self-improvement",
+    "matt-pocock",
+    "hermes",
+    "plugin-optimization"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Across2005/harness-self-evolution-plugin.git"
+  },
+  "main": "./dist/mcp/server.js",
+  "skills": "./skills",
+  "capabilities": [
+    "plugin_scanning",
+    "performance_monitoring",
+    "evolution_engine",
+    "upgrade_execution",
+    "sub_agent_orchestration"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/server": "^1.0.0",
+    "@zcode/contracts": "^0.5.0",
+    "@zcode/core": "^0.5.0",
+    "fs-extra": "^11.2.0",
+    "glob": "^10.3.0",
+    "json5": "^2.2.3"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "zcode": ">=0.5.0"
+  },
+  "evolution_config": {
+    "intensity": "50%",
+    "auto_approve": false,
+    "max_proposals_per_session": 3,
+    "cooldown_hours": 24,
+    "signal_thresholds": {
+      "strong": {
+        "user_correction": true,
+        "explicit_preference": true,
+        "consecutive_failures": 3,
+        "performance_drop": 0.2
+      },
+      "medium": {
+        "pattern_repeat": 2,
+        "loop_detection": 5,
+        "preference_repeat": 2
+      }
+    }
+  },
+  "scan_targets": [
+    "~/.deepseek/harness/plugins/",
+    "~/.deepseek/harness/extensions/",
+    "~/.zcode/cli/plugins/",
+    "~/.zcode/skills/",
+    "~/.agents/skills/",
+    "~/.openclaw-autoclaw/skills/"
+  ],
+  "monitoring": {
+    "enabled": true,
+    "sample_rate": 1.0,
+    "metrics": [
+      "latency",
+      "success_rate",
+      "token_usage",
+      "retry_count",
+      "user_feedback"
+    ]
+  }
+}

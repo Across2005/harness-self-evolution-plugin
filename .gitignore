@@ -1,0 +1,27 @@
+# Dependencies & build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+
+# Agent & harness runtime state (never publish local session data)
+.mimosa/
+.zcode/
+
+# Local environment & logs
+.env
+.env.*
+*.log
+npm-debug.log*
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local scratch / one-off tooling
+_*.py
