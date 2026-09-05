@@ -8,7 +8,6 @@
 /// 本仓的 flush 循环改由 task group 托管（见 `run_flush_loop`），
 /// 测试里不需要它 —— 直接调 `flush_buffers()` / `shutdown()` 即可，
 /// 于是用例不依赖任何真实定时器，跑得又快又稳。
-
 fn make_monitor(dir : String) -> PerformanceMonitor {
   PerformanceMonitor::new(
     @util.path_join(dir, "metrics.jsonl"),
@@ -16,10 +15,12 @@ fn make_monitor(dir : String) -> PerformanceMonitor {
   )
 }
 
+///|
 fn signals_path(dir : String) -> String {
   @util.path_join(dir, "signals.jsonl")
 }
 
+///|
 fn metrics_path(dir : String) -> String {
   @util.path_join(dir, "metrics.jsonl")
 }
@@ -32,6 +33,7 @@ async fn load_signals(dir : String) -> Array[@types.EvolutionSignal] {
   store.load()
 }
 
+///|
 async fn load_events(dir : String) -> Array[@types.PerformanceEvent] {
   let store = @store.Jsonl::new(metrics_path(dir))
   store.load()
@@ -86,7 +88,11 @@ fn failed_call(msg : String) -> @types.ToolCallData {
 
 ///|
 /// 一条指定时间戳的工具调用事件（用于造历史数据而不靠真实等待）。
-fn event_at(plugin_id : String, tool : String, ts : Int64) -> @types.PerformanceEvent {
+fn event_at(
+  plugin_id : String,
+  tool : String,
+  ts : Int64,
+) -> @types.PerformanceEvent {
   {
     session_id: "sess-old",
     plugin_id,
@@ -375,10 +381,7 @@ async test "backfills user feedback onto the in-memory session ring" {
   mon.record_user_feedback("p-1", @types.UserFeedback::Positive)
 
   // 环形副本里 p-1 的最后一条拿到了反馈，p-2 的仍为空
-  assert_eq(
-    feedback_in_ring(mon, "p-1"),
-    Some(@types.UserFeedback::Positive),
-  )
+  assert_eq(feedback_in_ring(mon, "p-1"), Some(@types.UserFeedback::Positive))
   assert_eq(feedback_in_ring(mon, "p-2"), None)
 
   // legacy 的可观察断言：两条事件最终都落盘了
@@ -450,17 +453,17 @@ async test "the first tool call per plugin flushes eagerly via the deep check" {
   mon.record_tool_call("p-1", "a", Json::empty_object(), 10, true)
   // 深度检查立即触发 → 缓冲已被清空，事件已在磁盘上
   assert_eq(mon.pending_event_count(), 0)
-  assert_eq((load_events(dir)).length(), 1)
+  assert_eq(load_events(dir).length(), 1)
 
   // 第二次调用被 30s 节流挡住 → 事件留在缓冲里，尚未落盘
   mon.record_tool_call("p-1", "b", Json::empty_object(), 10, true)
   assert_eq(mon.pending_event_count(), 1)
-  assert_eq((load_events(dir)).length(), 1)
+  assert_eq(load_events(dir).length(), 1)
 
   // 另一个插件有自己的节流计时，故它的首次调用同样会提前 flush
   mon.record_tool_call("p-2", "c", Json::empty_object(), 10, true)
   assert_eq(mon.pending_event_count(), 0)
-  assert_eq((load_events(dir)).length(), 3)
+  assert_eq(load_events(dir).length(), 3)
 }
 
 // ============================================================================
@@ -505,27 +508,38 @@ test "TrailingState matches countTrailing semantics" {
 test "detect_loops counts within the last ten, not necessarily consecutive" {
   // 不足 5 条
   assert_eq(
-    detect_loops(
-      [tool_call("a"), tool_call("a"), tool_call("a"), tool_call("a")],
-    ),
+    detect_loops([
+      tool_call("a"),
+      tool_call("a"),
+      tool_call("a"),
+      tool_call("a"),
+    ]),
     false,
   )
   // 恰好 5 条同名
   assert_eq(
-    detect_loops(
-      [tool_call("a"), tool_call("a"), tool_call("a"), tool_call("a"), tool_call("a")],
-    ),
+    detect_loops([
+      tool_call("a"),
+      tool_call("a"),
+      tool_call("a"),
+      tool_call("a"),
+      tool_call("a"),
+    ]),
     true,
   )
   // 5 次同名但**不连续** —— 窗口频次判定，与 TrailingState 的连续判定不同
   assert_eq(
-    detect_loops(
-      [
-        tool_call("a"), tool_call("b"), tool_call("a"), tool_call("b"),
-        tool_call("a"), tool_call("b"), tool_call("a"), tool_call("b"),
-        tool_call("a"),
-      ],
-    ),
+    detect_loops([
+      tool_call("a"),
+      tool_call("b"),
+      tool_call("a"),
+      tool_call("b"),
+      tool_call("a"),
+      tool_call("b"),
+      tool_call("a"),
+      tool_call("b"),
+      tool_call("a"),
+    ]),
     true,
   )
   // 只看最近 10 条：前 5 条 "old" 已滑出窗口，窗内全是 "new"
@@ -599,24 +613,19 @@ test "summarize treats a zero token total as absent, like JS ||" {
 /// `error_types` 必须按 wire 名**字典序**排列 —— MoonBit 的 Map 迭代序不定，
 /// 直接序列化会让 MCP 每次返回的字段顺序都可能不同（决策 D10 / 修 R5）。
 test "error_types is sorted lexicographically for deterministic output" {
-  let stats = summarize(
-    [
-      failed_call("permission denied"),
-      failed_call("timeout"),
-      failed_call("not found"),
-      failed_call("timeout"),
-      failed_call("weird"),
-    ],
-  )
-  json_inspect(
-    stats.error_types,
-    content=[
-      ("not_found", 1),
-      ("permission_error", 1),
-      ("runtime_error", 1),
-      ("timeout", 2),
-    ],
-  )
+  let stats = summarize([
+    failed_call("permission denied"),
+    failed_call("timeout"),
+    failed_call("not found"),
+    failed_call("timeout"),
+    failed_call("weird"),
+  ])
+  json_inspect(stats.error_types, content=[
+    ("not_found", 1),
+    ("permission_error", 1),
+    ("runtime_error", 1),
+    ("timeout", 2),
+  ])
 }
 
 ///|
@@ -676,23 +685,122 @@ async test "session event ring is capped without losing events" {
   let mon = make_monitor(dir)
 
   for i in 0..<600 {
-    mon.record_tool_call(
-      "p-1",
-      "tool\{i % 3}",
-      Json::empty_object(),
-      10,
-      true,
-    )
+    mon.record_tool_call("p-1", "tool\{i % 3}", Json::empty_object(), 10, true)
   }
   // 环形副本被上限截断到 500
   assert_eq(mon.session_events.length(), max_session_events_for_test)
   // 但事件一条不丢：首次调用因 maybe_deep_check 提前 flush 了一条，
   // 其余留在缓冲里，shutdown 后全部落盘
   mon.shutdown()
-  assert_eq((load_events(dir)).length(), 600)
+  assert_eq(load_events(dir).length(), 600)
 }
 
 ///|
 /// `max_session_events` 是包内私有常量，白盒测试里用同值镜像一份。
 /// 若两者不一致，上面那条断言会立即失败。
 let max_session_events_for_test : Int = 500
+
+// ============================================================================
+// 加固 H1：落盘失败不得丢事件，也不得让周期 flush 静默停摆
+// ============================================================================
+
+///|
+/// H1：磁盘写不进去时，`flush_buffers` 必须**既不抛也不丢**。
+///
+/// 原实现是 `copy → clear → append_many`，而 `store/jsonl.mbt` 的文件头注释
+/// 明确写了「`append` / `append_many` 的 I/O 错误直接透传 raise」。于是写失败
+/// 的那一瞬间：已换出的事件被 `clear` 掉、再也没有第二次机会落盘；同时
+/// `run_flush_loop` 的循环体里没有任何兜错，任务一抛就永久结束
+/// （`allow_failure=true` 只保证它不连累整个 group，不保证它继续跑）。
+/// 合起来就是：**一次瞬时磁盘故障 = 丢数据 + 监控静默停摆**，
+/// 之后的事件只能堆在内存里，等 `add_defer` 里最后一次同样可能失败的 flush。
+async test "flush_buffers keeps events when the write fails" {
+  let dir = @fs.tmpdir(prefix="evo-mon-h1-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+  let blocked = metrics_path(dir)
+  // 夹具：把 metrics.jsonl 的位置占成一个目录，于是任何写文件的尝试都失败。
+  // 与 scanner_wbtest.mbt 的 `blocked` 夹具同思路（那边是反过来的文件占目录）。
+  @fs.mkdir(blocked, recursive=true)
+  let write_failed = try {
+    @fs.write_file(blocked, "x", create_mode=OpenOrCreate, append=true)
+    false
+  } catch {
+    _ => true
+  }
+  // 夹具自检：占位没生效的话，本用例会因为「压根没失败」而假绿
+  assert_true(
+    write_failed,
+    msg="前置条件：被目录占据的路径必须写不进去",
+  )
+
+  mon.record_tool_call("p-1", "navigate", Json::empty_object(), 100, true)
+  mon.record_tool_call("p-1", "click", Json::empty_object(), 200, true)
+  mon.flush_buffers()
+
+  // 能走到这里说明没抛；两件事件必须还留在缓冲里等待重试
+  assert_eq(mon.pending_event_count(), 2)
+
+  // 故障解除后，同一批事件补落盘，且不重复
+  @fs.rmdir(blocked, recursive=true)
+  mon.flush_buffers()
+  assert_eq(mon.pending_event_count(), 0)
+  let events = load_events(dir)
+  assert_eq(events.length(), 2)
+  assert_eq(events[0].payload.tool_name(), Some("navigate"))
+  assert_eq(events[1].payload.tool_name(), Some("click"))
+}
+
+///|
+/// H1：metrics 写失败不得连带拖累 signals。
+///
+/// 原实现把两次 `append_many` 顺序串在同一个函数体里：metrics 一抛，
+/// 后面的 signals 分支根本执行不到 —— 两类互不相干的数据互相牵连。
+async test "a metrics write failure does not block signals from being stored" {
+  let dir = @fs.tmpdir(prefix="evo-mon-h1b-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+  @fs.mkdir(metrics_path(dir), recursive=true)
+
+  mon.record_user_feedback("p-1", @types.UserFeedback::Negative)
+  mon.record_tool_call("p-1", "navigate", Json::empty_object(), 100, true)
+  mon.flush_buffers()
+
+  // signals 正常落盘（它的路径没坏）
+  let signals = load_signals(dir)
+  assert_eq(signals.length(), 1)
+  assert_eq(signals[0].category, @types.SignalCategory::Correction)
+  // metrics 留在缓冲里，没有被连带丢掉
+  assert_eq(mon.pending_event_count(), 1)
+}
+
+///|
+/// H1：落盘持续失败时，缓冲必须有上界。
+///
+/// 只加「失败回填」会让缓冲无上界 —— 磁盘长期写不进去时，
+/// 监控循环等于替磁盘把内存吃光。于是回填后超长就丢**最旧**的，
+/// 并打一条告警。丢最旧的（而不是最新的）是刻意的：故障期间的历史
+/// 已经无法补救，而最新的几条才是进化引擎真正要用的样本。
+///
+/// 这里直接写 `event_buffer` 而不走 `record_tool_call`：本用例要测的是
+/// 上界与丢弃顺序，不是记录路径；走记录路径会让 1000 多次调用顺带
+/// 触发 `maybe_deep_check` 的读盘（读一个被目录占据的路径），噪声太大。
+async test "pending buffer stays bounded when writes keep failing" {
+  let dir = @fs.tmpdir(prefix="evo-mon-h1c-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+  @fs.mkdir(metrics_path(dir), recursive=true)
+
+  let total = max_buffered_items + 50
+  let mut i = 0
+  while i < total {
+    mon.event_buffer.push(event_at("p-1", "navigate", i.to_int64()))
+    i += 1
+  }
+  mon.flush_buffers()
+
+  assert_eq(mon.pending_event_count(), max_buffered_items)
+  // 丢的是最旧的 50 条，留下的是 ts 50..total-1，时间序不变
+  assert_eq(mon.event_buffer[0].ts, 50L)
+  assert_eq(mon.event_buffer[max_buffered_items - 1].ts, (total - 1).to_int64())
+}

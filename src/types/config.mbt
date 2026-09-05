@@ -58,6 +58,7 @@ pub fn EngineConfig::default() -> EngineConfig {
 // 缺字段应回退默认值，而不是让整个插件启动失败。
 // ----------------------------------------------------------------------------
 
+///|
 fn str_field(obj : Map[String, Json], key : String) -> String? {
   match obj.get(key) {
     Some(String(s)) => Some(s)
@@ -65,6 +66,7 @@ fn str_field(obj : Map[String, Json], key : String) -> String? {
   }
 }
 
+///|
 fn bool_field(obj : Map[String, Json], key : String) -> Bool? {
   match obj.get(key) {
     Some(True) => Some(true)
@@ -73,6 +75,7 @@ fn bool_field(obj : Map[String, Json], key : String) -> Bool? {
   }
 }
 
+///|
 fn num_field(obj : Map[String, Json], key : String) -> Double? {
   match obj.get(key) {
     Some(Number(n, ..)) => Some(n)
@@ -80,6 +83,7 @@ fn num_field(obj : Map[String, Json], key : String) -> Double? {
   }
 }
 
+///|
 fn obj_field(obj : Map[String, Json], key : String) -> Map[String, Json]? {
   match obj.get(key) {
     Some(Object(o)) => Some(o)
@@ -123,6 +127,7 @@ fn threshold_field(
   }
 }
 
+///|
 fn threshold_int(
   st : Map[String, Json],
   flat_key : String,
@@ -130,13 +135,7 @@ fn threshold_int(
   legacy_key : String,
   fallback : Int,
 ) -> Int {
-  threshold_field(
-    st,
-    flat_key,
-    legacy_group,
-    legacy_key,
-    fallback.to_double(),
-  ).to_int()
+  threshold_field(st, flat_key, legacy_group, legacy_key, fallback.to_double()).to_int()
 }
 
 ///|
@@ -150,11 +149,110 @@ fn threshold_int(
 /// 1.0 的**嵌套**形状（`.strong.consecutive_failures` / `.medium.loop_detection`
 /// / `.strong.performance_drop`，即 plugin.json L53-65）作为回退。
 /// 两者都读不到才落到默认阈值。
+///
+/// **取值域越界的字段（如 `consecutive_failures: 0`）会被回落成默认值并告警**，
+/// 见 `from_json_checked`。本函数丢掉告警，签名保持同步。
 pub fn EngineConfig::from_json(json : Json) -> EngineConfig {
+  let (cfg, _warn) = EngineConfig::from_json_checked(json)
+  cfg
+}
+
+///|
+/// `cooldown_hours` 的上界（10 年）。放这么宽只为了挡住明显的笔误 ——
+/// 负数会让冷却终点算到过去、冷却形同不存在；`1e9` 则是近乎永久卡死。
+let max_cooldown_hours : Int = 87_600
+
+///|
+/// 整数字段：落在 `[lo, hi]` 内则原样接受，否则回落 `dflt` 并产出一条告警。
+fn int_domain(
+  name : String,
+  value : Int,
+  lo : Int,
+  hi : Int,
+  dflt : Int,
+) -> (Int, String?) {
+  if value >= lo && value <= hi {
+    (value, None)
+  } else {
+    (
+      dflt,
+      Some(
+        "\{name}: \{value} is outside [\{lo}, \{hi}] and fell back to the default \{dflt}",
+      ),
+    )
+  }
+}
+
+///|
+/// 阈值下限：低于 `lo` 会让对应的检测恒真，故不 clamp 到 `lo` 而是回落默认值。
+fn int_floor(
+  name : String,
+  value : Int,
+  lo : Int,
+  dflt : Int,
+) -> (Int, String?) {
+  if value >= lo {
+    (value, None)
+  } else {
+    (
+      dflt,
+      Some(
+        "\{name}: \{value} is below the minimum \{lo}, which makes the check always fire; it fell back to the default \{dflt}",
+      ),
+    )
+  }
+}
+
+///|
+/// 百分比字段：必须落在 `(0, 100]`。
+fn ratio_domain(
+  name : String,
+  value : Double,
+  dflt : Double,
+) -> (Double, String?) {
+  if value > 0.0 && value <= 100.0 {
+    (value, None)
+  } else {
+    (
+      dflt,
+      Some(
+        "\{name}: \{value} is outside (0, 100] and fell back to the default \{dflt}",
+      ),
+    )
+  }
+}
+
+///|
+/// 与 `from_json` 完全相同的解析结果，但额外返回一个告警数组。
+///
+/// **为什么要单独有这一层**：`from_json` 对缺失/类型不符的字段一律回落默认值，
+/// 这是有意的（配置写错不该让引擎起不来，见 `harness_evolution/main.mbt`）。
+/// 但「写成了退化值」和「没写」后果完全不同 —— 那些值会静默改变引擎行为：
+///
+/// - `consecutive_failures: 0`：成功调用会把失败计数清成 0，而判定是 `>=`
+///   （`monitor.mbt` L321），于是**每次成功都发一条 strong 故障信号**；
+/// - `loop_detection: 0 / 1`：达到阈值的分支恒真，而「清除已报告标记」
+///   的分支要求 `same_tool_run < 阈值`（`monitor.mbt` L349）→ 永不可达，
+///   于是每个工具的**第一次**调用就被报成循环；
+/// - `latency_regression: 0`：任何延迟抖动都算性能退化（L476 是 `>`）；
+/// - `cooldown_hours: -1`：`hours_to_ms` 得到负的窗口，而判定是
+///   `now - created_at < cooldown_ms`（`store/proposals.mbt` 的
+///   `recent_for_plugin`，由 `engine.mbt` L167-168 调用）→ 对任何历史提案都恒假
+///   → 冷却等于不存在。
+///
+/// 引擎会拿着这些垃圾信号去改真实插件，比崩掉更糟。所以这里把这些取值挑出来
+/// **回落默认值 + 点名字段告警**，由 `main.mbt` 在启动时打到 stderr。
+///
+/// 只对「取值域越界」告警：缺失与类型不符继续静默回落（太常见，
+/// 为它们告警会淹没要紧的那几条）。
+pub fn EngineConfig::from_json_checked(
+  json : Json,
+) -> (EngineConfig, Array[String]) {
+  let warn : Array[String] = []
   let defaults = EngineConfig::default()
   let root = match json {
     Object(o) => o
-    _ => return defaults
+    _ => return (defaults, warn)
   }
   // 允许传入整个 plugin.json：自动下钻到 evolution_config
   let cfg = match obj_field(root, "evolution_config") {
@@ -166,7 +264,7 @@ pub fn EngineConfig::from_json(json : Json) -> EngineConfig {
     Some(s) => intensity_wire.find_by_name(s).unwrap_or(defaults.intensity)
     None => defaults.intensity
   }
-  let cooldown = match num_field(cfg, "cooldown_hours") {
+  let cooldown_raw = match num_field(cfg, "cooldown_hours") {
     Some(n) => n.to_int()
     None => defaults.cooldown_hours
   }
@@ -175,7 +273,7 @@ pub fn EngineConfig::from_json(json : Json) -> EngineConfig {
   )
 
   let td = defaults.thresholds
-  let thresholds = match obj_field(cfg, "signal_thresholds") {
+  let raw_thresholds = match obj_field(cfg, "signal_thresholds") {
     None => td
     Some(st) =>
       {
@@ -203,5 +301,45 @@ pub fn EngineConfig::from_json(json : Json) -> EngineConfig {
       }
   }
 
-  { intensity, cooldown_hours: cooldown, auto_approve, thresholds, }
+  let (cooldown, w_cooldown) = int_domain(
+    "cooldown_hours",
+    cooldown_raw,
+    0,
+    max_cooldown_hours,
+    defaults.cooldown_hours,
+  )
+  let (cf, w_cf) = int_floor(
+    "signal_thresholds.consecutive_failures",
+    raw_thresholds.consecutive_failures,
+    1,
+    td.consecutive_failures,
+  )
+  let (loop_n, w_loop) = int_floor(
+    "signal_thresholds.loop_detection",
+    raw_thresholds.loop_detection,
+    2,
+    td.loop_detection,
+  )
+  let (latency, w_latency) = ratio_domain(
+    "signal_thresholds.latency_regression",
+    raw_thresholds.latency_regression,
+    td.latency_regression,
+  )
+  for w in [w_cooldown, w_cf, w_loop, w_latency] {
+    match w {
+      Some(msg) => warn.push(msg)
+      None => ()
+    }
+  }
+  let out = {
+    intensity,
+    cooldown_hours: cooldown,
+    auto_approve,
+    thresholds: {
+      consecutive_failures: cf,
+      loop_detection: loop_n,
+      latency_regression: latency,
+    },
+  }
+  (out, warn)
 }

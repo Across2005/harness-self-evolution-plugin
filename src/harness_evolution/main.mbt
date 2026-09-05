@@ -43,26 +43,39 @@ async fn load_config() -> @types.EngineConfig {
   for path in candidates {
     match @store.read_json(path) {
       Some(json) => {
-        @util.log_info("HarnessEvolution", "Loaded evolution_config from \{path}")
-        return @types.EngineConfig::from_json(json)
+        @util.log_info(
+          "HarnessEvolution",
+          "Loaded evolution_config from \{path}",
+        )
+        let (cfg, warns) = @types.EngineConfig::from_json_checked(json)
+        // 越界取值会**回落默认值**，但必须让人看见：配置孤岛是 2.0 才接通的，
+        // 退化值（`consecutive_failures: 0` 等）过去会被静默兜底，
+        // 引擎会拿着被改写的阈值产出的垃圾信号去改真实插件。
+        for w in warns {
+          @util.log_warn(
+            "HarnessEvolution",
+            "Invalid evolution_config value, fell back to default: \{w}",
+          )
+        }
+        return cfg
       }
       None => ()
     }
   }
   @util.log_info(
-    "HarnessEvolution",
-    "No plugin.json found; using the default evolution config",
+    "HarnessEvolution", "No plugin.json found; using the default evolution config",
   )
   @types.EngineConfig::default()
 }
 
+///|
 async fn main {
   let paths = @store.DataPaths::default()
   paths.warn_on_legacy_v1()
   paths.ensure_root()
 
   let config = load_config()
-  let state = @mcp.ServerState::at(paths, config=config)
+  let state = @mcp.ServerState::at(paths, config~)
 
   @util.log_info(
     "HarnessEvolution",

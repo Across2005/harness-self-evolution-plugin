@@ -39,13 +39,14 @@ test "ProposalStatus state machine: full 5x5 matrix" {
 /// 终态不可再迁移 —— 这是 legacy-ts/tests/executor.test.ts L166-171
 /// 「completed → approved 必须抛错」那条用例的类型层依据。
 test "terminal statuses accept no transitions" {
-  for to in [
-    ProposalStatus::Pending,
-    ProposalStatus::Approved,
-    ProposalStatus::Rejected,
-    ProposalStatus::Executing,
-    ProposalStatus::Completed,
-  ] {
+  for
+    to in [
+      ProposalStatus::Pending,
+      ProposalStatus::Approved,
+      ProposalStatus::Rejected,
+      ProposalStatus::Executing,
+      ProposalStatus::Completed,
+    ] {
     assert_eq(ProposalStatus::Completed.can_transition_to(to), false)
     assert_eq(ProposalStatus::Rejected.can_transition_to(to), false)
   }
@@ -55,14 +56,20 @@ test "terminal statuses accept no transitions" {
 /// 取代 legacy-ts/src/monitor/index.ts L344-350。
 /// **判定顺序与大小写敏感性都是行为契约**，不能「顺手优化」。
 test "ErrorKind::classify keeps the TS branch order and case sensitivity" {
-  assert_eq(ErrorKind::classify("request timeout after 30s"), ErrorKind::Timeout)
+  assert_eq(
+    ErrorKind::classify("request timeout after 30s"),
+    ErrorKind::Timeout,
+  )
   assert_eq(
     ErrorKind::classify("invalid parameter: url"),
     ErrorKind::ParameterError,
   )
   // "param" 单独也要命中（TS L346 的 || 分支）
   assert_eq(ErrorKind::classify("bad param"), ErrorKind::ParameterError)
-  assert_eq(ErrorKind::classify("permission denied"), ErrorKind::PermissionError)
+  assert_eq(
+    ErrorKind::classify("permission denied"),
+    ErrorKind::PermissionError,
+  )
   // "access" 也归为权限错误（TS L347）
   assert_eq(ErrorKind::classify("access denied"), ErrorKind::PermissionError)
   assert_eq(ErrorKind::classify("file not found"), ErrorKind::NotFound)
@@ -129,18 +136,15 @@ test "ExpectedBenefits omits absent keys instead of writing null" {
 ///|
 /// 取代 engine/index.ts L531-542 的 switch。
 test "EvolutionType extra_scenarios" {
-  json_inspect(
-    EvolutionType::InterfaceSimplification.extra_scenarios(),
-    content=["测试新工具接口", "测试向后兼容性"],
-  )
-  json_inspect(
-    EvolutionType::BehaviorOptimization.extra_scenarios(),
-    content=["测试循环检测", "测试干预提示"],
-  )
-  json_inspect(
-    EvolutionType::PerformanceTuning.extra_scenarios(),
-    content=["性能基准测试", "负载测试"],
-  )
+  json_inspect(EvolutionType::InterfaceSimplification.extra_scenarios(), content=[
+    "测试新工具接口", "测试向后兼容性",
+  ])
+  json_inspect(EvolutionType::BehaviorOptimization.extra_scenarios(), content=[
+    "测试循环检测", "测试干预提示",
+  ])
+  json_inspect(EvolutionType::PerformanceTuning.extra_scenarios(), content=[
+    "性能基准测试", "负载测试",
+  ])
   json_inspect(EvolutionType::DocumentationEnhancement.extra_scenarios(), content=[])
 }
 
@@ -184,10 +188,9 @@ test "changes_kinds counts only non-empty change groups, in order" {
     Change::SimplifyParams([]), // 空变更不计入
     Change::UpdateDocumentation([doc]),
   ]
-  json_inspect(
-    changes_kinds(changes).map(fn(k) { k.wire_name() }),
-    content=["merge_tools", "update_documentation"],
-  )
+  json_inspect(changes_kinds(changes).map(fn(k) { k.wire_name() }), content=[
+    "merge_tools", "update_documentation",
+  ])
   assert_eq(changes_kinds(changes).length(), 2)
   assert_eq(changes_kinds([]).length(), 0)
   assert_eq(Change::MergeTools([merge]).kind(), ChangeKind::MergeTools)
@@ -199,18 +202,17 @@ test "changes_kinds counts only non-empty change groups, in order" {
 /// `Change` 的自描述 wire 形式。用对象而非 derive 的 tagged-array，
 /// 因为 proposals.jsonl 是面向人类审批决策的低频文档，可读性优先。
 test "Change serializes as a self-describing object and round-trips" {
-  let c : Change = Change::AddCapability(
-    [
-      {
-        capability_name: "custom_workflow",
-        description: "用户重复的三步操作",
-        implementation: "基于用户工作流模式自动生成",
-        dependencies: [],
-      },
-    ],
-  )
+  let c : Change = Change::AddCapability([
+    {
+      capability_name: "custom_workflow",
+      description: "用户重复的三步操作",
+      implementation: "基于用户工作流模式自动生成",
+      dependencies: [],
+    },
+  ])
   let text = ToJson::to_json(c).stringify()
-  let expected = #|{"kind":"add_capability","items":[{"capability_name":"custom_workflow","description":"用户重复的三步操作","implementation":"基于用户工作流模式自动生成","dependencies":[]}]}
+  let expected =
+    #|{"kind":"add_capability","items":[{"capability_name":"custom_workflow","description":"用户重复的三步操作","implementation":"基于用户工作流模式自动生成","dependencies":[]}]}
   inspect(text, content=expected)
   let back : Change = @json.from_json(@json.parse(text))
   assert_eq(back, c)
@@ -219,7 +221,8 @@ test "Change serializes as a self-describing object and round-trips" {
 ///|
 /// 未知 kind 必须被拒绝，且错误消息来自 wire 表（而非本文件里另抄一份列表）。
 test "Change rejects an unknown kind" {
-  let raw = #|{"kind":"teleport","items":[]}
+  let raw =
+    #|{"kind":"teleport","items":[]}
   let msg = try {
     let decoded : Change = @json.from_json(@json.parse(raw))
     ignore(decoded)
@@ -286,7 +289,8 @@ test "EngineConfig::from_json reads the real plugin.json shape" {
   // 这是本用例最要紧的一点 —— 1.0 版的同名测试内联的是嵌套旧形状，
   // from_json 根本读不懂，断言之所以通过纯粹因为默认值恰好也是 3/5/0.2，
   // 属于「碰巧变绿的假测试」。
-  let raw = #|{
+  let raw =
+    #|{
     #|  "evolution_config": {
     #|    "intensity": "100%",
     #|    "auto_approve": true,
@@ -308,7 +312,8 @@ test "EngineConfig::from_json reads the real plugin.json shape" {
 
   // 也允许直接传 evolution_config 的内容本身（外层包装是可选的），
   // 且缺失的键各自回落到默认值
-  let inner_raw = #|{"intensity":"50%","cooldown_hours":1}
+  let inner_raw =
+    #|{"intensity":"50%","cooldown_hours":1}
   let inner_only = EngineConfig::from_json(@json.parse(inner_raw))
   assert_eq(inner_only.intensity, Intensity::Half)
   assert_eq(inner_only.cooldown_hours, 1)
@@ -327,7 +332,8 @@ test "EngineConfig::from_json reads the real plugin.json shape" {
 /// 注意 1.0 的键名与结构体字段并不同名：`performance_drop` → `latency_regression`。
 /// 这份手写映射无据可依，也正是 2.0 把规范形状换成扁平的理由。
 test "EngineConfig::from_json still reads the legacy 1.0 nested thresholds shape" {
-  let legacy = #|{
+  let legacy =
+    #|{
     #|  "evolution_config": {
     #|    "intensity": "50%",
     #|    "auto_approve": false,
@@ -355,7 +361,8 @@ test "EngineConfig::from_json still reads the legacy 1.0 nested thresholds shape
 /// 这钉住了 `threshold_field` 的尝试顺序：若有人把两者调反，
 /// 2.0 的规范配置就会被 1.0 的遗留值默默覆盖。
 test "EngineConfig::from_json prefers the flat shape over the nested one" {
-  let both = #|{
+  let both =
+    #|{
     #|  "signal_thresholds": {
     #|    "consecutive_failures": 8,
     #|    "loop_detection": 11,
@@ -375,22 +382,29 @@ test "EngineConfig::from_json prefers the flat shape over the nested one" {
 /// 绝不能让整个插件启动失败。
 test "EngineConfig::from_json falls back to defaults on bad input" {
   assert_eq(EngineConfig::from_json(Json::null()), EngineConfig::default())
-  let empty = #|{}
-  assert_eq(EngineConfig::from_json(@json.parse(empty)), EngineConfig::default())
+  let empty =
+    #|{}
+  assert_eq(
+    EngineConfig::from_json(@json.parse(empty)),
+    EngineConfig::default(),
+  )
   // 未知 intensity 回退 Half，而不是 raise
-  let bad_intensity = #|{"intensity":"200%"}
+  let bad_intensity =
+    #|{"intensity":"200%"}
   assert_eq(
     EngineConfig::from_json(@json.parse(bad_intensity)).intensity,
     Intensity::Half,
   )
   // 类型不符（字符串而非数字）回退默认
-  let bad_cooldown = #|{"cooldown_hours":"24"}
+  let bad_cooldown =
+    #|{"cooldown_hours":"24"}
   assert_eq(
     EngineConfig::from_json(@json.parse(bad_cooldown)).cooldown_hours,
     24,
   )
   // signal_thresholds 部分缺失时逐字段回退
-  let partial = #|{"signal_thresholds":{"strong":{"consecutive_failures":7}}}
+  let partial =
+    #|{"signal_thresholds":{"strong":{"consecutive_failures":7}}}
   let cfg = EngineConfig::from_json(@json.parse(partial))
   assert_eq(cfg.thresholds.consecutive_failures, 7)
   assert_eq(cfg.thresholds.loop_detection, 5)
@@ -400,36 +414,34 @@ test "EngineConfig::from_json falls back to defaults on bad input" {
 ///|
 /// 取代 monitor 里 9 处 `(e.event_data as any).xxx` 的窄接口投影。
 test "EventPayload projections replace the TS as-any casts" {
-  let call : EventPayload = EventPayload::ToolCall(
-    {
-      tool: "navigate",
-      params: Json::empty_object(),
-      latency_ms: 120,
-      success: true,
-      token_usage: None,
-      retry_count: 0,
-      error_message: None,
-    },
-  )
+  let call : EventPayload = EventPayload::ToolCall({
+    tool: "navigate",
+    params: Json::empty_object(),
+    latency_ms: 120,
+    success: true,
+    token_usage: None,
+    retry_count: 0,
+    error_message: None,
+  })
   assert_eq(call.tool_name(), Some("navigate"))
   assert_eq(call.succeeded(), Some(true))
   assert_eq(call.duration_ms(), Some(120))
 
-  let fired : EventPayload = EventPayload::EventFired(
-    { event_name: "on_error", payload: Json::null(), processing_time_ms: 7 },
-  )
+  let fired : EventPayload = EventPayload::EventFired({
+    event_name: "on_error",
+    payload: Json::null(),
+    processing_time_ms: 7,
+  })
   assert_eq(fired.tool_name(), None)
   assert_eq(fired.succeeded(), None)
   assert_eq(fired.duration_ms(), Some(7))
 
-  let failed : EventPayload = EventPayload::Failed(
-    {
-      error_kind: ErrorKind::Timeout,
-      message: "timeout",
-      stack_trace: None,
-      recovery_attempted: false,
-    },
-  )
+  let failed : EventPayload = EventPayload::Failed({
+    error_kind: ErrorKind::Timeout,
+    message: "timeout",
+    stack_trace: None,
+    recovery_attempted: false,
+  })
   assert_eq(failed.tool_name(), None)
   assert_eq(failed.succeeded(), None)
   assert_eq(failed.duration_ms(), None)
@@ -459,18 +471,16 @@ test "EvolutionProposal round-trips through JSONL-shaped JSON" {
     evolution_type: EvolutionType::BehaviorOptimization,
     matt_pocock_principle: MattPocockPrinciple::TightFeedback,
     proposed_changes: [
-      Change::AddMiddleware(
-        [
-          {
-            name: "loop_detection",
-            target_tool: Some("navigate"),
-            target_event: None,
-            threshold: Some(5),
-            intervention: "检测到循环，建议使用批量操作或调整参数",
-            priority: 10,
-          },
-        ],
-      ),
+      Change::AddMiddleware([
+        {
+          name: "loop_detection",
+          target_tool: Some("navigate"),
+          target_event: None,
+          threshold: Some(5),
+          intervention: "检测到循环，建议使用批量操作或调整参数",
+          priority: 10,
+        },
+      ]),
     ],
     expected_benefits: EvolutionType::BehaviorOptimization.expected_benefits(),
     validation_plan: {
@@ -504,7 +514,9 @@ test "EvolutionProposal round-trips through JSONL-shaped JSON" {
   // 关键字段在 JSON 里必须是 CONTEXT.md 的词汇，而不是 PascalCase 变体名
   assert_true(text.contains("\"status\":\"pending\""))
   assert_true(text.contains("\"evolution_type\":\"behavior_optimization\""))
-  assert_true(text.contains("\"matt_pocock_principle\":\"紧反馈环 > 盲目试错\""))
+  assert_true(
+    text.contains("\"matt_pocock_principle\":\"紧反馈环 > 盲目试错\""),
+  )
   assert_true(text.contains("\"confidence\":\"medium\""))
   assert_true(text.contains("\"level\":\"T0\""))
   // ★ Int64 在 MoonBit 的 JSON 里是**带引号的十进制字符串**，不是裸数字。
@@ -517,4 +529,143 @@ test "EvolutionProposal round-trips through JSONL-shaped JSON" {
   // 为何用 Int64 而不是 Int：MoonBit 的 `Int` 是 32 位
   // （@int.max_value + 1 回绕到 -2147483648），而 Unix 毫秒约 1.7e12 远超此范围。
   assert_true(text.contains("\"created_at\":\"1757000000700\""))
+}
+
+// ============================================================================
+// 加固 H2：配置取值域校验（越界 → 回落默认值 + 点名字段告警）
+// ============================================================================
+
+///|
+/// 从告警文本里取出被点名的字段名。
+///
+/// 约定每条告警的形状是 `"<字段名>: <说明>"`（说明里不含半角冒号），
+/// 于是断言只依赖字段名、不依赖中文措辞，也不依赖 4 条告警的先后顺序。
+fn warned_fields(warns : Array[String]) -> Array[String] {
+  let out : Array[String] = []
+  for w in warns {
+    for part in w.split(":") {
+      out.push(part.trim().to_owned())
+      break // 只取冒号前的字段名
+    }
+  }
+  out
+}
+
+///|
+/// H2：越界的取值必须回落默认值，并**点名字段**告警。
+///
+/// `EngineConfig::from_json` 每个字段都有兜底 —— 配置写错不该让引擎起不来，
+/// 这是有意的。但「写成退化值」和「没写」后果完全不同：
+/// `consecutive_failures: 0` 会让每次**成功**调用都发一条 strong 信号
+/// （成功把计数清成 0，而判定是 `>=`，见 `monitor.mbt` L321），
+/// `loop_detection: 1` 让每次调用都算「循环」，
+/// `latency_regression: 0` 让任何抖动都算「退化」（L476 是 `>`），
+/// `cooldown_hours: -1` 让冷却终点落在过去、冷却形同不存在（engine L167）。
+/// 这些值过去被静默兜底，引擎会拿着垃圾信号去改真实插件。
+test "EngineConfig::from_json_checked reports out-of-domain values by name" {
+  let raw =
+    #|{
+    #|  "evolution_config": {
+    #|    "cooldown_hours": -1,
+    #|    "signal_thresholds": {
+    #|      "consecutive_failures": 0,
+    #|      "loop_detection": 1,
+    #|      "latency_regression": 0
+    #|    }
+    #|  }
+    #|}
+  let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
+  // 四个越界字段全部回落默认值，而不是拿退化值去驱动检测逻辑
+  assert_eq(cfg, EngineConfig::default())
+  assert_eq(warns.length(), 4)
+  let fields = warned_fields(warns)
+  assert_true(fields.contains("cooldown_hours"))
+  assert_true(fields.contains("signal_thresholds.consecutive_failures"))
+  assert_true(fields.contains("signal_thresholds.loop_detection"))
+  assert_true(fields.contains("signal_thresholds.latency_regression"))
+}
+
+///|
+/// H2：合法域**边界上**的值必须原样生效，且一条告警都不产生。
+///
+/// 刻意取边界值（0 / 1 / 2 / 0.01 / 上界 87600）而不是中间值：
+/// 若校验写成了「clamp 到边界」，中间值也能过，只有端点能区分
+/// 「接受」与「改写」。
+test "EngineConfig::from_json_checked keeps in-domain values untouched" {
+  let raw =
+    #|{
+    #|  "cooldown_hours": 0,
+    #|  "signal_thresholds": {
+    #|    "consecutive_failures": 1,
+    #|    "loop_detection": 2,
+    #|    "latency_regression": 0.01
+    #|  }
+    #|}
+  let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
+  assert_eq(warns.length(), 0)
+  assert_eq(cfg.cooldown_hours, 0)
+  assert_eq(cfg.thresholds.consecutive_failures, 1)
+  assert_eq(cfg.thresholds.loop_detection, 2)
+  assert_eq(cfg.thresholds.latency_regression, 0.01)
+
+  let upper_raw =
+    #|{"cooldown_hours":87600}
+  let (upper, upper_warns) = EngineConfig::from_json_checked(
+    @json.parse(upper_raw),
+  )
+  assert_eq(upper_warns.length(), 0)
+  assert_eq(upper.cooldown_hours, 87600)
+
+  // 上界之外（多 1）就要回落 + 告警
+  let over_raw =
+    #|{"cooldown_hours":87601,"signal_thresholds":{"latency_regression":100.1}}
+  let (over, over_warns) = EngineConfig::from_json_checked(
+    @json.parse(over_raw),
+  )
+  assert_eq(over_warns.length(), 2)
+  assert_eq(over.cooldown_hours, 24)
+  assert_eq(over.thresholds.latency_regression, 0.2)
+
+  // 100% 是合法上界（延迟翻倍算退化）
+  let hundred_raw =
+    #|{"signal_thresholds":{"latency_regression":100}}
+  let (hundred, hundred_warns) = EngineConfig::from_json_checked(
+    @json.parse(hundred_raw),
+  )
+  assert_eq(hundred_warns.length(), 0)
+  assert_eq(hundred.thresholds.latency_regression, 100.0)
+}
+
+///|
+/// H2：`from_json` 的同步签名与既有语义不变 —— 它等于 `from_json_checked`
+/// 丢掉告警。校验不能让本来能解析出来的东西变得解析不出来。
+test "EngineConfig::from_json agrees with from_json_checked" {
+  let a =
+    #|{"intensity":"100%","cooldown_hours":-5}
+  let b =
+    #|{}
+  let c =
+    #|{"signal_thresholds":{"consecutive_failures":0,"loop_detection":5,"latency_regression":0.5}}
+  let d =
+    #|{"cooldown_hours":"24"}
+  let e =
+    #|{"intensity":"999%","cooldown_hours":3}
+  for raw in [a, b, c, d, e] {
+    let json = @json.parse(raw)
+    let (checked, _) = EngineConfig::from_json_checked(json)
+    assert_eq(EngineConfig::from_json(json), checked)
+  }
+}
+
+///|
+/// H2：非数值 / 缺失字段仍然静默回落默认值，**不**产生告警。
+///
+/// 类型不符与「根本没写」在配置文件里太常见了，为它们告警会淹没真正
+/// 要紧的越界告警。这条用例守住「只有取值域越界才告警」的边界。
+test "EngineConfig::from_json_checked stays silent on missing or mistyped keys" {
+  let raw =
+    #|{"cooldown_hours":"24","intensity":7,"signal_thresholds":"none","auto_approve":"yes"}
+  let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
+  assert_eq(warns.length(), 0)
+  assert_eq(cfg, EngineConfig::default())
 }

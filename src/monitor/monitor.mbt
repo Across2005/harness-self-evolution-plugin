@@ -19,12 +19,23 @@
 ///    因此不需要互斥锁就不可能重入。
 /// 3. 用 `Deque` 环形缓冲取代 TS L374 的 `sessionEvents.splice(0, len-500)`
 ///    —— 后者稳态下每次事件都 O(n) 搬移整个数组。
-
 let max_session_events : Int = 500 // ← TS L23 MAX_SESSION_EVENTS
 
+///|
 let deep_check_interval_ms : Int64 = 30_000L // ← TS L26 DEEP_CHECK_INTERVAL_MS
 
+///|
 let flush_interval_ms : Int = 5000 // ← TS L57 setInterval 的周期
+
+///|
+/// 单个待落盘缓冲的上限。
+///
+/// 有了「写失败就把事件放回缓冲」之后，缓冲不再必然随 flush 归零 ——
+/// 磁盘长期写不进去时，它等于替磁盘把内存吃光。故设上界：溢出时丢弃**最旧**的
+/// 条目并告警。丢最旧是刻意的 —— 故障期间的历史已无法补救，而留给进化引擎的
+/// 应该是最近的样本。1000 条 ≈ 正常节奏下约 5s/批 × 数十轮的量，
+/// 不会在磁盘健康时误伤（健康时每轮 flush 都会清零）。
+let max_buffered_items : Int = 1000
 
 ///|
 /// 会话 id 的进程内单调序号。
@@ -52,7 +63,7 @@ pub fn new_session_id() -> String {
 /// 只对**非负**入参正确（JS 的 toFixed 对负数另有规则）；
 /// 调用点的 `increase` 恒 > 0.2，故安全。
 fn fixed1(d : Double) -> String {
-  let scaled = (d * 10.0) + 0.5
+  let scaled = d * 10.0 + 0.5
   let rounded = scaled.to_int()
   "\{rounded / 10}.\{rounded % 10}"
 }
@@ -146,30 +157,34 @@ pub async fn PerformanceMonitor::record_tool_call(
   params : Json,
   latency_ms : Int,
   success : Bool,
-  token_usage~ : @types.TokenUsage? = None,
-  retry_count~ : Int = 0,
-  error_message~ : String? = None,
-  context~ : @types.EventContext? = None,
+  token_usage? : @types.TokenUsage? = None,
+  retry_count? : Int = 0,
+  error_message? : String? = None,
+  context? : @types.EventContext? = None,
 ) -> Unit {
   let event : @types.PerformanceEvent = {
     session_id: self.session_id,
     plugin_id,
     ts: @util.now_ms(),
-    payload: @types.EventPayload::ToolCall(
-      {
-        tool,
-        params,
-        latency_ms,
-        success,
-        token_usage,
-        retry_count,
-        error_message,
-      },
-    ),
+    payload: @types.EventPayload::ToolCall({
+      tool,
+      params,
+      latency_ms,
+      success,
+      token_usage,
+      retry_count,
+      error_message,
+    }),
     context: match context {
       Some(c) => c
       // 对齐 TS L104-109：conversation_turn 缺省 0，其余缺省空
-      None => { task_type: None, user_feedback: None, conversation_turn: 0, related_tools: None, }
+      None =>
+        {
+          task_type: None,
+          user_feedback: None,
+          conversation_turn: 0,
+          related_tools: None,
+        }
     },
   }
 
@@ -197,12 +212,10 @@ pub fn PerformanceMonitor::record_user_feedback(
   self : PerformanceMonitor,
   plugin_id : String,
   feedback : @types.UserFeedback,
-  context~ : String? = None,
+  context? : String? = None,
 ) -> Unit {
   // ① 回填：待落盘缓冲（后写覆盖）与会话环形副本都要更新
-  ignore(
-    patch_last_feedback(self.event_buffer, plugin_id, feedback),
-  )
+  ignore(patch_last_feedback(self.event_buffer, plugin_id, feedback))
   ignore(self.patch_last_session_feedback(plugin_id, feedback))
 
   // ② 负面反馈 → strong/correction 信号（对齐 TS L134-138）
@@ -392,7 +405,7 @@ fn make_signal(
 pub async fn PerformanceMonitor::get_metrics(
   self : PerformanceMonitor,
   plugin_id : String,
-  time_range~ : @types.TimeRange = @types.TimeRange::All,
+  time_range? : @types.TimeRange = @types.TimeRange::All,
 ) -> Array[@types.PerformanceEvent] {
   self.flush_buffers()
   let all : Array[@types.PerformanceEvent] = self.metrics.load()
@@ -414,9 +427,9 @@ pub async fn PerformanceMonitor::get_metrics(
 pub async fn PerformanceMonitor::get_statistics(
   self : PerformanceMonitor,
   plugin_id : String,
-  time_range~ : @types.TimeRange = @types.TimeRange::All,
+  time_range? : @types.TimeRange = @types.TimeRange::All,
 ) -> Statistics {
-  let events = self.get_metrics(plugin_id, time_range=time_range)
+  let events = self.get_metrics(plugin_id, time_range~)
   let tool_calls : Array[@types.ToolCallData] = []
   for event in events {
     match event.payload {
@@ -429,7 +442,9 @@ pub async fn PerformanceMonitor::get_statistics(
 
 ///|
 /// 本会话尚未落盘的事件数。测试用它断言缓冲与节流行为。
-pub fn PerformanceMonitor::pending_event_count(self : PerformanceMonitor) -> Int {
+pub fn PerformanceMonitor::pending_event_count(
+  self : PerformanceMonitor,
+) -> Int {
   self.event_buffer.length()
 }
 
@@ -457,8 +472,14 @@ async fn PerformanceMonitor::maybe_deep_check(
   self.last_deep_check_at.set(plugin_id, now)
 
   let outcome : Result[Unit, String] = try {
-    let day = self.get_statistics(plugin_id, time_range=@types.TimeRange::LastDay)
-    let week = self.get_statistics(plugin_id, time_range=@types.TimeRange::LastWeek)
+    let day = self.get_statistics(
+      plugin_id,
+      time_range=@types.TimeRange::LastDay,
+    )
+    let week = self.get_statistics(
+      plugin_id,
+      time_range=@types.TimeRange::LastWeek,
+    )
     if week.avg_latency_ms > 0.0 {
       let increase = (day.avg_latency_ms - week.avg_latency_ms) /
         week.avg_latency_ms
@@ -491,24 +512,121 @@ async fn PerformanceMonitor::maybe_deep_check(
 // ============================================================================
 
 ///|
-/// 把两个缓冲落盘并清空。取代 legacy-ts L381-391。
+/// 把两个缓冲落盘；写成功才清空，写失败则回填等下一轮重试。
+/// 取代 legacy-ts L381-391（那边的行为差异见下方 ★ 与 CONTEXT.md 的 H1）。
 ///
 /// ★ **必须「先换出、后 await」**：换出与清空之间没有任何 await 点，
 /// 而 MoonBit async 是单线程协作式调度、只在 await 处让出，
 /// 故不可能有另一个任务在中间插入 → 无需互斥锁，也不可能重入。
 /// 对比 TS L56 的 `void this.flushBuffers()`：丢弃 Promise 既吞掉异常，
 /// 又允许定时器与手动调用重入。
-pub async fn PerformanceMonitor::flush_buffers(self : PerformanceMonitor) -> Unit {
+///
+/// ★ **落盘失败既不丢数据也不外抛**（对原实现的修正，见 CONTEXT.md）：
+/// `store/jsonl.mbt` 有意把 `append` / `append_many` 的 I/O 错误直接 raise，
+/// 但原来的调用方正是最不该接这个 raise 的地方 —— 事件已经 `clear` 出缓冲，
+/// 一抛就永久丢失；而 `run_flush_loop` 的循环体没有兜错，
+/// 任务一抛周期 flush 就再也不跑（`allow_failure=true` 只保证不连累 group）。
+/// 现在 metrics 与 signals **各自独立兜错**：写不进去的批次按时间序放回缓冲
+/// 头部等下一轮重试，超过 `max_buffered_items` 才丢弃最旧的并告警。
+/// 本函数因此不再 raise，I/O 错误以告警的形式可见。
+pub async fn PerformanceMonitor::flush_buffers(
+  self : PerformanceMonitor,
+) -> Unit {
   let events = self.event_buffer.copy()
   self.event_buffer.clear()
   let signals = self.signal_buffer.copy()
   self.signal_buffer.clear()
-  if events.length() > 0 {
-    self.metrics.append_many(events)
+  let events_ok = if events.length() == 0 {
+    true
+  } else {
+    try {
+      self.metrics.append_many(events)
+      true
+    } catch {
+      err => {
+        @util.log_warn(
+          "Monitor",
+          "Cannot append metrics.jsonl, \{events.length()} events stay buffered: \{err.to_string()}",
+        )
+        false
+      }
+    }
   }
-  if signals.length() > 0 {
-    self.signals.append_many(signals)
+  let signals_ok = if signals.length() == 0 {
+    true
+  } else {
+    try {
+      self.signals.append_many(signals)
+      true
+    } catch {
+      err => {
+        @util.log_warn(
+          "Monitor",
+          "Cannot append signals.jsonl, \{signals.length()} signals stay buffered: \{err.to_string()}",
+        )
+        false
+      }
+    }
   }
+  if !events_ok {
+    let (back, dropped) = bounded_requeue(events, self.event_buffer)
+    // 不重新绑定字段（`event_buffer` 不是 `mut` 字段），而是原地改写：
+    // Array 本身可变，clear + push 与本函数开头的 copy + clear 是同一套操作。
+    self.event_buffer.clear()
+    for x in back {
+      self.event_buffer.push(x)
+    }
+    if dropped > 0 {
+      @util.log_warn(
+        "Monitor",
+        "Dropped \{dropped} oldest buffered events (cap \{max_buffered_items})",
+      )
+    }
+  }
+  if !signals_ok {
+    let (back, dropped) = bounded_requeue(signals, self.signal_buffer)
+    self.signal_buffer.clear()
+    for x in back {
+      self.signal_buffer.push(x)
+    }
+    if dropped > 0 {
+      @util.log_warn(
+        "Monitor",
+        "Dropped \{dropped} oldest buffered signals (cap \{max_buffered_items})",
+      )
+    }
+  }
+}
+
+///|
+/// 把「没写进去的一批」按时间序放回缓冲头部，并裁剪到 `max_buffered_items`。
+///
+/// 顺序是 `unsaved ++ buffered`：`unsaved` 是更早换出的那批，而 `buffered`
+/// 里的条目是换出之后新记录的，必然更新 —— 反过来就会打乱时间序，
+/// 让 `get_metrics` / 统计看到「先后的事件倒着发生」。
+/// 裁剪时从头丢起（丢的就是 `unsaved` 里最旧的），故返回 `(缓冲, 丢弃条数)`。
+fn[A] bounded_requeue(
+  unsaved : Array[A],
+  buffered : Array[A],
+) -> (Array[A], Int) {
+  let merged : Array[A] = []
+  for x in unsaved {
+    merged.push(x)
+  }
+  for x in buffered {
+    merged.push(x)
+  }
+  let overflow = merged.length() - max_buffered_items
+  if overflow <= 0 {
+    return (merged, 0)
+  }
+  let kept : Array[A] = []
+  let mut i = overflow
+  while i < merged.length() {
+    kept.push(merged[i])
+    i += 1
+  }
+  (kept, overflow)
 }
 
 ///|
@@ -544,23 +662,21 @@ pub fn PerformanceMonitor::run_flush_loop(
 ) -> @async.Task[Unit] {
   // 用箭头函数而不是 `fn() { ... }`：后者是 async 却未标注，
   // 工具链会以 deprecated_syntax 警告「effect inference is deprecated」。
-  let task = group.spawn(
-    allow_failure=true,
-    () => {
-      for ;; {
-        @async.sleep(flush_interval_ms)
-        if @async.is_being_cancelled() {
-          break
-        }
-        self.flush_buffers()
+  let task = group.spawn(allow_failure=true, () => {
+    for ;; {
+      @async.sleep(flush_interval_ms)
+      if @async.is_being_cancelled() {
+        break
       }
-    },
-  )
+      // flush_buffers 不 raise（见其 ★ 注释），所以这个循环不会因为
+      // 一次瞬时写失败就终止 —— 原实现会：异常逃出循环体，任务结束，
+      // 此后只剩 add_defer 里最后一次同样可能失败的 flush。
+      self.flush_buffers()
+    }
+  })
   // 退出前做最后一次 flush。`protect_from_cancel` 是 `add_defer` 文档明写的建议：
   // 若整个 group 被外部取消，defer 里的 async 操作会被立即取消，
   // 导致最后这批事件丢失 —— 而这正是 defer 存在的唯一目的。
-  group.add_defer(
-    () => @async.protect_from_cancel(() => self.flush_buffers()),
-  )
+  group.add_defer(() => @async.protect_from_cancel(() => self.flush_buffers()))
   task
 }

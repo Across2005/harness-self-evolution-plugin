@@ -166,9 +166,26 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 | **F4** | **14 处 `console.log` 会污染 MCP 协议通道** | 1.0 的 `src/**` 实测：`console.log` 14 处、`console.warn` 1 处、`console.error` 8 处。它没炸只是因为 `@modelcontextprotocol/sdk` 的 `StdioServerTransport` 接管并 patch 了 `console.*`；**自研 stdio server 没有这层魔法** | 新增 `util/log.mbt` 作为**唯一**日志出口，物理上只写 stderr；不变量⑥ + 守卫 G2 机器化封死 |
 | **F5** | **`propose_evolution` 的 `signals` 参数在默认配置下永远无效** | 手动信号按设计是 **medium**，而默认强度 **50%** 只放行 **strong** → 两者相乘，出厂配置下手动信号永远产生不了提案，客户端只会收到一句笼统的 "insufficient signals, cooldown, or duplicate" | **行为原样保留**（见下一节），但 2.0 追加了 `reason` 字段说清真因，并用一条专门测试把它钉死 |
 
+## 已修复的缺陷（2.0 自身引入，非 1.0 遗留）
+
+上面 F1-F5 是 1.0 就存在、移植时必须一并修掉的缺陷。下面两条不同：它们是
+**2.0 重写自己带进来的失效面**。两条都按「先写测试 → 实测变红 → 再改实现 →
+转绿」的顺序处理，红绿都是当场跑出来的数字（`moon test --target native`：加完测试未实现时为
+`Total tests: 242, passed: 237, failed: 5.`，实现后 `242, passed: 242, failed: 0.`）。
+
+| ID | 缺陷 | 为什么是 2.0 新引入 | 实测证据（红） | 修复（绿） |
+|----|------|--------------------|----------------|------------|
+| **H1** | **一次瞬时写失败 = 丢事件 + 周期 flush 永久停摆** | 这是 2.0 重写**自己带进来的回归**。`store/jsonl.mbt` 有意让 `append` / `append_many` 的 I/O 错误直接 raise（决策本身没错），但新版 `flush_buffers` 为了「无锁、不可重入」把顺序改成 `copy → clear → 写`，raise 就落在了清空之后。对照 1.0（`legacy-ts/src/monitor/index.ts` L377-389）：它是 `await appendMany()` **成功之后**才 `this.eventBuffer = []`，所以 **1.0 不丢数据**；1.0 的代价在别处 —— `void this.flushBuffers()`（L54-56）把 rejection 丢在地上没人接，而 `legacy-ts/src/**` 实测没有任何 `unhandledRejection` 兜底，在 `engines: node >=18` 下未接住的 rejection 默认直接崩掉进程。**两边各错一半，而 2.0 错的是「丢数据」这半** | `flush_buffers keeps events when the write fails` 当场抛 `OSError("@fs.File::write(): Incorrect function.")`；`a metrics write failure does not block signals from being stored` 断言 `0 != 1` —— signals 一条都没落盘：走 `record_tool_call → maybe_deep_check → get_statistics → flush_buffers` 那条链时，raise 被 `Deep check failed` 的兜底接住、只留下一行日志，而缓冲早就清空了，于是**静默丢失**。夹具自检（先断言这条路径确实写不进去）排除了假绿 | metrics 与 signals **各自独立 `try/catch`**，互不牵连；写不进去的批次由 `bounded_requeue` 按时间序放回缓冲**头部**（未存盘的那批比缓冲里现有的更旧）等下一轮重试；新增上界 `max_buffered_items = 1000`，溢出丢**最旧**的并告警（否则磁盘长期写不进时，监控循环等于替磁盘吃内存）。`flush_buffers` 从此不 raise ⇒ `run_flush_loop` 的循环体无需兜错即可存活 |
+| **H2** | **配置可以写成退化值，且被静默兜底** | 1.0 的三个阈值是 `monitor` 里的硬编码常量（3 / 5 / 0.2），用户无从写错；2.0 修掉配置孤岛、改由 `EngineConfig::from_json` 读取后，**只做了类型兜底、没做取值域校验** —— 接通配置入口的同时接通了一条新的失效通道 | `EngineConfig::from_json_checked reports out-of-domain values by name` 断言 `cfg == default` 失败（`-1 / 0 / 1 / 0` 全部原样生效）；`keeps in-domain values untouched` 断言 `0 != 2` | 新增 `EngineConfig::from_json_checked`，对 4 个数值字段做取值域校验：`cooldown_hours ∈ [0, 87600]`、`consecutive_failures ≥ 1`、`loop_detection ≥ 2`、`latency_regression ∈ (0, 100]`。越界即**回落默认值 + 点名字段告警**；`from_json` 委托它并丢掉告警（保持同步签名与既有 4 处调用点）。告警由 `main.mbt` 的 `load_config` 打到 stderr。缺失与类型不符**仍然静默回落**，为它们告警会淹没要紧的这几条 |
+
+H1 的失败面是**每一轮 flush 都可能踩到**（磁盘满、临时目录被回收、杀毒软件占用），
+H2 的失败面是**配置里写错一个数就永久生效**。修复后
+`Total tests: 242, passed: 242, failed: 0.`，且 `moon check --deny-warn` 通过。
+
 ## 有意的语义修正
 
-移植过程中**只有一处**故意改变了 1.0 的行为语义，记录在此以免被当成 bug 回退：
+移植过程中**只有一处**故意改变了 1.0 的行为语义，记录在此以免被当成 bug 回退
+（上一节 H1 / H2 是加固轮次引入的语义变化，不属于移植期间的改动）：
 
 - **`is_backward_compatible` 在空变更集时返回 `true`（1.0 返回 `false`）**
   1.0 的 `checkBackwardCompatibility` 用 `changes.merge_tools?.every(...)` 与
