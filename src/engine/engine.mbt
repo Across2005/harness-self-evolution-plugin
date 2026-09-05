@@ -97,7 +97,7 @@ pub fn EvolutionEngine::new(
 pub fn EvolutionEngine::at(
   paths : @store.DataPaths,
   monitor : @monitor.PerformanceMonitor,
-  config~ : @types.EngineConfig = @types.EngineConfig::default(),
+  config? : @types.EngineConfig = @types.EngineConfig::default(),
 ) -> EvolutionEngine {
   EvolutionEngine::new(
     monitor,
@@ -129,7 +129,7 @@ pub fn EvolutionEngine::at(
 pub async fn EvolutionEngine::generate_proposal(
   self : EvolutionEngine,
   plugin : @types.PluginMetadata,
-  signals~ : Array[@types.EvolutionSignal]? = None,
+  signals? : Array[@types.EvolutionSignal]? = None,
 ) -> ProposalOutcome {
   // ① 强度为 0% → 完全禁用
   if self.config.intensity == @types.Intensity::Off {
@@ -156,8 +156,7 @@ pub async fn EvolutionEngine::generate_proposal(
   match self.proposals.find_pending_for_plugin(plugin.plugin_id) {
     Some(pending) => {
       @util.log_info(
-        "Engine",
-        "Pending proposal already exists for this plugin",
+        "Engine", "Pending proposal already exists for this plugin",
       )
       return AlreadyPending(pending)
     }

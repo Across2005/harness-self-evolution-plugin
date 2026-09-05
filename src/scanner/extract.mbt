@@ -33,36 +33,47 @@ pub struct Extracted {
 // R1-R4：SKILL.md 里的能力描述模式。四条独立保留而非合并成一条，
 // 因为 TS L204-211 是「模式在外层循环、命中在内层循环」，
 // 合并会改变 capabilities 数组的元素顺序。
+
+///|
 let re_can : @string.Regex = @string.Regex::unsafe_from_string(
   "(?i:can[ \t\n\r]+([A-Za-z0-9_]+))",
 )
 
+///|
 let re_supports : @string.Regex = @string.Regex::unsafe_from_string(
   "(?i:supports?[ \t\n\r]+([A-Za-z0-9_]+))",
 )
 
+///|
 let re_provides : @string.Regex = @string.Regex::unsafe_from_string(
   "(?i:provides?[ \t\n\r]+([A-Za-z0-9_]+))",
 )
 
+///|
 let re_handles : @string.Regex = @string.Regex::unsafe_from_string(
   "(?i:handles?[ \t\n\r]+([A-Za-z0-9_]+))",
 )
 
 // R5：SKILL.md 里的 tool=xxx / tool:xxx 引用
+
+///|
 let re_tool_ref : @string.Regex = @string.Regex::unsafe_from_string(
   "(?i:tool[=:][ \t\n\r]*['\"`]?([A-Za-z0-9_]+)['\"`]?)",
 )
 
 // R7-R9：源码里的 MCP 工具注册。大小写敏感。
+
+///|
 let re_register_tool : @string.Regex = @string.Regex::unsafe_from_string(
   "registerTool[ \t\n\r]*\\([ \t\n\r]*['\"`]([^'\"`]+)['\"`]",
 )
 
+///|
 let re_dot_tool : @string.Regex = @string.Regex::unsafe_from_string(
   "\\.tool[ \t\n\r]*\\([ \t\n\r]*['\"`]([^'\"`]+)['\"`]",
 )
 
+///|
 let re_name_field : @string.Regex = @string.Regex::unsafe_from_string(
   "name:[ \t\n\r]*['\"`]([^'\"`]+)['\"`]",
 )
@@ -80,10 +91,7 @@ fn capture1(re : @string.Regex, text : String) -> Array[String] {
   let out : Array[String] = []
   for m in @string.Regex::find(re, text) {
     match m.group(1) {
-      Some(g) =>
-        if g.length() > 0 {
-          out.push(g.to_owned())
-        }
+      Some(g) => if g.length() > 0 { out.push(g.to_owned()) }
       None => ()
     }
   }
@@ -112,7 +120,7 @@ pub fn extract_from_skill_text(text : String) -> Extracted {
   }
   // R5：工具引用。**不**转小写（对齐 TS L218）
   let tools = capture1(re_tool_ref, text)
-  { capabilities, tools, }
+  { capabilities, tools }
 }
 
 ///|
@@ -124,7 +132,10 @@ pub fn extract_from_skill_text(text : String) -> Extracted {
 ///
 /// **顺序契约**：TS 是「每条模式依次全文扫描」（L249-256 的模式外层循环），
 /// 故顺序为 R7 的全部命中 → R8 → R9。
-pub fn extract_tools_from_source_text(text : String, into : Array[String]) -> Unit {
+pub fn extract_tools_from_source_text(
+  text : String,
+  into : Array[String],
+) -> Unit {
   for re in [re_register_tool, re_dot_tool, re_name_field] {
     for name in capture1(re, text) {
       // 对齐 TS L252：`if (match[1] && !match[1].includes('$'))`

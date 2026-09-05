@@ -42,6 +42,7 @@ fn[T : Eq + ToJson + @json.FromJson] round_trip(
   }
 }
 
+///|
 fn not_is_string(json : Json) -> Bool {
   match json {
     String(_) => false
@@ -73,145 +74,120 @@ fn[T] check_table(
   }
 }
 
+///|
 test "every string enum round-trips through its wire table" {
-  round_trip(
-    "EvolutionType",
-    [
-      EvolutionType::InterfaceSimplification,
-      EvolutionType::BehaviorOptimization,
-      EvolutionType::PerformanceTuning,
-      EvolutionType::DocumentationEnhancement,
-      EvolutionType::CapabilityExtension,
-      EvolutionType::ErrorHandlingImprovement,
-    ],
-  )
-  round_trip(
-    "ProposalStatus",
-    [
-      ProposalStatus::Pending,
-      ProposalStatus::Approved,
-      ProposalStatus::Rejected,
-      ProposalStatus::Executing,
-      ProposalStatus::Completed,
-    ],
-  )
-  round_trip(
-    "MattPocockPrinciple",
-    [
-      MattPocockPrinciple::AlignFirst,
-      MattPocockPrinciple::VerticalSlice,
-      MattPocockPrinciple::TightFeedback,
-      MattPocockPrinciple::DeepModule,
-      MattPocockPrinciple::RegularScan,
-      MattPocockPrinciple::VocabularyAsDocs,
-    ],
-  )
-  round_trip(
-    "Confidence",
-    [Confidence::High, Confidence::Medium, Confidence::Low],
-  )
-  round_trip(
-    "SignalStrength",
-    [SignalStrength::Strong, SignalStrength::Medium, SignalStrength::Weak],
-  )
-  round_trip(
-    "SignalCategory",
-    [
-      SignalCategory::Correction,
-      SignalCategory::Preference,
-      SignalCategory::Workflow,
-      SignalCategory::Struggle,
-      SignalCategory::Pattern,
-      SignalCategory::Loop,
-    ],
-  )
-  round_trip(
-    "ErrorKind",
-    [
-      ErrorKind::Timeout,
-      ErrorKind::ParameterError,
-      ErrorKind::PermissionError,
-      ErrorKind::NotFound,
-      ErrorKind::RuntimeError,
-      ErrorKind::Unknown,
-    ],
-  )
-  round_trip(
-    "UserFeedback",
-    [UserFeedback::Positive, UserFeedback::Negative, UserFeedback::Neutral],
-  )
-  round_trip(
-    "TimeRange",
-    [
-      TimeRange::LastHour,
-      TimeRange::LastDay,
-      TimeRange::LastWeek,
-      TimeRange::All,
-    ],
-  )
-  round_trip(
-    "ChangeKind",
-    [
-      ChangeKind::MergeTools,
-      ChangeKind::SimplifyParams,
-      ChangeKind::AddMiddleware,
-      ChangeKind::OptimizeFlow,
-      ChangeKind::UpdateDocumentation,
-      ChangeKind::AddCapability,
-      ChangeKind::ImproveErrorHandling,
-    ],
-  )
-  round_trip(
-    "OptimizationKind",
-    [
-      OptimizationKind::Caching,
-      OptimizationKind::Parallelization,
-      OptimizationKind::LazyLoading,
-      OptimizationKind::Batching,
-    ],
-  )
-  round_trip(
-    "MigrationEffort",
-    [MigrationEffort::Low, MigrationEffort::Medium, MigrationEffort::High],
-  )
-  round_trip(
-    "RollbackComplexity",
-    [
-      RollbackComplexity::Simple,
-      RollbackComplexity::Moderate,
-      RollbackComplexity::Complex,
-    ],
-  )
-  round_trip(
-    "ValidationLevelTag",
-    [ValidationLevelTag::T0, ValidationLevelTag::T1, ValidationLevelTag::T2],
-  )
-  round_trip(
-    "PluginKind",
-    [PluginKind::Official, PluginKind::Community, PluginKind::Custom],
-  )
-  round_trip(
-    "UsageFrequency",
-    [
-      UsageFrequency::High,
-      UsageFrequency::Medium,
-      UsageFrequency::Low,
-      UsageFrequency::Idle,
-    ],
-  )
-  round_trip(
-    "AgentType",
-    [
-      AgentType::CodeGenerator,
-      AgentType::TestWriter,
-      AgentType::DocWriter,
-      AgentType::Integration,
-      AgentType::Validator,
-    ],
-  )
+  round_trip("EvolutionType", [
+    EvolutionType::InterfaceSimplification,
+    EvolutionType::BehaviorOptimization,
+    EvolutionType::PerformanceTuning,
+    EvolutionType::DocumentationEnhancement,
+    EvolutionType::CapabilityExtension,
+    EvolutionType::ErrorHandlingImprovement,
+  ])
+  round_trip("ProposalStatus", [
+    ProposalStatus::Pending,
+    ProposalStatus::Approved,
+    ProposalStatus::Rejected,
+    ProposalStatus::Executing,
+    ProposalStatus::Completed,
+  ])
+  round_trip("MattPocockPrinciple", [
+    MattPocockPrinciple::AlignFirst,
+    MattPocockPrinciple::VerticalSlice,
+    MattPocockPrinciple::TightFeedback,
+    MattPocockPrinciple::DeepModule,
+    MattPocockPrinciple::RegularScan,
+    MattPocockPrinciple::VocabularyAsDocs,
+  ])
+  round_trip("Confidence", [
+    Confidence::High,
+    Confidence::Medium,
+    Confidence::Low,
+  ])
+  round_trip("SignalStrength", [
+    SignalStrength::Strong,
+    SignalStrength::Medium,
+    SignalStrength::Weak,
+  ])
+  round_trip("SignalCategory", [
+    SignalCategory::Correction,
+    SignalCategory::Preference,
+    SignalCategory::Workflow,
+    SignalCategory::Struggle,
+    SignalCategory::Pattern,
+    SignalCategory::Loop,
+  ])
+  round_trip("ErrorKind", [
+    ErrorKind::Timeout,
+    ErrorKind::ParameterError,
+    ErrorKind::PermissionError,
+    ErrorKind::NotFound,
+    ErrorKind::RuntimeError,
+    ErrorKind::Unknown,
+  ])
+  round_trip("UserFeedback", [
+    UserFeedback::Positive,
+    UserFeedback::Negative,
+    UserFeedback::Neutral,
+  ])
+  round_trip("TimeRange", [
+    TimeRange::LastHour,
+    TimeRange::LastDay,
+    TimeRange::LastWeek,
+    TimeRange::All,
+  ])
+  round_trip("ChangeKind", [
+    ChangeKind::MergeTools,
+    ChangeKind::SimplifyParams,
+    ChangeKind::AddMiddleware,
+    ChangeKind::OptimizeFlow,
+    ChangeKind::UpdateDocumentation,
+    ChangeKind::AddCapability,
+    ChangeKind::ImproveErrorHandling,
+  ])
+  round_trip("OptimizationKind", [
+    OptimizationKind::Caching,
+    OptimizationKind::Parallelization,
+    OptimizationKind::LazyLoading,
+    OptimizationKind::Batching,
+  ])
+  round_trip("MigrationEffort", [
+    MigrationEffort::Low,
+    MigrationEffort::Medium,
+    MigrationEffort::High,
+  ])
+  round_trip("RollbackComplexity", [
+    RollbackComplexity::Simple,
+    RollbackComplexity::Moderate,
+    RollbackComplexity::Complex,
+  ])
+  round_trip("ValidationLevelTag", [
+    ValidationLevelTag::T0,
+    ValidationLevelTag::T1,
+    ValidationLevelTag::T2,
+  ])
+  round_trip("PluginKind", [
+    PluginKind::Official,
+    PluginKind::Community,
+    PluginKind::Custom,
+  ])
+  round_trip("UsageFrequency", [
+    UsageFrequency::High,
+    UsageFrequency::Medium,
+    UsageFrequency::Low,
+    UsageFrequency::Idle,
+  ])
+  round_trip("AgentType", [
+    AgentType::CodeGenerator,
+    AgentType::TestWriter,
+    AgentType::DocWriter,
+    AgentType::Integration,
+    AgentType::Validator,
+  ])
   round_trip("Intensity", [Intensity::Full, Intensity::Half, Intensity::Off])
 }
 
+///|
 test "every wire table is complete and has no duplicate names" {
   check_table("evolution_type_wire", evolution_type_wire, 6)
   check_table("proposal_status_wire", proposal_status_wire, 5)
@@ -254,20 +230,24 @@ test "TimeRange and AgentType encode/decode through their public impls" {
     content="\"code-generator\"",
   )
   // FromJson
-  let week_raw = #|"last_week"
+  let week_raw =
+    #|"last_week"
   let week : TimeRange = @json.from_json(@json.parse(week_raw))
   assert_eq(week, TimeRange::LastWeek)
 
-  let hour_raw = #|"last_hour"
+  let hour_raw =
+    #|"last_hour"
   let hour : TimeRange = @json.from_json(@json.parse(hour_raw))
   assert_eq(hour, TimeRange::LastHour)
 
   // AgentType 的 wire 名是连字符形式（CONTEXT.md L51-59），与其余表不同
-  let cg_raw = #|"code-generator"
+  let cg_raw =
+    #|"code-generator"
   let cg : AgentType = @json.from_json(@json.parse(cg_raw))
   assert_eq(cg, AgentType::CodeGenerator)
 
-  let validator_raw = #|"validator"
+  let validator_raw =
+    #|"validator"
   let validator : AgentType = @json.from_json(@json.parse(validator_raw))
   assert_eq(validator, AgentType::Validator)
 }
@@ -276,17 +256,10 @@ test "TimeRange and AgentType encode/decode through their public impls" {
 /// CONTEXT.md L29-49 的词汇表必须与代码逐字一致。
 /// 这条测试是「词汇即文档」的机器化守卫：改了 CONTEXT.md 就必须改这里，反之亦然。
 test "wire names match the CONTEXT.md vocabulary verbatim" {
-  json_inspect(
-    evolution_type_wire.names(),
-    content=[
-      "interface_simplification",
-      "behavior_optimization",
-      "performance_tuning",
-      "documentation_enhancement",
-      "capability_extension",
-      "error_handling_improvement",
-    ],
-  )
+  json_inspect(evolution_type_wire.names(), content=[
+    "interface_simplification", "behavior_optimization", "performance_tuning", "documentation_enhancement",
+    "capability_extension", "error_handling_improvement",
+  ])
   // CONTEXT.md L40-49 的「应用原则」列。注意 behavior_optimization 与
   // error_handling_improvement 都映射到「紧反馈环 > 盲目试错」。
   json_inspect(
@@ -299,37 +272,19 @@ test "wire names match the CONTEXT.md vocabulary verbatim" {
       EvolutionType::ErrorHandlingImprovement.principle().wire_name(),
     ],
     content=[
-      "Deep Module > 浅模块",
-      "紧反馈环 > 盲目试错",
-      "垂直切片 > 水平切片",
-      "词汇即文档",
-      "先对齐，再动手",
-      "紧反馈环 > 盲目试错",
+      "Deep Module > 浅模块", "紧反馈环 > 盲目试错", "垂直切片 > 水平切片",
+      "词汇即文档", "先对齐，再动手", "紧反馈环 > 盲目试错",
     ],
   )
   // CONTEXT.md L51-59 的 Sub-Agent 角色表用连字符，与其余表的下划线风格不同
-  json_inspect(
-    agent_type_wire.names(),
-    content=[
-      "code-generator",
-      "test-writer",
-      "doc-writer",
-      "integration",
-      "validator",
-    ],
-  )
+  json_inspect(agent_type_wire.names(), content=[
+    "code-generator", "test-writer", "doc-writer", "integration", "validator",
+  ])
   // monitor L345-349 的实际返回值，含 types L72 遗漏的 not_found
-  json_inspect(
-    error_kind_wire.names(),
-    content=[
-      "timeout",
-      "parameter_error",
-      "permission_error",
-      "not_found",
-      "runtime_error",
-      "unknown",
-    ],
-  )
+  json_inspect(error_kind_wire.names(), content=[
+    "timeout", "parameter_error", "permission_error", "not_found", "runtime_error",
+    "unknown",
+  ])
 }
 
 ///|

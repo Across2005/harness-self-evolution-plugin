@@ -99,7 +99,10 @@ async test "generates an error_handling proposal from a strong correction signal
   defer @fs.rmdir(dir, recursive=true)
   let (engine, _) = make_engine(dir, @types.Intensity::Half)
 
-  let outcome = engine.generate_proposal(mock_plugin(), signals=Some([strong_correction()]))
+  let outcome = engine.generate_proposal(
+    mock_plugin(),
+    signals=Some([strong_correction()]),
+  )
   let proposal = outcome.proposal()
   assert_true(proposal is Some(_))
   match proposal {
@@ -114,7 +117,10 @@ async test "generates an error_handling proposal from a strong correction signal
         @types.MattPocockPrinciple::TightFeedback,
       )
       // CONTEXT.md L49：error_handling_improvement → 紧反馈环 > 盲目试错
-      assert_eq(p.matt_pocock_principle.wire_name(), "紧反馈环 > 盲目试错")
+      assert_eq(
+        p.matt_pocock_principle.wire_name(),
+        "紧反馈环 > 盲目试错",
+      )
       assert_eq(p.status, @types.ProposalStatus::Pending)
       assert_eq(outcome, ProposalOutcome::Created(p))
     }
@@ -130,7 +136,10 @@ async test "persists the proposal through the shared ProposalStore" {
   defer @fs.rmdir(dir, recursive=true)
   let (engine, proposals) = make_engine(dir, @types.Intensity::Half)
 
-  let outcome = engine.generate_proposal(mock_plugin(), signals=Some([strong_correction()]))
+  let outcome = engine.generate_proposal(
+    mock_plugin(),
+    signals=Some([strong_correction()]),
+  )
   match outcome.proposal() {
     Some(created) => {
       let loaded = proposals.find(created.proposal_id)
@@ -196,8 +205,14 @@ async test "returns the existing pending proposal instead of duplicating" {
   defer @fs.rmdir(dir, recursive=true)
   let (engine, _) = make_engine(dir, @types.Intensity::Half)
 
-  let first = engine.generate_proposal(mock_plugin(), signals=Some([strong_correction()]))
-  let second = engine.generate_proposal(mock_plugin(), signals=Some([strong_correction()]))
+  let first = engine.generate_proposal(
+    mock_plugin(),
+    signals=Some([strong_correction()]),
+  )
+  let second = engine.generate_proposal(
+    mock_plugin(),
+    signals=Some([strong_correction()]),
+  )
 
   assert_true(second.proposal() is Some(_))
   match (first.proposal(), second.proposal()) {
@@ -222,7 +237,10 @@ async test "stays silent during the cooldown period" {
   let (engine, proposals) = make_engine(dir, @types.Intensity::Half)
 
   proposals.save(completed_proposal("evo-prior", @util.now_ms()))
-  let outcome = engine.generate_proposal(mock_plugin(), signals=Some([strong_correction()]))
+  let outcome = engine.generate_proposal(
+    mock_plugin(),
+    signals=Some([strong_correction()]),
+  )
   assert_eq(outcome.proposal(), None)
   assert_eq(outcome, ProposalOutcome::InCooldown)
 }
@@ -239,7 +257,10 @@ async test "allows a new proposal once the cooldown has elapsed" {
   let old = @util.now_ms() - @util.hours_to_ms(25)
   proposals.save(completed_proposal("evo-prior", old))
 
-  let outcome = engine.generate_proposal(mock_plugin(), signals=Some([strong_correction()]))
+  let outcome = engine.generate_proposal(
+    mock_plugin(),
+    signals=Some([strong_correction()]),
+  )
   assert_true(outcome.proposal() is Some(_))
   assert_true(outcome is ProposalOutcome::Created(_))
 }
@@ -265,7 +286,10 @@ async test "disables generation entirely at 0% intensity" {
   defer @fs.rmdir(dir, recursive=true)
   let (engine, _) = make_engine(dir, @types.Intensity::Off)
 
-  let outcome = engine.generate_proposal(mock_plugin(), signals=Some([strong_correction()]))
+  let outcome = engine.generate_proposal(
+    mock_plugin(),
+    signals=Some([strong_correction()]),
+  )
   assert_eq(outcome.proposal(), None)
   assert_eq(outcome, ProposalOutcome::Disabled)
   assert_eq(outcome.reason(), "evolution is disabled (intensity: 0%)")
@@ -288,16 +312,11 @@ async test "maps struggle + high complexity to interface_simplification" {
     @types.SignalCategory::Struggle,
     "3 consecutive failures detected",
   )
-  match engine.generate_proposal(mock_plugin(), signals=Some([struggle])).proposal() {
+  match
+    engine.generate_proposal(mock_plugin(), signals=Some([struggle])).proposal() {
     Some(p) => {
-      assert_eq(
-        p.evolution_type,
-        @types.EvolutionType::InterfaceSimplification,
-      )
-      assert_eq(
-        p.matt_pocock_principle,
-        @types.MattPocockPrinciple::DeepModule,
-      )
+      assert_eq(p.evolution_type, @types.EvolutionType::InterfaceSimplification)
+      assert_eq(p.matt_pocock_principle, @types.MattPocockPrinciple::DeepModule)
       assert_eq(p.matt_pocock_principle.wire_name(), "Deep Module > 浅模块")
       // mock_plugin 的 tools 含 navigate/click/type → 应提议 smart_fill
       assert_eq(p.proposed_changes.length(), 1)
@@ -305,10 +324,9 @@ async test "maps struggle + high complexity to interface_simplification" {
         @types.Change::MergeTools(merges) => {
           assert_eq(merges.length(), 1)
           assert_eq(merges[0].new_tool, "smart_fill")
-          json_inspect(
-            merges[0].merged_from,
-            content=["navigate", "click", "type"],
-          )
+          json_inspect(merges[0].merged_from, content=[
+            "navigate", "click", "type",
+          ])
         }
         _ => abort("expected MergeTools")
       }
@@ -344,7 +362,10 @@ async test "maps a loop signal to behavior_optimization with middleware" {
     tool: Some("navigate"),
   }
 
-  match engine.generate_proposal(mock_plugin(), signals=Some([loop_signal])).proposal() {
+  match
+    engine
+    .generate_proposal(mock_plugin(), signals=Some([loop_signal]))
+    .proposal() {
     Some(p) => {
       assert_eq(p.evolution_type, @types.EvolutionType::BehaviorOptimization)
       assert_eq(p.proposed_changes.length(), 1)
@@ -376,7 +397,10 @@ async test "middleware falls back to unknown when the signal carries no tool" {
     @types.SignalCategory::Loop,
     "a loop happened",
   )
-  match engine.generate_proposal(mock_plugin(), signals=Some([loop_signal])).proposal() {
+  match
+    engine
+    .generate_proposal(mock_plugin(), signals=Some([loop_signal]))
+    .proposal() {
     Some(p) =>
       match p.proposed_changes[0] {
         @types.Change::AddMiddleware(mws) =>
@@ -400,12 +424,13 @@ async test "assigns high confidence when two strong signals are present" {
     @types.SignalCategory::Struggle,
     "3 consecutive failures",
   )
-  match engine
-          .generate_proposal(
-            mock_plugin(),
-            signals=Some([strong_correction(), struggle]),
-          )
-          .proposal() {
+  match
+    engine
+    .generate_proposal(
+      mock_plugin(),
+      signals=Some([strong_correction(), struggle]),
+    )
+    .proposal() {
     Some(p) => assert_eq(p.confidence, @types.Confidence::High)
     None => abort("expected a proposal")
   }
@@ -447,7 +472,8 @@ async test "decision tree honours its priority order" {
     ),
     strong_correction(),
   ]
-  match engine2.generate_proposal(mock_plugin(), signals=Some(both2)).proposal() {
+  match
+    engine2.generate_proposal(mock_plugin(), signals=Some(both2)).proposal() {
     Some(p) =>
       assert_eq(
         p.evolution_type,
@@ -470,12 +496,10 @@ async test "preference branch splits on interface_clarity" {
     @types.SignalCategory::Preference,
     "prefers terse output",
   )
-  match engine.generate_proposal(mock_plugin(), signals=Some([pref])).proposal() {
+  match
+    engine.generate_proposal(mock_plugin(), signals=Some([pref])).proposal() {
     Some(p) =>
-      assert_eq(
-        p.evolution_type,
-        @types.EvolutionType::InterfaceSimplification,
-      )
+      assert_eq(p.evolution_type, @types.EvolutionType::InterfaceSimplification)
     None => abort("expected a proposal")
   }
 
@@ -508,10 +532,7 @@ async test "preference branch splits on interface_clarity" {
         p.evolution_type,
         @types.EvolutionType::DocumentationEnhancement,
       )
-      assert_eq(
-        p.matt_pocock_principle.wire_name(),
-        "词汇即文档",
-      )
+      assert_eq(p.matt_pocock_principle.wire_name(), "词汇即文档")
     }
     None => abort("expected a proposal")
   }
@@ -532,10 +553,7 @@ async test "workflow signal maps to capability_extension" {
   match engine.generate_proposal(mock_plugin(), signals=Some([wf])).proposal() {
     Some(p) => {
       assert_eq(p.evolution_type, @types.EvolutionType::CapabilityExtension)
-      assert_eq(
-        p.matt_pocock_principle,
-        @types.MattPocockPrinciple::AlignFirst,
-      )
+      assert_eq(p.matt_pocock_principle, @types.MattPocockPrinciple::AlignFirst)
       match p.proposed_changes[0] {
         @types.Change::AddCapability(caps) => {
           assert_eq(caps[0].capability_name, "custom_workflow")
@@ -572,7 +590,8 @@ async test "performance fallback swallows the documentation default when metrics
     @types.SignalCategory::Pattern,
     "some recurring pattern",
   )
-  match engine.generate_proposal(mock_plugin(), signals=Some([pat])).proposal() {
+  match
+    engine.generate_proposal(mock_plugin(), signals=Some([pat])).proposal() {
     Some(p) => {
       assert_eq(p.evolution_type, @types.EvolutionType::PerformanceTuning)
       assert_eq(
@@ -598,9 +617,7 @@ async test "documentation_enhancement is reachable only when metrics look health
   // 3 条成功且快速的调用 → success_rate = 1.0 >= 0.9、avg_latency = 100 <= 2000
   let now = @util.now_ms()
   for _ in 0..<3 {
-    metrics.append(
-      slow_event("test-plugin-1.0.0", "fast_tool", 100, now),
-    )
+    metrics.append(slow_event("test-plugin-1.0.0", "fast_tool", 100, now))
   }
 
   let pat = signal(
@@ -608,16 +625,14 @@ async test "documentation_enhancement is reachable only when metrics look health
     @types.SignalCategory::Pattern,
     "some recurring pattern",
   )
-  match engine.generate_proposal(mock_plugin(), signals=Some([pat])).proposal() {
+  match
+    engine.generate_proposal(mock_plugin(), signals=Some([pat])).proposal() {
     Some(p) => {
       assert_eq(
         p.evolution_type,
         @types.EvolutionType::DocumentationEnhancement,
       )
-      assert_eq(
-        p.matt_pocock_principle.wire_name(),
-        "词汇即文档",
-      )
+      assert_eq(p.matt_pocock_principle.wire_name(), "词汇即文档")
     }
     None => abort("expected a proposal")
   }
@@ -644,7 +659,8 @@ async test "performance fallback triggers on slow tools" {
     @types.SignalCategory::Pattern,
     "some recurring pattern",
   )
-  match engine.generate_proposal(mock_plugin(), signals=Some([pat])).proposal() {
+  match
+    engine.generate_proposal(mock_plugin(), signals=Some([pat])).proposal() {
     Some(p) => {
       assert_eq(p.evolution_type, @types.EvolutionType::PerformanceTuning)
       assert_eq(
@@ -670,17 +686,15 @@ fn slow_event(
     session_id: "sess-test",
     plugin_id,
     ts,
-    payload: @types.EventPayload::ToolCall(
-      {
-        tool,
-        params: Json::empty_object(),
-        latency_ms,
-        success: true,
-        token_usage: None,
-        retry_count: 0,
-        error_message: None,
-      },
-    ),
+    payload: @types.EventPayload::ToolCall({
+      tool,
+      params: Json::empty_object(),
+      latency_ms,
+      success: true,
+      token_usage: None,
+      retry_count: 0,
+      error_message: None,
+    }),
     context: {
       task_type: None,
       user_feedback: None,
@@ -693,7 +707,10 @@ fn slow_event(
 ///|
 /// 一份已完成的提案，用于冷却期测试。
 /// 对应 legacy engine.test.ts L143-168 / L181-206 那两个手写的完整字面量。
-fn completed_proposal(proposal_id : String, created_at : Int64) -> @types.EvolutionProposal {
+fn completed_proposal(
+  proposal_id : String,
+  created_at : Int64,
+) -> @types.EvolutionProposal {
   {
     proposal_id,
     plugin_id: "test-plugin-1.0.0",

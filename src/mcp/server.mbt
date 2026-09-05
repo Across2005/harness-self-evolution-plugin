@@ -65,9 +65,7 @@ pub async fn serve_stdio(state : ServerState) -> Unit {
 /// `handle_message`（工具执行是 async）。
 async fn handle_line(state : ServerState, line : String) -> Json? {
   // 第一步：JSON 解析 → 失败则 -32700
-  let parsed : Result[Json, String] = try {
-    Ok(@json.parse(line))
-  } catch {
+  let parsed : Result[Json, String] = Ok(@json.parse(line)) catch {
     e => Err(e.to_string())
   }
   match parsed {
@@ -98,9 +96,7 @@ async fn handle_parsed(state : ServerState, message : Json) -> Json? {
       )
     }
     Some(request) => {
-      let outcome : Result[Json?, String] = try {
-        Ok(handle_message(state, request))
-      } catch {
+      let outcome : Result[Json?, String] = Ok(handle_message(state, request)) catch {
         e => Err(e.to_string())
       }
       match outcome {

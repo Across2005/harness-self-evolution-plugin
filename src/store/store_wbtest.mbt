@@ -15,11 +15,11 @@
 /// 写死一个日期会让测试在系统时钟走过那个日期后静默全部失效
 /// （第一版就因为写死 2025-09-04、而系统时钟已是 2026 而失败）。
 fn make_proposal(
-  proposal_id~ : String = "evo-2026-09-04-test-plugin-a",
-  plugin_id~ : String = "test-plugin-1.0.0",
-  status~ : @types.ProposalStatus = @types.ProposalStatus::Pending,
-  created_at~ : Int64 = @util.now_ms(),
-  signature~ : String = "test-plugin-a",
+  proposal_id? : String = "evo-2026-09-04-test-plugin-a",
+  plugin_id? : String = "test-plugin-1.0.0",
+  status? : @types.ProposalStatus = @types.ProposalStatus::Pending,
+  created_at? : Int64 = @util.now_ms(),
+  signature? : String = "test-plugin-a",
 ) -> @types.EvolutionProposal {
   {
     proposal_id,
@@ -53,6 +53,7 @@ fn make_proposal(
 // Jsonl
 // ============================================================================
 
+///|
 async test "Jsonl::load on a missing file yields an empty array" {
   let dir = @fs.tmpdir(prefix="evo-jsonl-")
   defer @fs.rmdir(dir, recursive=true)
@@ -74,8 +75,10 @@ async test "Jsonl::load skips corrupt and blank lines, keeps the good ones" {
   let good = make_proposal(proposal_id="p-good")
   // 手工拼一个含三类脏数据的文件：
   //   第 1 行 合法 / 第 2 行 空 / 第 3 行 JSON 语法坏 / 第 4 行 词汇非法 / 第 5 行 合法
-  let bad_syntax = #|{"proposal_id": "p-bad", }
-  let bad_vocab = #|{"proposal_id":"p-vocab","status":"teleported"}
+  let bad_syntax =
+    #|{"proposal_id": "p-bad", }
+  let bad_vocab =
+    #|{"proposal_id":"p-vocab","status":"teleported"}
   let good_line = ToJson::to_json(good).stringify()
   let second = make_proposal(proposal_id="p-second")
   let second_line = ToJson::to_json(second).stringify()
@@ -93,6 +96,7 @@ async test "Jsonl::load skips corrupt and blank lines, keeps the good ones" {
   assert_eq(rows[1].proposal_id, "p-second")
 }
 
+///|
 async test "Jsonl append and append_many round-trip in order" {
   let dir = @fs.tmpdir(prefix="evo-jsonl-")
   defer @fs.rmdir(dir, recursive=true)
@@ -105,19 +109,14 @@ async test "Jsonl append and append_many round-trip in order" {
   assert_eq(rows[0].proposal_id, "a")
 
   // append_many 必须是单次 write，且保持顺序
-  store.append_many(
-    [
-      make_proposal(proposal_id="b"),
-      make_proposal(proposal_id="c"),
-      make_proposal(proposal_id="d"),
-    ],
-  )
+  store.append_many([
+    make_proposal(proposal_id="b"),
+    make_proposal(proposal_id="c"),
+    make_proposal(proposal_id="d"),
+  ])
   let rows : Array[@types.EvolutionProposal] = store.load()
   assert_eq(rows.length(), 4)
-  json_inspect(
-    rows.map(fn(p) { p.proposal_id }),
-    content=["a", "b", "c", "d"],
-  )
+  json_inspect(rows.map(fn(p) { p.proposal_id }), content=["a", "b", "c", "d"])
 
   // 空数组短路：不创建文件、不报错
   let empty_store = Jsonl::new("\{dir}/empty.jsonl")
@@ -130,7 +129,10 @@ async test "Jsonl append and append_many round-trip in order" {
 /// `Jsonl::new` 必须展开 `~`，否则数据会落到一个名叫 `~` 的相对目录里。
 async test "Jsonl::new expands the home shorthand" {
   let store = Jsonl::new("~/.harness-evolution/v2/proposals.jsonl")
-  assert_eq(store.path(), @util.expand_home("~/.harness-evolution/v2/proposals.jsonl"))
+  assert_eq(
+    store.path(),
+    @util.expand_home("~/.harness-evolution/v2/proposals.jsonl"),
+  )
   assert_true(store.path().has_suffix(".harness-evolution/v2/proposals.jsonl"))
   assert_eq(store.path().contains("~"), false)
 }
@@ -149,16 +151,10 @@ async test "ProposalStore allows the legal transition chain" {
   store.save(make_proposal(proposal_id="p1"))
 
   assert_eq(store.set_status("p1", @types.ProposalStatus::Approved), true)
-  assert_eq(
-    (store.find("p1")).unwrap().status,
-    @types.ProposalStatus::Approved,
-  )
+  assert_eq(store.find("p1").unwrap().status, @types.ProposalStatus::Approved)
   assert_eq(store.set_status("p1", @types.ProposalStatus::Executing), true)
   assert_eq(store.set_status("p1", @types.ProposalStatus::Completed), true)
-  assert_eq(
-    (store.find("p1")).unwrap().status,
-    @types.ProposalStatus::Completed,
-  )
+  assert_eq(store.find("p1").unwrap().status, @types.ProposalStatus::Completed)
 }
 
 ///|
@@ -187,10 +183,7 @@ async test "ProposalStore rejects an illegal transition with the TS-exact messag
     msg.contains("Illegal proposal status transition: completed → approved"),
   )
   // 非法迁移不得改动任何状态
-  assert_eq(
-    (store.find("p1")).unwrap().status,
-    @types.ProposalStatus::Completed,
-  )
+  assert_eq(store.find("p1").unwrap().status, @types.ProposalStatus::Completed)
 }
 
 ///|
@@ -210,6 +203,7 @@ async test "ProposalStore set_status is idempotent and appends nothing" {
   assert_eq(rows.length(), 1)
 }
 
+///|
 async test "ProposalStore set_status returns false for an unknown proposal" {
   let dir = @fs.tmpdir(prefix="evo-store-")
   defer @fs.rmdir(dir, recursive=true)
@@ -222,6 +216,7 @@ async test "ProposalStore set_status returns false for an unknown proposal" {
 // ProposalStore —— 查询与 append-only 折叠
 // ============================================================================
 
+///|
 async test "find_duplicate ignores rejected proposals" {
   let dir = @fs.tmpdir(prefix="evo-store-")
   defer @fs.rmdir(dir, recursive=true)
@@ -280,6 +275,7 @@ async test "recent_for_plugin applies the cooldown window per plugin" {
   assert_eq(store.recent_for_plugin("plug-z", 48 * hour).length(), 0)
 }
 
+///|
 async test "find_pending_for_plugin only sees pending proposals of that plugin" {
   let dir = @fs.tmpdir(prefix="evo-store-")
   defer @fs.rmdir(dir, recursive=true)
@@ -292,14 +288,12 @@ async test "find_pending_for_plugin only sees pending proposals of that plugin" 
   )
   ignore(store.set_status("p2", @types.ProposalStatus::Approved))
 
-  assert_eq(
-    (store.find_pending_for_plugin("plug-a")).unwrap().proposal_id,
-    "p1",
-  )
+  assert_eq(store.find_pending_for_plugin("plug-a").unwrap().proposal_id, "p1")
   assert_eq(store.find_pending_for_plugin("plug-b"), None)
   assert_eq(store.find_pending_for_plugin("plug-z"), None)
 }
 
+///|
 async test "list applies status, plugin_id and limit in that order" {
   let dir = @fs.tmpdir(prefix="evo-store-")
   defer @fs.rmdir(dir, recursive=true)
@@ -315,7 +309,9 @@ async test "list applies status, plugin_id and limit in that order" {
   }
   assert_eq(store.list(ProposalFilter::all()).length(), 5)
   assert_eq(
-    store.list({ status: None, plugin_id: Some("plug-a"), limit: None }).length(),
+    store
+    .list({ status: None, plugin_id: Some("plug-a"), limit: None })
+    .length(),
     3,
   )
   assert_eq(
@@ -325,15 +321,14 @@ async test "list applies status, plugin_id and limit in that order" {
   // limit 在 plugin_id 之后生效：先过滤再截断
   assert_eq(
     store
-      .list({ status: None, plugin_id: Some("plug-b"), limit: Some(5) })
-      .length(),
+    .list({ status: None, plugin_id: Some("plug-b"), limit: Some(5) })
+    .length(),
     2,
   )
   // 保持写入顺序
-  json_inspect(
-    store.list(ProposalFilter::all()).map(fn(p) { p.proposal_id }),
-    content=["p0", "p1", "p2", "p3", "p4"],
-  )
+  json_inspect(store.list(ProposalFilter::all()).map(fn(p) { p.proposal_id }), content=[
+    "p0", "p1", "p2", "p3", "p4",
+  ])
 }
 
 ///|
@@ -362,7 +357,7 @@ async test "reload folds repeated proposal_ids with last-wins semantics" {
     content=["p1", "p2"],
   )
   assert_eq(
-    (reopened.find("p1")).unwrap().status,
+    reopened.find("p1").unwrap().status,
     @types.ProposalStatus::Approved,
   )
 }
@@ -392,6 +387,7 @@ async test "reload picks up rows appended by another writer" {
 // PluginCache —— 缺陷 F2 的回归测试
 // ============================================================================
 
+///|
 fn make_profile(plugin_id : String, path : String) -> @types.PluginMetadata {
   {
     plugin_id,
@@ -413,6 +409,7 @@ fn make_profile(plugin_id : String, path : String) -> @types.PluginMetadata {
   }
 }
 
+///|
 async test "PluginCache round-trips and validates against the real directory" {
   let dir = @fs.tmpdir(prefix="evo-cache-")
   defer @fs.rmdir(dir, recursive=true)
@@ -425,24 +422,25 @@ async test "PluginCache round-trips and validates against the real directory" {
     "# Cached",
     create_mode=CreateOrTruncate,
   )
-  let fp = (fingerprint_of(plugin_dir)).unwrap()
+  let fp = fingerprint_of(plugin_dir).unwrap()
 
   let cache = PluginCache::new("\{dir}/plugin-cache.json")
   // 空缓存 → 空数组，不报错
-  assert_eq((cache.load()).length(), 0)
+  assert_eq(cache.load().length(), 0)
 
-  cache.save([{ profile: make_profile("cached-plugin-0.1.0", plugin_dir), fingerprint: fp }])
+  cache.save([
+    {
+      profile: make_profile("cached-plugin-0.1.0", plugin_dir),
+      fingerprint: fp,
+    },
+  ])
   let loaded = cache.load()
   assert_eq(loaded.length(), 1)
   assert_eq(loaded[0].profile.plugin_id, "cached-plugin-0.1.0")
   assert_eq(PluginCache::validate(loaded[0]), true)
 
   // 目录内容变化 → 指纹不符 → 缓存失效（必须重扫）
-  @fs.write_file(
-    "\{plugin_dir}/EXTRA.md",
-    "x",
-    create_mode=CreateOrTruncate,
-  )
+  @fs.write_file("\{plugin_dir}/EXTRA.md", "x", create_mode=CreateOrTruncate)
   assert_eq(PluginCache::validate(loaded[0]), false)
 }
 
@@ -484,13 +482,15 @@ async test "PluginCache tolerates corrupt and outdated cache files" {
 
   // v1 格式：顶层是 { "<plugin_id>": {...} } 的对象，没有 version/plugins 字段
   let v1 = "\{dir}/v1.json"
-  let v1_body = #|{"cached-plugin-0.1.0":{"plugin_id":"cached-plugin-0.1.0"}}
+  let v1_body =
+    #|{"cached-plugin-0.1.0":{"plugin_id":"cached-plugin-0.1.0"}}
   @fs.write_file(v1, v1_body, create_mode=CreateOrTruncate)
   assert_eq(PluginCache::new(v1).load().length(), 0)
 
   // 版本不符
   let old = "\{dir}/old.json"
-  let old_body = #|{"version":1,"plugins":[]}
+  let old_body =
+    #|{"version":1,"plugins":[]}
   @fs.write_file(old, old_body, create_mode=CreateOrTruncate)
   assert_eq(PluginCache::new(old).load().length(), 0)
 }
@@ -499,6 +499,7 @@ async test "PluginCache tolerates corrupt and outdated cache files" {
 // ExecutionLog
 // ============================================================================
 
+///|
 async test "ExecutionLog appends lines in the legacy-ts format" {
   let dir = @fs.tmpdir(prefix="evo-log-")
   defer @fs.rmdir(dir, recursive=true)
@@ -513,8 +514,12 @@ async test "ExecutionLog appends lines in the legacy-ts format" {
   assert_eq(lines.length(), 3)
   // 行格式：[<ISO-8601>] [<proposal_id>] [<event>] <message>
   // 时间戳与 proposal_id 是 24 字符 ISO 串加方括号，事件名取自 wire 表
-  assert_true(lines[0].contains("] [evo-1] [start] Starting execution of evo-1"))
-  assert_true(lines[1].contains("] [evo-1] [progress] Task code-generator completed"))
+  assert_true(
+    lines[0].contains("] [evo-1] [start] Starting execution of evo-1"),
+  )
+  assert_true(
+    lines[1].contains("] [evo-1] [progress] Task code-generator completed"),
+  )
   assert_true(lines[2].contains("] [evo-1] [rollback] Changes rolled back"))
   // ISO-8601 前缀恒为 24 字符，故行首必形如 "[YYYY-MM-DDTHH:MM:SS.mmmZ] "（共 26 字符）。
   // 用**切片**而不是 `s[i]` 索引：MoonBit 对 String 做下标访问返回的是字节值
@@ -533,6 +538,7 @@ async test "ExecutionLog appends lines in the legacy-ts format" {
 // DataPaths
 // ============================================================================
 
+///|
 test "DataPaths lays out all five files under one root" {
   let paths = DataPaths::at("/tmp/he")
   assert_eq(paths.root(), "/tmp/he")
@@ -551,6 +557,7 @@ test "DataPaths::default targets the v2 subdirectory" {
   assert_true(paths.root().has_suffix(".harness-evolution/v2"))
 }
 
+///|
 async test "DataPaths::ensure_root creates the directory tree" {
   let dir = @fs.tmpdir(prefix="evo-paths-")
   defer @fs.rmdir(dir, recursive=true)

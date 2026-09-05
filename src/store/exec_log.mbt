@@ -28,15 +28,13 @@ pub(all) enum ExecEvent {
 ///
 /// 刻意**不**为它写 `ToJson` / `FromJson` impl：这个枚举从不进入 JSON，
 /// 只出现在文本日志里。少两个 impl 就少两个「只为对称而存在」的无消费者定义。
-pub let exec_event_wire : @util.WireEnum[ExecEvent] = @util.WireEnum::of(
-  [
-    ("start", ExecEvent::Start),
-    ("progress", ExecEvent::Progress),
-    ("error", ExecEvent::Error),
-    ("complete", ExecEvent::Complete),
-    ("rollback", ExecEvent::Rollback),
-  ],
-)
+pub let exec_event_wire : @util.WireEnum[ExecEvent] = @util.WireEnum::of([
+  ("start", ExecEvent::Start),
+  ("progress", ExecEvent::Progress),
+  ("error", ExecEvent::Error),
+  ("complete", ExecEvent::Complete),
+  ("rollback", ExecEvent::Rollback),
+])
 
 ///|
 /// wire 名。
@@ -82,7 +80,7 @@ pub async fn ExecutionLog::append(
   message : String,
 ) -> Unit {
   let dir = @util.path_dirname(self.path)
-  if dir != "." && dir != "/" && !(@fs.exists(dir)) {
+  if dir != "." && dir != "/" && !@fs.exists(dir) {
     @fs.mkdir(dir, recursive=true)
   }
   let stamp = @util.iso_utc(@util.now_ms())
@@ -94,7 +92,7 @@ pub async fn ExecutionLog::append(
 /// 读回全部日志行（不含换行符）。文件不存在返回空数组。
 /// 供测试与将来的 `status` 子命令使用。
 pub async fn ExecutionLog::read(self : ExecutionLog) -> Array[String] {
-  if !(@fs.exists(self.path)) {
+  if !@fs.exists(self.path) {
     return []
   }
   let content = @fs.read_file(self.path).text()

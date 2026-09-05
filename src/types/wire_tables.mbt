@@ -36,8 +36,7 @@
 
 ///|
 /// CONTEXT.md L31-38 的「进化类型」列（源：types L141-147）。
-pub let evolution_type_wire : @util.WireEnum[EvolutionType] = @util.WireEnum::of(
-  [
+pub let evolution_type_wire : @util.WireEnum[EvolutionType] = @util.WireEnum::of([
     ("interface_simplification", EvolutionType::InterfaceSimplification),
     ("behavior_optimization", EvolutionType::BehaviorOptimization),
     ("performance_tuning", EvolutionType::PerformanceTuning),
@@ -47,10 +46,12 @@ pub let evolution_type_wire : @util.WireEnum[EvolutionType] = @util.WireEnum::of
   ],
 )
 
+///|
 pub impl ToJson for EvolutionType with fn to_json(self) {
   evolution_type_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for EvolutionType with fn from_json(json, path) {
   evolution_type_wire.decode(json, path)
 }
@@ -64,8 +65,7 @@ pub fn EvolutionType::wire_name(self : EvolutionType) -> String {
 
 ///|
 /// CONTEXT.md L19-25 状态机里的五个状态名（源：types L128）。
-pub let proposal_status_wire : @util.WireEnum[ProposalStatus] = @util.WireEnum::of(
-  [
+pub let proposal_status_wire : @util.WireEnum[ProposalStatus] = @util.WireEnum::of([
     ("pending", ProposalStatus::Pending),
     ("approved", ProposalStatus::Approved),
     ("rejected", ProposalStatus::Rejected),
@@ -74,14 +74,17 @@ pub let proposal_status_wire : @util.WireEnum[ProposalStatus] = @util.WireEnum::
   ],
 )
 
+///|
 pub impl ToJson for ProposalStatus with fn to_json(self) {
   proposal_status_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for ProposalStatus with fn from_json(json, path) {
   proposal_status_wire.decode(json, path)
 }
 
+///|
 pub fn ProposalStatus::wire_name(self : ProposalStatus) -> String {
   proposal_status_wire.name_of(self)
 }
@@ -94,8 +97,7 @@ pub fn ProposalStatus::wire_name(self : ProposalStatus) -> String {
 /// 不做任何英文化改写。`RegularScan`（定期架构扫描）在 TS 里声明了但
 /// `selectMattPocockPrinciple`（engine L235-256）从不返回它；
 /// 保留在表内是因为类型声明了该变体，删掉会让 wire 表不完整。
-pub let principle_wire : @util.WireEnum[MattPocockPrinciple] = @util.WireEnum::of(
-  [
+pub let principle_wire : @util.WireEnum[MattPocockPrinciple] = @util.WireEnum::of([
     ("先对齐，再动手", MattPocockPrinciple::AlignFirst),
     ("垂直切片 > 水平切片", MattPocockPrinciple::VerticalSlice),
     ("紧反馈环 > 盲目试错", MattPocockPrinciple::TightFeedback),
@@ -105,34 +107,40 @@ pub let principle_wire : @util.WireEnum[MattPocockPrinciple] = @util.WireEnum::o
   ],
 )
 
+///|
 pub impl ToJson for MattPocockPrinciple with fn to_json(self) {
   principle_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for MattPocockPrinciple with fn from_json(json, path) {
   principle_wire.decode(json, path)
 }
 
+///|
 pub fn MattPocockPrinciple::wire_name(self : MattPocockPrinciple) -> String {
   principle_wire.name_of(self)
 }
 
 ///|
 /// 置信度（源：types L138）。
-pub let confidence_wire : @util.WireEnum[Confidence] = @util.WireEnum::of(
-  [
-    ("high", Confidence::High),
-    ("medium", Confidence::Medium),
-    ("low", Confidence::Low),
-  ],
-)
+pub let confidence_wire : @util.WireEnum[Confidence] = @util.WireEnum::of([
+  ("high", Confidence::High),
+  ("medium", Confidence::Medium),
+  ("low", Confidence::Low),
+])
 
-pub impl ToJson for Confidence with fn to_json(self) { confidence_wire.encode(self) }
+///|
+pub impl ToJson for Confidence with fn to_json(self) {
+  confidence_wire.encode(self)
+}
 
+///|
 pub impl @json.FromJson for Confidence with fn from_json(json, path) {
   confidence_wire.decode(json, path)
 }
 
+///|
 pub fn Confidence::wire_name(self : Confidence) -> String {
   confidence_wire.name_of(self)
 }
@@ -143,30 +151,31 @@ pub fn Confidence::wire_name(self : Confidence) -> String {
 
 ///|
 /// 信号强度（源：types L95）。语义见 CONTEXT.md L13。
-pub let signal_strength_wire : @util.WireEnum[SignalStrength] = @util.WireEnum::of(
-  [
+pub let signal_strength_wire : @util.WireEnum[SignalStrength] = @util.WireEnum::of([
     ("strong", SignalStrength::Strong),
     ("medium", SignalStrength::Medium),
     ("weak", SignalStrength::Weak),
   ],
 )
 
+///|
 pub impl ToJson for SignalStrength with fn to_json(self) {
   signal_strength_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for SignalStrength with fn from_json(json, path) {
   signal_strength_wire.decode(json, path)
 }
 
+///|
 pub fn SignalStrength::wire_name(self : SignalStrength) -> String {
   signal_strength_wire.name_of(self)
 }
 
 ///|
 /// 信号类别（源：types L99）。CONTEXT.md L31-38 映射表的键。
-pub let signal_category_wire : @util.WireEnum[SignalCategory] = @util.WireEnum::of(
-  [
+pub let signal_category_wire : @util.WireEnum[SignalCategory] = @util.WireEnum::of([
     ("correction", SignalCategory::Correction),
     ("preference", SignalCategory::Preference),
     ("workflow", SignalCategory::Workflow),
@@ -176,14 +185,17 @@ pub let signal_category_wire : @util.WireEnum[SignalCategory] = @util.WireEnum::
   ],
 )
 
+///|
 pub impl ToJson for SignalCategory with fn to_json(self) {
   signal_category_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for SignalCategory with fn from_json(json, path) {
   signal_category_wire.decode(json, path)
 }
 
+///|
 pub fn SignalCategory::wire_name(self : SignalCategory) -> String {
   signal_category_wire.name_of(self)
 }
@@ -196,45 +208,49 @@ pub fn SignalCategory::wire_name(self : SignalCategory) -> String {
 /// 错误分类。wire 名取自 monitor/index.ts L345-349 的**实际返回值**
 /// （`timeout` / `parameter_error` / `permission_error` / `not_found` /
 /// `runtime_error`），并补上 types L72 声明却从不产出的 `unknown`。
-pub let error_kind_wire : @util.WireEnum[ErrorKind] = @util.WireEnum::of(
-  [
-    ("timeout", ErrorKind::Timeout),
-    ("parameter_error", ErrorKind::ParameterError),
-    ("permission_error", ErrorKind::PermissionError),
-    ("not_found", ErrorKind::NotFound),
-    ("runtime_error", ErrorKind::RuntimeError),
-    ("unknown", ErrorKind::Unknown),
-  ],
-)
+pub let error_kind_wire : @util.WireEnum[ErrorKind] = @util.WireEnum::of([
+  ("timeout", ErrorKind::Timeout),
+  ("parameter_error", ErrorKind::ParameterError),
+  ("permission_error", ErrorKind::PermissionError),
+  ("not_found", ErrorKind::NotFound),
+  ("runtime_error", ErrorKind::RuntimeError),
+  ("unknown", ErrorKind::Unknown),
+])
 
-pub impl ToJson for ErrorKind with fn to_json(self) { error_kind_wire.encode(self) }
+///|
+pub impl ToJson for ErrorKind with fn to_json(self) {
+  error_kind_wire.encode(self)
+}
 
+///|
 pub impl @json.FromJson for ErrorKind with fn from_json(json, path) {
   error_kind_wire.decode(json, path)
 }
 
+///|
 pub fn ErrorKind::wire_name(self : ErrorKind) -> String {
   error_kind_wire.name_of(self)
 }
 
 ///|
 /// 用户反馈极性（源：types L86）。
-pub let user_feedback_wire : @util.WireEnum[UserFeedback] = @util.WireEnum::of(
-  [
-    ("positive", UserFeedback::Positive),
-    ("negative", UserFeedback::Negative),
-    ("neutral", UserFeedback::Neutral),
-  ],
-)
+pub let user_feedback_wire : @util.WireEnum[UserFeedback] = @util.WireEnum::of([
+  ("positive", UserFeedback::Positive),
+  ("negative", UserFeedback::Negative),
+  ("neutral", UserFeedback::Neutral),
+])
 
+///|
 pub impl ToJson for UserFeedback with fn to_json(self) {
   user_feedback_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for UserFeedback with fn from_json(json, path) {
   user_feedback_wire.decode(json, path)
 }
 
+///|
 pub fn UserFeedback::wire_name(self : UserFeedback) -> String {
   user_feedback_wire.name_of(self)
 }
@@ -242,21 +258,24 @@ pub fn UserFeedback::wire_name(self : UserFeedback) -> String {
 ///|
 /// 时间窗（源：types L312、monitor L146）。
 /// 同时是 MCP `get_plugin_metrics` 的 `time_range` 参数取值域。
-pub let time_range_wire : @util.WireEnum[TimeRange] = @util.WireEnum::of(
-  [
-    ("last_hour", TimeRange::LastHour),
-    ("last_day", TimeRange::LastDay),
-    ("last_week", TimeRange::LastWeek),
-    ("all", TimeRange::All),
-  ],
-)
+pub let time_range_wire : @util.WireEnum[TimeRange] = @util.WireEnum::of([
+  ("last_hour", TimeRange::LastHour),
+  ("last_day", TimeRange::LastDay),
+  ("last_week", TimeRange::LastWeek),
+  ("all", TimeRange::All),
+])
 
-pub impl ToJson for TimeRange with fn to_json(self) { time_range_wire.encode(self) }
+///|
+pub impl ToJson for TimeRange with fn to_json(self) {
+  time_range_wire.encode(self)
+}
 
+///|
 pub impl @json.FromJson for TimeRange with fn from_json(json, path) {
   time_range_wire.decode(json, path)
 }
 
+///|
 pub fn TimeRange::wire_name(self : TimeRange) -> String {
   time_range_wire.name_of(self)
 }
@@ -269,34 +288,34 @@ pub fn TimeRange::wire_name(self : TimeRange) -> String {
 /// 变更种类。wire 名 = legacy-ts `ProposedChanges` 的 7 个字段名（types L158-164），
 /// 逐字保留，使新旧 `proposals.jsonl` 在人类眼里仍然对得上。
 /// 被 change.mbt 的手写 `FromJson` 引用。
-pub let change_kind_wire : @util.WireEnum[ChangeKind] = @util.WireEnum::of(
-  [
-    ("merge_tools", ChangeKind::MergeTools),
-    ("simplify_params", ChangeKind::SimplifyParams),
-    ("add_middleware", ChangeKind::AddMiddleware),
-    ("optimize_flow", ChangeKind::OptimizeFlow),
-    ("update_documentation", ChangeKind::UpdateDocumentation),
-    ("add_capability", ChangeKind::AddCapability),
-    ("improve_error_handling", ChangeKind::ImproveErrorHandling),
-  ],
-)
+pub let change_kind_wire : @util.WireEnum[ChangeKind] = @util.WireEnum::of([
+  ("merge_tools", ChangeKind::MergeTools),
+  ("simplify_params", ChangeKind::SimplifyParams),
+  ("add_middleware", ChangeKind::AddMiddleware),
+  ("optimize_flow", ChangeKind::OptimizeFlow),
+  ("update_documentation", ChangeKind::UpdateDocumentation),
+  ("add_capability", ChangeKind::AddCapability),
+  ("improve_error_handling", ChangeKind::ImproveErrorHandling),
+])
 
+///|
 pub impl ToJson for ChangeKind with fn to_json(self) {
   change_kind_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for ChangeKind with fn from_json(json, path) {
   change_kind_wire.decode(json, path)
 }
 
+///|
 pub fn ChangeKind::wire_name(self : ChangeKind) -> String {
   change_kind_wire.name_of(self)
 }
 
 ///|
 /// 优化手段（源：types L196）。
-pub let optimization_kind_wire : @util.WireEnum[OptimizationKind] = @util.WireEnum::of(
-  [
+pub let optimization_kind_wire : @util.WireEnum[OptimizationKind] = @util.WireEnum::of([
     ("caching", OptimizationKind::Caching),
     ("parallelization", OptimizationKind::Parallelization),
     ("lazy_loading", OptimizationKind::LazyLoading),
@@ -304,14 +323,17 @@ pub let optimization_kind_wire : @util.WireEnum[OptimizationKind] = @util.WireEn
   ],
 )
 
+///|
 pub impl ToJson for OptimizationKind with fn to_json(self) {
   optimization_kind_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for OptimizationKind with fn from_json(json, path) {
   optimization_kind_wire.decode(json, path)
 }
 
+///|
 pub fn OptimizationKind::wire_name(self : OptimizationKind) -> String {
   optimization_kind_wire.name_of(self)
 }
@@ -322,66 +344,72 @@ pub fn OptimizationKind::wire_name(self : OptimizationKind) -> String {
 
 ///|
 /// 迁移成本（源：types L248）。
-pub let migration_effort_wire : @util.WireEnum[MigrationEffort] = @util.WireEnum::of(
-  [
+pub let migration_effort_wire : @util.WireEnum[MigrationEffort] = @util.WireEnum::of([
     ("low", MigrationEffort::Low),
     ("medium", MigrationEffort::Medium),
     ("high", MigrationEffort::High),
   ],
 )
 
+///|
 pub impl ToJson for MigrationEffort with fn to_json(self) {
   migration_effort_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for MigrationEffort with fn from_json(json, path) {
   migration_effort_wire.decode(json, path)
 }
 
+///|
 pub fn MigrationEffort::wire_name(self : MigrationEffort) -> String {
   migration_effort_wire.name_of(self)
 }
 
 ///|
 /// 回滚复杂度（源：types L250）。
-pub let rollback_complexity_wire : @util.WireEnum[RollbackComplexity] = @util.WireEnum::of(
-  [
+pub let rollback_complexity_wire : @util.WireEnum[RollbackComplexity] = @util.WireEnum::of([
     ("simple", RollbackComplexity::Simple),
     ("moderate", RollbackComplexity::Moderate),
     ("complex", RollbackComplexity::Complex),
   ],
 )
 
+///|
 pub impl ToJson for RollbackComplexity with fn to_json(self) {
   rollback_complexity_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for RollbackComplexity with fn from_json(json, path) {
   rollback_complexity_wire.decode(json, path)
 }
 
+///|
 pub fn RollbackComplexity::wire_name(self : RollbackComplexity) -> String {
   rollback_complexity_wire.name_of(self)
 }
 
 ///|
 /// 三级验证标签（源：types L239）。大写形式，与 DESIGN.md 的 T0/T1/T2 一致。
-pub let validation_level_wire : @util.WireEnum[ValidationLevelTag] = @util.WireEnum::of(
-  [
+pub let validation_level_wire : @util.WireEnum[ValidationLevelTag] = @util.WireEnum::of([
     ("T0", ValidationLevelTag::T0),
     ("T1", ValidationLevelTag::T1),
     ("T2", ValidationLevelTag::T2),
   ],
 )
 
+///|
 pub impl ToJson for ValidationLevelTag with fn to_json(self) {
   validation_level_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for ValidationLevelTag with fn from_json(json, path) {
   validation_level_wire.decode(json, path)
 }
 
+///|
 pub fn ValidationLevelTag::wire_name(self : ValidationLevelTag) -> String {
   validation_level_wire.name_of(self)
 }
@@ -392,30 +420,30 @@ pub fn ValidationLevelTag::wire_name(self : ValidationLevelTag) -> String {
 
 ///|
 /// 插件来源（源：types L18）。
-pub let plugin_kind_wire : @util.WireEnum[PluginKind] = @util.WireEnum::of(
-  [
-    ("official", PluginKind::Official),
-    ("community", PluginKind::Community),
-    ("custom", PluginKind::Custom),
-  ],
-)
+pub let plugin_kind_wire : @util.WireEnum[PluginKind] = @util.WireEnum::of([
+  ("official", PluginKind::Official),
+  ("community", PluginKind::Community),
+  ("custom", PluginKind::Custom),
+])
 
+///|
 pub impl ToJson for PluginKind with fn to_json(self) {
   plugin_kind_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for PluginKind with fn from_json(json, path) {
   plugin_kind_wire.decode(json, path)
 }
 
+///|
 pub fn PluginKind::wire_name(self : PluginKind) -> String {
   plugin_kind_wire.name_of(self)
 }
 
 ///|
 /// 使用频率档位（源：types L32）。
-pub let usage_frequency_wire : @util.WireEnum[UsageFrequency] = @util.WireEnum::of(
-  [
+pub let usage_frequency_wire : @util.WireEnum[UsageFrequency] = @util.WireEnum::of([
     ("high", UsageFrequency::High),
     ("medium", UsageFrequency::Medium),
     ("low", UsageFrequency::Low),
@@ -423,14 +451,17 @@ pub let usage_frequency_wire : @util.WireEnum[UsageFrequency] = @util.WireEnum::
   ],
 )
 
+///|
 pub impl ToJson for UsageFrequency with fn to_json(self) {
   usage_frequency_wire.encode(self)
 }
 
+///|
 pub impl @json.FromJson for UsageFrequency with fn from_json(json, path) {
   usage_frequency_wire.decode(json, path)
 }
 
+///|
 pub fn UsageFrequency::wire_name(self : UsageFrequency) -> String {
   usage_frequency_wire.name_of(self)
 }
@@ -439,22 +470,25 @@ pub fn UsageFrequency::wire_name(self : UsageFrequency) -> String {
 /// Sub-Agent 角色（源：types L265-270）。wire 名见 CONTEXT.md L51-59 的角色表，
 /// 注意是**连字符**形式（`code-generator`），与其余表的下划线风格不同 ——
 /// 这是 TS 原样，保持不改以免破坏 execution.log 与提案文档的连续性。
-pub let agent_type_wire : @util.WireEnum[AgentType] = @util.WireEnum::of(
-  [
-    ("code-generator", AgentType::CodeGenerator),
-    ("test-writer", AgentType::TestWriter),
-    ("doc-writer", AgentType::DocWriter),
-    ("integration", AgentType::Integration),
-    ("validator", AgentType::Validator),
-  ],
-)
+pub let agent_type_wire : @util.WireEnum[AgentType] = @util.WireEnum::of([
+  ("code-generator", AgentType::CodeGenerator),
+  ("test-writer", AgentType::TestWriter),
+  ("doc-writer", AgentType::DocWriter),
+  ("integration", AgentType::Integration),
+  ("validator", AgentType::Validator),
+])
 
-pub impl ToJson for AgentType with fn to_json(self) { agent_type_wire.encode(self) }
+///|
+pub impl ToJson for AgentType with fn to_json(self) {
+  agent_type_wire.encode(self)
+}
 
+///|
 pub impl @json.FromJson for AgentType with fn from_json(json, path) {
   agent_type_wire.decode(json, path)
 }
 
+///|
 pub fn AgentType::wire_name(self : AgentType) -> String {
   agent_type_wire.name_of(self)
 }
@@ -462,16 +496,23 @@ pub fn AgentType::wire_name(self : AgentType) -> String {
 ///|
 /// 进化强度（源：types L294）。wire 名是带百分号的字面量，与 README L107-110
 /// 和 SKILL.md L380-383 的用户可见文案完全一致。
-pub let intensity_wire : @util.WireEnum[Intensity] = @util.WireEnum::of(
-  [("100%", Intensity::Full), ("50%", Intensity::Half), ("0%", Intensity::Off)],
-)
+pub let intensity_wire : @util.WireEnum[Intensity] = @util.WireEnum::of([
+  ("100%", Intensity::Full),
+  ("50%", Intensity::Half),
+  ("0%", Intensity::Off),
+])
 
-pub impl ToJson for Intensity with fn to_json(self) { intensity_wire.encode(self) }
+///|
+pub impl ToJson for Intensity with fn to_json(self) {
+  intensity_wire.encode(self)
+}
 
+///|
 pub impl @json.FromJson for Intensity with fn from_json(json, path) {
   intensity_wire.decode(json, path)
 }
 
+///|
 pub fn Intensity::wire_name(self : Intensity) -> String {
   intensity_wire.name_of(self)
 }

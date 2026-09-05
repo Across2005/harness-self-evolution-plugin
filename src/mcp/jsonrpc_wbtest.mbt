@@ -17,7 +17,7 @@
 /// 冒烟测试实测：10 条输入（含 1 条通知）产出恰好 9 行响应。
 test "parse_message: absent id means notification" {
   let msg : Json = { "jsonrpc": "2.0", "method": "notifications/initialized" }
-  let req = (parse_message(msg)).unwrap()
+  let req = parse_message(msg).unwrap()
   assert_eq(req.method_name, "notifications/initialized")
   assert_true(req.is_notification())
   assert_eq(req.id, None)
@@ -30,7 +30,7 @@ test "parse_message: absent id means notification" {
 /// 两者就无法分辨，通知会被误回一条响应，客户端随即报协议错误断开。
 test "parse_message: explicit null id is NOT a notification" {
   let msg : Json = { "jsonrpc": "2.0", "id": null, "method": "ping" }
-  let req = (parse_message(msg)).unwrap()
+  let req = parse_message(msg).unwrap()
   assert_false(req.is_notification())
   assert_eq(req.id, Some(Json::null()))
 }
@@ -39,7 +39,7 @@ test "parse_message: explicit null id is NOT a notification" {
 /// 有 id 的正常请求。
 test "parse_message: numeric id is a request" {
   let msg : Json = { "jsonrpc": "2.0", "id": 7, "method": "ping" }
-  let req = (parse_message(msg)).unwrap()
+  let req = parse_message(msg).unwrap()
   assert_false(req.is_notification())
   assert_eq(req.id, Some(Json::number(7.0)))
 }
@@ -59,6 +59,7 @@ test "result_msg: echoes a string id verbatim" {
   }
 }
 
+///|
 test "result_msg: echoes a numeric id verbatim" {
   let resp = result_msg(Some(Json::number(42.0)), Json::empty_object())
   match resp {
@@ -80,10 +81,11 @@ test "result_msg: None id renders as null" {
 ///|
 /// 每条响应都必须带 `jsonrpc: "2.0"`（成功与错误两条路径都要）。
 test "every response carries jsonrpc 2.0" {
-  for resp in [
-    result_msg(Some(Json::number(1.0)), Json::empty_object()),
-    error_msg(Some(Json::number(1.0)), code_internal_error, "boom"),
-  ] {
+  for
+    resp in [
+      result_msg(Some(Json::number(1.0)), Json::empty_object()),
+      error_msg(Some(Json::number(1.0)), code_internal_error, "boom"),
+    ] {
     match resp {
       Object(o) => assert_eq(o.get("jsonrpc"), Some(Json::string("2.0")))
       _ => abort("expected an object")
@@ -140,10 +142,14 @@ test "initialize_result advertises the tools capability" {
   match initialize_result(Json::empty_object()) {
     Object(o) => {
       let caps = o.get("capabilities")
-      guard caps is Some(Object(c)) else { abort("capabilities must be an object") }
+      guard caps is Some(Object(c)) else {
+        abort("capabilities must be an object")
+      }
       assert_true(c.contains("tools"))
       let info = o.get("serverInfo")
-      guard info is Some(Object(s)) else { abort("serverInfo must be an object") }
+      guard info is Some(Object(s)) else {
+        abort("serverInfo must be an object")
+      }
       assert_eq(s.get("name"), Some(Json::string(server_name)))
       assert_eq(s.get("version"), Some(Json::string(server_version)))
     }
@@ -155,6 +161,7 @@ test "initialize_result advertises the tools capability" {
 // 细节 4：错误码阶梯
 // ============================================================================
 
+///|
 test "the four standard error codes are the JSON-RPC 2.0 ones" {
   assert_eq(code_parse_error, -32700)
   assert_eq(code_invalid_request, -32600)
@@ -163,8 +170,13 @@ test "the four standard error codes are the JSON-RPC 2.0 ones" {
   assert_eq(code_internal_error, -32603)
 }
 
+///|
 test "error_msg carries code and message" {
-  let resp = error_msg(Some(Json::number(9.0)), code_method_not_found, "Method not found: x")
+  let resp = error_msg(
+    Some(Json::number(9.0)),
+    code_method_not_found,
+    "Method not found: x",
+  )
   match resp {
     Object(o) => {
       assert_eq(o.get("id"), Some(Json::number(9.0)))
@@ -179,6 +191,7 @@ test "error_msg carries code and message" {
   }
 }
 
+///|
 test "result_msg never carries an error key" {
   match result_msg(Some(Json::number(1.0)), Json::empty_object()) {
     Object(o) => assert_false(o.contains("error"))
@@ -208,9 +221,10 @@ test "parse_message rejects messages without a string method" {
   }
 }
 
+///|
 test "parse_message defaults missing params to an empty object" {
   let msg : Json = { "jsonrpc": "2.0", "id": 1, "method": "tools/list" }
-  let req = (parse_message(msg)).unwrap()
+  let req = parse_message(msg).unwrap()
   assert_eq(req.params, Json::empty_object())
 }
 

@@ -11,7 +11,6 @@
 ///   中间的空格让整条失配，故 tools 是 `[navigate, click, submit]` 而非四个。
 /// · `all-four-patterns` 的输出顺序是 R1 的全部命中 → R2 的全部 → R3 → R4，
 ///   证实了「模式在外层循环、命中在内层循环」的顺序契约。
-
 test "R1-R4: capability patterns on the legacy jest fixture" {
   // 逐字取自 legacy-ts/tests/scanner.test.ts L34
   let text = "# My Plugin\nThis tool can navigate and supports clicks."
@@ -21,6 +20,7 @@ test "R1-R4: capability patterns on the legacy jest fixture" {
   json_inspect(extracted.tools, content=[])
 }
 
+///|
 test "R1-R4 are case-insensitive, and lower-case the capture" {
   let extracted = extract_from_skill_text("It CAN Navigate and Supports Clicks")
   json_inspect(extracted.capabilities, content=["navigate", "clicks"])
@@ -42,10 +42,9 @@ test "R1 does not match CJK, exactly like JS \\w" {
 test "R1-R4 emit in pattern order, not in text order" {
   let text = "can a, supports b, support c, provides d, provide e, handles f, handle g"
   let extracted = extract_from_skill_text(text)
-  json_inspect(
-    extracted.capabilities,
-    content=["a", "b", "c", "d", "e", "f", "g"],
-  )
+  json_inspect(extracted.capabilities, content=[
+    "a", "b", "c", "d", "e", "f", "g",
+  ])
 }
 
 ///|
@@ -75,6 +74,7 @@ test "R5 preserves the original case of tool names" {
   json_inspect(extracted.tools, content=["GetMetrics"])
 }
 
+///|
 test "R7 extracts registerTool names from the legacy jest fixture" {
   // 逐字取自 legacy-ts/tests/scanner.test.ts L51-54
   let src = "\n  server.registerTool('scan_plugins', { description: 'scan' }, cb);\n  server.registerTool('propose_evolution', { description: 'propose' }, cb);\n"
@@ -83,6 +83,7 @@ test "R7 extracts registerTool names from the legacy jest fixture" {
   json_inspect(tools, content=["scan_plugins", "propose_evolution"])
 }
 
+///|
 test "R8 extracts .tool() names with either quote style" {
   let src = "srv.tool(\"alpha\", h); srv.tool(`beta`, h);"
   let tools : Array[String] = []
@@ -90,6 +91,7 @@ test "R8 extracts .tool() names with either quote style" {
   json_inspect(tools, content=["alpha", "beta"])
 }
 
+///|
 test "R9 extracts name: '...' fields" {
   let src = "const t = { name: 'gamma', h }; const u = { name: \"delta\" };"
   let tools : Array[String] = []
@@ -116,6 +118,7 @@ test "R7-R9 are case sensitive, unlike R1-R5" {
   json_inspect(tools, content=[])
 }
 
+///|
 test "R7 accepts backtick-quoted names" {
   let src = "server.registerTool(`eps_tool`, h);"
   let tools : Array[String] = []

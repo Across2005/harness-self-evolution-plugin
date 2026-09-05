@@ -42,6 +42,7 @@ fn error_code(resp : Json) -> Int {
   }
 }
 
+///|
 fn error_message(resp : Json) -> String {
   match obj(resp).get("error") {
     Some(Object(e)) =>
@@ -67,7 +68,9 @@ fn tool_payload(resp : Json) -> Json raise {
     Some(Array(a)) => a
     _ => abort("result.content must be an array")
   }
-  guard content.length() == 1 else { abort("expected exactly one content block") }
+  guard content.length() == 1 else {
+    abort("expected exactly one content block")
+  }
   let first = content[0]
   let text = match obj(first).get("text") {
     Some(String(t)) => t
@@ -128,7 +131,7 @@ fn full_intensity_state(tmp : String) -> ServerState {
   ServerState::with_scan_config(
     paths,
     @scanner.ScanConfig::custom([tmp], paths.plugin_cache()),
-    config=config,
+    config~,
   )
 }
 
@@ -165,10 +168,23 @@ async test "a notification produces no response at all" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
-  assert_eq(handle_line(state, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"), None)
+  assert_eq(
+    handle_line(
+      state, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}",
+    ),
+    None,
+  )
   // 任意无 id 的消息都不回应，不只是 initialized
-  assert_eq(handle_line(state, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\"}"), None)
-  assert_eq(handle_line(state, "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}"), None)
+  assert_eq(
+    handle_line(
+      state, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\"}",
+    ),
+    None,
+  )
+  assert_eq(
+    handle_line(state, "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}"),
+    None,
+  )
 }
 
 ///|
@@ -218,7 +234,9 @@ async test "an unknown method yields -32601" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
-  let resp = send(state, "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"bogus/method\"}")
+  let resp = send(
+    state, "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"bogus/method\"}",
+  )
   assert_eq(error_code(resp), code_method_not_found)
   assert_eq(error_message(resp), "Method not found: bogus/method")
 }
@@ -248,8 +266,8 @@ async test "malformed tools/call params yield -32602" {
   let state = isolated_state(tmp)
   let cases : Array[String] = [
     "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":[]}", // 不是对象
-    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{}}", // 缺 name
-    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":42}}", // name 不是字符串
+     "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{}}", // 缺 name
+     "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":42}}", // name 不是字符串
   ]
   for line in cases {
     assert_eq(error_code(send(state, line)), code_invalid_params)
@@ -262,7 +280,9 @@ async test "missing arguments defaults to an empty object" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
-  let resp = send(state, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"list_proposals\"}}")
+  let resp = send(
+    state, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"list_proposals\"}}",
+  )
   assert_false(is_tool_error(resp))
   assert_eq(obj(tool_payload(resp)).get("count"), Some(Json::number(0.0)))
 }
@@ -271,14 +291,14 @@ async test "missing arguments defaults to an empty object" {
 // 握手与探活
 // ============================================================================
 
+///|
 async test "initialize and ping over the wire" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
 
   let init = send(
-    state,
-    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"wbtest\",\"version\":\"1.0\"}}}",
+    state, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"wbtest\",\"version\":\"1.0\"}}}",
   )
   let init_result = result_of(init)
   assert_eq(
@@ -288,7 +308,9 @@ async test "initialize and ping over the wire" {
   assert_eq(obj(init).get("id"), Some(Json::number(1.0)))
 
   // 字符串 id 必须原样回显（冒烟测试实测 id="two"）
-  let ping = send(state, "{\"jsonrpc\":\"2.0\",\"id\":\"two\",\"method\":\"ping\"}")
+  let ping = send(
+    state, "{\"jsonrpc\":\"2.0\",\"id\":\"two\",\"method\":\"ping\"}",
+  )
   assert_eq(obj(ping).get("id"), Some(Json::string("two")))
   assert_eq(result_of(ping), Json::empty_object())
 }
@@ -299,7 +321,9 @@ async test "tools/list works before any initialize handshake" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
-  let resp = send(state, "{\"jsonrpc\":\"2.0\",\"id\":\"two\",\"method\":\"tools/list\",\"params\":{}}")
+  let resp = send(
+    state, "{\"jsonrpc\":\"2.0\",\"id\":\"two\",\"method\":\"tools/list\",\"params\":{}}",
+  )
   let list = match obj(result_of(resp)).get("tools") {
     Some(Array(a)) => a
     _ => abort("tools must be an array")
@@ -318,7 +342,11 @@ async test "a missing required argument becomes isError, not a protocol error" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
-  for pair in [("get_plugin_metrics", Json::empty_object()), ("approve_proposal", Json::empty_object())] {
+  for
+    pair in [
+      ("get_plugin_metrics", Json::empty_object()),
+      ("approve_proposal", Json::empty_object()),
+    ] {
     let (tool, args) = pair
     let resp = send(state, call_line(1, tool, args))
     assert_true(obj(resp).contains("result"))
@@ -333,7 +361,10 @@ async test "an out-of-vocabulary enum value becomes isError" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
-  let resp = send(state, call_line(1, "list_proposals", { "status": "teleported" }))
+  let resp = send(
+    state,
+    call_line(1, "list_proposals", { "status": "teleported" }),
+  )
   assert_eq(is_tool_error(resp), true)
   // 错误消息必须列出合法值 —— 这是 wire 表驱动的第三处消费
   // （JSONL 序列化 / MCP schema enum / 错误消息），见 util/wire.mbt 的头注释。
@@ -356,7 +387,10 @@ async test "propose_evolution on an unscanned plugin reports the legacy message"
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
-  let resp = send(state, call_line(6, "propose_evolution", { "plugin_id": "ghost" }))
+  let resp = send(
+    state,
+    call_line(6, "propose_evolution", { "plugin_id": "ghost" }),
+  )
   assert_eq(is_tool_error(resp), true)
   let payload = obj(tool_payload(resp))
   assert_eq(payload.get("success"), Some(Json::boolean(false)))
@@ -366,11 +400,15 @@ async test "propose_evolution on an unscanned plugin reports the legacy message"
   )
 }
 
+///|
 async test "approve_proposal on an unknown id reports not found" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
-  let resp = send(state, call_line(1, "approve_proposal", { "proposal_id": "evo-nope" }))
+  let resp = send(
+    state,
+    call_line(1, "approve_proposal", { "proposal_id": "evo-nope" }),
+  )
   assert_eq(is_tool_error(resp), true)
   assert_eq(
     obj(tool_payload(resp)).get("error"),
@@ -396,7 +434,10 @@ async test "execute_evolution on an unknown id reports failure in the payload, n
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
-  let resp = send(state, call_line(1, "execute_evolution", { "proposal_id": "does-not-exist" }))
+  let resp = send(
+    state,
+    call_line(1, "execute_evolution", { "proposal_id": "does-not-exist" }),
+  )
   // ★ 不是 isError
   assert_false(is_tool_error(resp))
   let body = obj(tool_payload(resp))
@@ -463,6 +504,7 @@ test "json_ok renders the inner text with two-space indent" {
   assert_false(obj(resp).contains("isError"))
 }
 
+///|
 test "json_error carries isError and a success:false body" {
   let resp = json_error("boom")
   let o = obj(resp)
@@ -587,7 +629,9 @@ async test "the full scan-propose-approve-execute-list chain over one shared sta
     metrics_body.get("time_range"),
     Some(Json::string(default_time_range.wire_name())),
   )
-  let stats = obj((metrics_body.get("statistics")).unwrap_or(Json::empty_object()))
+  let stats = obj(
+    metrics_body.get("statistics").unwrap_or(Json::empty_object()),
+  )
   assert_eq(stats.get("total_calls"), Some(Json::number(0.0)))
   assert_eq(stats.get("loop_detected"), Some(Json::boolean(false)))
   assert_true(stats.contains("error_types"))
@@ -595,11 +639,10 @@ async test "the full scan-propose-approve-execute-list chain over one shared sta
   // --- 3. propose_evolution：手动信号 → 生成提案 -----------------------
   let propose = send(
     state,
-    call_line(
-      3,
-      "propose_evolution",
-      { "plugin_id": Json::string(plugin_id), "signals": Json::array([Json::string("users keep retrying the same call")]) },
-    ),
+    call_line(3, "propose_evolution", {
+      "plugin_id": Json::string(plugin_id),
+      "signals": Json::array([Json::string("users keep retrying the same call")]),
+    }),
   )
   assert_false(is_tool_error(propose))
   let propose_body = obj(tool_payload(propose))
@@ -647,21 +690,34 @@ async test "the full scan-propose-approve-execute-list chain over one shared sta
   // --- 5. 状态过滤（走 wire 表解码）-------------------------------------
   let pending_only = send(
     state,
-    call_line(5, "list_proposals", { "status": Json::string(@types.ProposalStatus::Pending.wire_name()) }),
+    call_line(5, "list_proposals", {
+      "status": Json::string(@types.ProposalStatus::Pending.wire_name()),
+    }),
   )
-  assert_eq(obj(tool_payload(pending_only)).get("count"), Some(Json::number(1.0)))
+  assert_eq(
+    obj(tool_payload(pending_only)).get("count"),
+    Some(Json::number(1.0)),
+  )
   let completed_only = send(
     state,
-    call_line(6, "list_proposals", { "status": Json::string(@types.ProposalStatus::Completed.wire_name()) }),
+    call_line(6, "list_proposals", {
+      "status": Json::string(@types.ProposalStatus::Completed.wire_name()),
+    }),
   )
-  assert_eq(obj(tool_payload(completed_only)).get("count"), Some(Json::number(0.0)))
+  assert_eq(
+    obj(tool_payload(completed_only)).get("count"),
+    Some(Json::number(0.0)),
+  )
 
   // --- 6. 未审批就执行 → 被状态机闸门挡住 -------------------------------
   // 注意这走的是**载荷通道**（success:false）而不是 isError，
   // 因为 legacy 的 executor.execute 对状态不对是 return 而不是 throw。
   let premature = send(
     state,
-    call_line(7, "execute_evolution", { "proposal_id": Json::string(proposal_id), "dry_run": true }),
+    call_line(7, "execute_evolution", {
+      "proposal_id": Json::string(proposal_id),
+      "dry_run": true,
+    }),
   )
   assert_false(is_tool_error(premature))
   let premature_body = obj(tool_payload(premature))
@@ -673,11 +729,9 @@ async test "the full scan-propose-approve-execute-list chain over one shared sta
   // 且状态没被改动（闸门在 setStatus 之前）
   let still_pending = send(
     state,
-    call_line(
-      71,
-      "list_proposals",
-      { "status": Json::string(@types.ProposalStatus::Pending.wire_name()) },
-    ),
+    call_line(71, "list_proposals", {
+      "status": Json::string(@types.ProposalStatus::Pending.wire_name()),
+    }),
   )
   assert_eq(
     obj(tool_payload(still_pending)).get("count"),
@@ -687,7 +741,9 @@ async test "the full scan-propose-approve-execute-list chain over one shared sta
   // --- 7. approve_proposal ----------------------------------------------
   let approved = send(
     state,
-    call_line(8, "approve_proposal", { "proposal_id": Json::string(proposal_id) }),
+    call_line(8, "approve_proposal", {
+      "proposal_id": Json::string(proposal_id),
+    }),
   )
   assert_false(is_tool_error(approved))
   assert_eq(
@@ -698,14 +754,19 @@ async test "the full scan-propose-approve-execute-list chain over one shared sta
   // --- 8. 重复审批：幂等（set_status 同状态返回 true）-------------------
   let again = send(
     state,
-    call_line(9, "approve_proposal", { "proposal_id": Json::string(proposal_id) }),
+    call_line(9, "approve_proposal", {
+      "proposal_id": Json::string(proposal_id),
+    }),
   )
   assert_false(is_tool_error(again))
 
   // --- 9. execute_evolution（dry_run → 无 sleep，确定性）----------------
   let executed = send(
     state,
-    call_line(10, "execute_evolution", { "proposal_id": Json::string(proposal_id), "dry_run": true }),
+    call_line(10, "execute_evolution", {
+      "proposal_id": Json::string(proposal_id),
+      "dry_run": true,
+    }),
   )
   assert_false(is_tool_error(executed))
   let exec_body = obj(tool_payload(executed))
@@ -730,18 +791,18 @@ async test "the full scan-propose-approve-execute-list chain over one shared sta
   // --- 10. 执行后的状态经 list 反映出来 --------------------------------
   let after = send(
     state,
-    call_line(
-      11,
-      "list_proposals",
-      { "status": Json::string(@types.ProposalStatus::Completed.wire_name()) },
-    ),
+    call_line(11, "list_proposals", {
+      "status": Json::string(@types.ProposalStatus::Completed.wire_name()),
+    }),
   )
   assert_eq(obj(tool_payload(after)).get("count"), Some(Json::number(1.0)))
 
   // --- 11. 终态不可再迁移 → isError，消息与 store/index.ts L147 逐字一致 --
   let illegal = send(
     state,
-    call_line(12, "approve_proposal", { "proposal_id": Json::string(proposal_id) }),
+    call_line(12, "approve_proposal", {
+      "proposal_id": Json::string(proposal_id),
+    }),
   )
   assert_eq(is_tool_error(illegal), true)
 
@@ -749,7 +810,9 @@ async test "the full scan-propose-approve-execute-list chain over one shared sta
   // completed 是终态，rejected 也不可达
   let rejected = send(
     state,
-    call_line(13, "reject_proposal", { "proposal_id": Json::string(proposal_id) }),
+    call_line(13, "reject_proposal", {
+      "proposal_id": Json::string(proposal_id),
+    }),
   )
   assert_eq(is_tool_error(rejected), true)
 }
@@ -776,7 +839,7 @@ async test "propose_evolution with the engine disabled reports success plus a re
   let state = ServerState::with_scan_config(
     paths,
     @scanner.ScanConfig::custom([tmp], paths.plugin_cache()),
-    config=config,
+    config~,
   )
   ignore(send(state, call_line(1, "scan_plugins", { "force_rescan": true })))
 
@@ -826,19 +889,37 @@ async test "target_paths actually redirects the scan (legacy declared but ignore
     paths,
     @scanner.ScanConfig::custom([empty_root], paths.plugin_cache()),
   )
-  let baseline = send(state, call_line(1, "scan_plugins", { "force_rescan": true }))
-  assert_eq(obj(tool_payload(baseline)).get("plugin_count"), Some(Json::number(0.0)))
+  let baseline = send(
+    state,
+    call_line(1, "scan_plugins", { "force_rescan": true }),
+  )
+  assert_eq(
+    obj(tool_payload(baseline)).get("plugin_count"),
+    Some(Json::number(0.0)),
+  )
 
   // 传 target_paths → 必须改扫那个有插件的目录
   let redirected = send(
     state,
-    call_line(2, "scan_plugins", { "force_rescan": true, "target_paths": Json::array([Json::string(populated)]) }),
+    call_line(2, "scan_plugins", {
+      "force_rescan": true,
+      "target_paths": Json::array([Json::string(populated)]),
+    }),
   )
-  assert_eq(obj(tool_payload(redirected)).get("plugin_count"), Some(Json::number(1.0)))
+  assert_eq(
+    obj(tool_payload(redirected)).get("plugin_count"),
+    Some(Json::number(1.0)),
+  )
 
   // 且注册表被**替换**而非累加（adopt 先 clear）
-  let after = send(state, call_line(3, "scan_plugins", { "force_rescan": true }))
-  assert_eq(obj(tool_payload(after)).get("plugin_count"), Some(Json::number(0.0)))
+  let after = send(
+    state,
+    call_line(3, "scan_plugins", { "force_rescan": true }),
+  )
+  assert_eq(
+    obj(tool_payload(after)).get("plugin_count"),
+    Some(Json::number(0.0)),
+  )
 }
 
 ///|
@@ -864,9 +945,9 @@ async test "F5: manual signals are inert under the default 50% intensity" {
 
   let args : Json = {
     "plugin_id": "demo-plugin-1.2.3",
-    "signals": Json::array(
-      [Json::string("users keep retrying the same call over and over")],
-    ),
+    "signals": Json::array([
+      Json::string("users keep retrying the same call over and over"),
+    ]),
   }
   let resp = send(state, call_line(2, "propose_evolution", args))
   // 不是 isError（legacy 语义：「没生成」是正常业务结果）
@@ -906,7 +987,10 @@ async test "scanning an empty or missing root succeeds with zero plugins" {
   )
   let resp = send(state, call_line(1, "scan_plugins", Json::empty_object()))
   assert_false(is_tool_error(resp))
-  assert_eq(obj(tool_payload(resp)).get("plugin_count"), Some(Json::number(0.0)))
+  assert_eq(
+    obj(tool_payload(resp)).get("plugin_count"),
+    Some(Json::number(0.0)),
+  )
 }
 
 ///|
@@ -943,16 +1027,18 @@ async test "list_proposals applies limit after the other filters" {
   // status 过滤 + limit：两条 pending 里取 1 条（若先 limit 后过滤会得 0 条）
   let both = send(
     state,
-    call_line(
-      3,
-      "list_proposals",
-      { "status": Json::string(@types.ProposalStatus::Pending.wire_name()), "limit": 1 },
-    ),
+    call_line(3, "list_proposals", {
+      "status": Json::string(@types.ProposalStatus::Pending.wire_name()),
+      "limit": 1,
+    }),
   )
   assert_eq(obj(tool_payload(both)).get("count"), Some(Json::number(1.0)))
 
   // 缺省 limit == 10（default_limit）
-  let defaulted = send(state, call_line(4, "list_proposals", Json::empty_object()))
+  let defaulted = send(
+    state,
+    call_line(4, "list_proposals", Json::empty_object()),
+  )
   assert_eq(obj(tool_payload(defaulted)).get("count"), Some(Json::number(3.0)))
 }
 
@@ -973,20 +1059,18 @@ fn seed_proposal(
     evolution_type: etype,
     matt_pocock_principle: etype.principle(),
     proposed_changes: [
-      @types.Change::MergeTools(
-        [
-          {
-            new_tool: "smart_fill",
-            merged_from: ["navigate", "click"],
-            new_interface: {
-              params: ["url", "selector"],
-              description: "One-stop form filling",
-              defaults: None,
-            },
-            backward_compatible: true,
+      @types.Change::MergeTools([
+        {
+          new_tool: "smart_fill",
+          merged_from: ["navigate", "click"],
+          new_interface: {
+            params: ["url", "selector"],
+            description: "One-stop form filling",
+            defaults: None,
           },
-        ],
-      ),
+          backward_compatible: true,
+        },
+      ]),
     ],
     expected_benefits: etype.expected_benefits(),
     validation_plan: {
@@ -1038,9 +1122,7 @@ async test "an illegal transition surfaces the legacy store message" {
   assert_eq(
     obj(tool_payload(resp)).get("error"),
     Some(
-      Json::string(
-        "Illegal proposal status transition: completed → approved",
-      ),
+      Json::string("Illegal proposal status transition: completed → approved"),
     ),
   )
 }
@@ -1054,7 +1136,10 @@ async test "repeated tool failures each still produce a well-formed response" {
   defer @fs.rmdir(tmp, recursive=true)
   let state = isolated_state(tmp)
   for i = 0; i < 5; i = i + 1 {
-    let resp = send(state, call_line(i, "propose_evolution", { "plugin_id": "ghost" }))
+    let resp = send(
+      state,
+      call_line(i, "propose_evolution", { "plugin_id": "ghost" }),
+    )
     assert_eq(is_tool_error(resp), true)
     assert_eq(obj(resp).get("id"), Some(Json::number(i.to_double())))
     // 每次都能重新解析（响应始终合法）

@@ -46,10 +46,10 @@ pub struct UpgradeExecutor {
   /// 非 dry-run 时使用的任务执行器。可注入，见 runner.mbt。
   run_task : async (@types.SubAgentTask) -> Json
   /// 非 dry-run 时使用的验证器。可注入，见 runner.mbt。
-  validate_level : async (
-    @types.ValidationLevelTag,
-    @types.EvolutionProposal,
-  ) -> (Bool, String)
+  validate_level : async (@types.ValidationLevelTag, @types.EvolutionProposal) -> (
+    Bool,
+    String,
+  )
   max_parallel : Int
 }
 
@@ -59,12 +59,12 @@ pub struct UpgradeExecutor {
 pub fn UpgradeExecutor::new(
   proposals : @store.ProposalStore,
   log : @store.ExecutionLog,
-  run_task~ : async (@types.SubAgentTask) -> Json = simulated_task,
-  validate_level~ : async (
-    @types.ValidationLevelTag,
-    @types.EvolutionProposal,
-  ) -> (Bool, String) = simulated_validation,
-  max_parallel~ : Int = default_max_parallel,
+  run_task? : async (@types.SubAgentTask) -> Json = simulated_task,
+  validate_level? : async (@types.ValidationLevelTag, @types.EvolutionProposal) -> (
+    Bool,
+    String,
+  ) = simulated_validation,
+  max_parallel? : Int = default_max_parallel,
 ) -> UpgradeExecutor {
   { proposals, log, run_task, validate_level, max_parallel }
 }
@@ -94,7 +94,7 @@ pub fn UpgradeExecutor::at(paths : @store.DataPaths) -> UpgradeExecutor {
 pub async fn UpgradeExecutor::execute(
   self : UpgradeExecutor,
   proposal_id : String,
-  dry_run~ : Bool = false,
+  dry_run? : Bool = false,
 ) -> ExecutionResult {
   @util.log_info("Executor", "Executing proposal: \{proposal_id}")
 
@@ -119,7 +119,9 @@ pub async fn UpgradeExecutor::execute(
     }
   }
 
-  ignore(self.proposals.set_status(proposal_id, @types.ProposalStatus::Executing))
+  ignore(
+    self.proposals.set_status(proposal_id, @types.ProposalStatus::Executing),
+  )
   self.log.append(
     proposal_id,
     @store.ExecEvent::Start,
@@ -129,14 +131,18 @@ pub async fn UpgradeExecutor::execute(
   // 外层兜住一切意外（TS L121-131）。
   // 这一层必不可少：native 后端下**未捕获异常的信息会被打到 stdout**
   // （Phase 0 门禁实测），而 stdout 是 MCP 的协议通道。
-  let outcome : ExecutionResult = try {
-    self.run_pipeline(proposal, dry_run)
-  } catch {
+  let outcome : ExecutionResult = self.run_pipeline(proposal, dry_run) catch {
     e => {
       let msg = e.to_string()
-      self.log.append(proposal_id, @store.ExecEvent::Error, "Unexpected error: \{msg}")
+      self.log.append(
+        proposal_id,
+        @store.ExecEvent::Error,
+        "Unexpected error: \{msg}",
+      )
       // executing → pending 是合法迁移（失败自动回滚，见 CONTEXT.md L24）
-      ignore(self.proposals.set_status(proposal_id, @types.ProposalStatus::Pending))
+      ignore(
+        self.proposals.set_status(proposal_id, @types.ProposalStatus::Pending),
+      )
       { success: false, results: [], error: Some("Unexpected error: \{msg}") }
     }
   }
@@ -149,14 +155,10 @@ async fn UpgradeExecutor::run_pipeline(
   self : UpgradeExecutor,
   proposal : @types.EvolutionProposal,
   dry_run : Bool,
-) -> ExecutionResult raise {
+) -> ExecutionResult {
   // dry_run 在此处一次性选定实现，而不是像 TS 那样在三处分别 if
   let runner = if dry_run { dry_run_task } else { self.run_task }
-  let validator = if dry_run {
-    dry_run_validation
-  } else {
-    self.validate_level
-  }
+  let validator = if dry_run { dry_run_validation } else { self.validate_level }
 
   let tasks = decompose_tasks(proposal)
   let layers = topo_layers(tasks)
@@ -268,19 +270,19 @@ async fn UpgradeExecutor::run_pipeline(
 /// 新版把「验什么」交给可注入的 `validator`，本函数只负责计时、超时与结果归一化。
 async fn UpgradeExecutor::run_validation_level(
   self : UpgradeExecutor,
-  validator : async (
-    @types.ValidationLevelTag,
-    @types.EvolutionProposal,
-  ) -> (Bool, String),
+  validator : async (@types.ValidationLevelTag, @types.EvolutionProposal) -> (
+    Bool,
+    String,
+  ),
   spec : @types.ValidationLevel,
   proposal : @types.EvolutionProposal,
 ) -> @types.SubAgentResult {
   ignore(self)
   let timeout = spec.timeout_ms.unwrap_or(default_validation_timeout_ms)
   let started = @util.now_ms()
-  let outcome : Result[(Bool, String)?, String] = try {
-    Ok(@async.with_timeout_opt(timeout, () => validator(spec.level, proposal)))
-  } catch {
+  let outcome : Result[(Bool, String)?, String] = Ok(
+    @async.with_timeout_opt(timeout, () => validator(spec.level, proposal)),
+  ) catch {
     e => Err(e.to_string())
   }
   let finished = @util.now_ms()
@@ -292,7 +294,11 @@ async fn UpgradeExecutor::run_validation_level(
         agent: @types.AgentType::Validator,
         success: ok,
         output: Some(Json::string(message)),
-        error: if ok { None } else { Some(message) },
+        error: if ok {
+          None
+        } else {
+          Some(message)
+        },
         duration_ms: finished - started,
       }
     Ok(None) =>
@@ -334,9 +340,9 @@ async fn run_with_timeout(
     "Executing task: \{task.agent.wire_name()} - \{task.task}",
   )
   let started = @util.now_ms()
-  let outcome : Result[Json?, String] = try {
-    Ok(@async.with_timeout_opt(task.timeout_ms, () => runner(task)))
-  } catch {
+  let outcome : Result[Json?, String] = Ok(
+    @async.with_timeout_opt(task.timeout_ms, () => runner(task)),
+  ) catch {
     e => Err(e.to_string())
   }
   let finished = @util.now_ms()
@@ -529,16 +535,14 @@ pub fn decompose_tasks(
     cg_ids.push(t.id)
   }
   if !cg_ids.is_empty() {
-    tasks.push(
-      {
-        id: "tw",
-        agent: @types.AgentType::TestWriter,
-        task: "编写测试用例：验证新功能",
-        input: ToJson::to_json(proposal.validation_plan.test_scenarios),
-        deps: cg_ids.copy(),
-        timeout_ms: 90_000,
-      },
-    )
+    tasks.push({
+      id: "tw",
+      agent: @types.AgentType::TestWriter,
+      task: "编写测试用例：验证新功能",
+      input: ToJson::to_json(proposal.validation_plan.test_scenarios),
+      deps: cg_ids.copy(),
+      timeout_ms: 90_000,
+    })
   }
 
   // 文档更新（TS L199-206）。deps 为空 → 可与代码生成并行
@@ -558,19 +562,17 @@ pub fn decompose_tasks(
     if !cg_ids.is_empty() {
       deps.push("tw")
     }
-    tasks.push(
-      {
-        id: "integ",
-        agent: @types.AgentType::Integration,
-        task: "集成变更：处理依赖关系和兼容性",
-        input: {
-          "plugin_id": Json::string(proposal.plugin_id),
-          "changes": ToJson::to_json(changes),
-        },
-        deps,
-        timeout_ms: 90_000,
+    tasks.push({
+      id: "integ",
+      agent: @types.AgentType::Integration,
+      task: "集成变更：处理依赖关系和兼容性",
+      input: {
+        "plugin_id": Json::string(proposal.plugin_id),
+        "changes": ToJson::to_json(changes),
       },
-    )
+      deps,
+      timeout_ms: 90_000,
+    })
   }
 
   tasks

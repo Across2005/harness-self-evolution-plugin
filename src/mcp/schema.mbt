@@ -38,6 +38,7 @@ pub let default_limit : Int = 10
 // Schema 构造
 // ----------------------------------------------------------------------------
 
+///|
 fn object_schema(properties : Json, required : Array[String]) -> Json {
   {
     "type": "object",
@@ -50,10 +51,12 @@ fn object_schema(properties : Json, required : Array[String]) -> Json {
   }
 }
 
+///|
 fn str_prop(description : String) -> Json {
   { "type": "string", "description": Json::string(description) }
 }
 
+///|
 fn bool_prop(description : String, default : Bool) -> Json {
   {
     "type": "boolean",
@@ -62,6 +65,7 @@ fn bool_prop(description : String, default : Bool) -> Json {
   }
 }
 
+///|
 fn number_prop(description : String, default : Int) -> Json {
   {
     "type": "number",
@@ -70,6 +74,7 @@ fn number_prop(description : String, default : Int) -> Json {
   }
 }
 
+///|
 fn string_array_prop(description : String) -> Json {
   {
     "type": "array",
@@ -98,8 +103,7 @@ pub fn scan_plugins_schema() -> Json {
   object_schema(
     {
       "force_rescan": bool_prop(
-        "强制重新扫描，即使已有缓存",
-        default_force_rescan,
+        "强制重新扫描，即使已有缓存", default_force_rescan,
       ),
       "target_paths": string_array_prop("自定义扫描路径（可选）"),
     },
@@ -130,7 +134,9 @@ pub fn propose_evolution_schema() -> Json {
   object_schema(
     {
       "plugin_id": str_prop("插件 ID"),
-      "signals": string_array_prop("手动提供的信号描述列表（可选）"),
+      "signals": string_array_prop(
+        "手动提供的信号描述列表（可选）",
+      ),
     },
     ["plugin_id"],
   )
@@ -142,7 +148,9 @@ pub fn execute_evolution_schema() -> Json {
   object_schema(
     {
       "proposal_id": str_prop("提案 ID"),
-      "dry_run": bool_prop("试运行模式（不实际修改文件）", default_dry_run),
+      "dry_run": bool_prop(
+        "试运行模式（不实际修改文件）", default_dry_run,
+      ),
     },
     ["proposal_id"],
   )

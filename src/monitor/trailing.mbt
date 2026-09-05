@@ -46,14 +46,18 @@ pub(all) struct TrailingState {
 ///|
 /// 初始状态：还没有任何调用。
 pub fn TrailingState::new() -> TrailingState {
-  { consecutive_failures: 0, last_tool: "", same_tool_run: 0, }
+  { consecutive_failures: 0, last_tool: "", same_tool_run: 0 }
 }
 
 ///|
 /// 消费一次工具调用，O(1) 更新全部计数。
 ///
 /// 顺序不可调换：`same_tool_run` 的判定依赖**更新前**的 `last_tool`。
-pub fn TrailingState::observe(self : TrailingState, tool : String, success : Bool) -> Unit {
+pub fn TrailingState::observe(
+  self : TrailingState,
+  tool : String,
+  success : Bool,
+) -> Unit {
   if success {
     self.consecutive_failures = 0
   } else {

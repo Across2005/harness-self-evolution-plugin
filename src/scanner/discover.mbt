@@ -48,25 +48,14 @@ pub let max_discovery_depth : Int = 3
 /// 清单文件的相对路径，按优先级排列（F3）。
 /// 第一个存在的即为该插件的元数据来源。
 pub let manifest_priority : Array[String] = [
-  ".zcode-plugin/plugin.json",
-  "package.json",
-  ".claude-plugin/plugin.json",
-  ".mcp.json",
-  ".zcode-plugin-seed.json",
-  "SKILL.md",
+  ".zcode-plugin/plugin.json", "package.json", ".claude-plugin/plugin.json", ".mcp.json",
+  ".zcode-plugin-seed.json", "SKILL.md",
 ]
 
 ///|
 /// 遍历时剪掉的目录名（P14）。
 pub let pruned_dirs : Array[String] = [
-  "node_modules",
-  ".git",
-  "dist",
-  "target",
-  "_build",
-  ".mooncakes",
-  ".venv",
-  "__pycache__",
+  "node_modules", ".git", "dist", "target", "_build", ".mooncakes", ".venv", "__pycache__",
   "coverage",
 ]
 
@@ -153,13 +142,14 @@ pub async fn find_manifest(dir : String) -> String? {
 /// 于是 `browser-use` 与 `browser-use/0.4.1` 不会被同时计入。
 pub async fn discover_plugins(
   root : String,
-  max_depth~ : Int = max_discovery_depth,
+  max_depth? : Int = max_discovery_depth,
 ) -> Array[DiscoveredPlugin] {
   let out : Array[DiscoveredPlugin] = []
   scan_children(root, 1, max_depth, out)
   out
 }
 
+///|
 async fn scan_children(
   dir : String,
   depth : Int,
@@ -176,7 +166,7 @@ async fn scan_children(
     }
     let child = @util.path_join(dir, name)
     match find_manifest(child) {
-      Some(manifest) => out.push({ dir: child, manifest, depth, })
+      Some(manifest) => out.push({ dir: child, manifest, depth })
       None =>
         if depth < max_depth {
           scan_children(child, depth + 1, max_depth, out)
@@ -248,6 +238,7 @@ pub async fn list_files_recursive(
   out
 }
 
+///|
 async fn walk_into(
   dir : String,
   accept : (String) -> Bool,
@@ -282,12 +273,10 @@ pub async fn list_source_files(dir : String) -> Array[String] {
 ///|
 /// 读取文本文件；不存在或不可读返回 `None`（不上抛）。
 pub async fn read_text_or_none(path : String) -> String? {
-  if !(@fs.exists(path)) {
+  if !@fs.exists(path) {
     return None
   }
-  try {
-    Some(@fs.read_file(path).text())
-  } catch {
+  Some(@fs.read_file(path).text()) catch {
     e => {
       @util.log_warn("Scanner", "Cannot read \{path}: \{e.to_string()}")
       None

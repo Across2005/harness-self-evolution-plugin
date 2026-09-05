@@ -16,13 +16,15 @@
 ///
 /// 时钟源用 `@env.now()`（`core/env/env.mbt` 注释明示为 "milliseconds since the Unix
 /// epoch"），**不用** `@async.now()` —— 后者已 `#deprecated("use @env.now() ...")`。
-
 let ms_per_second : Int64 = 1_000L
 
+///|
 let ms_per_minute : Int64 = 60_000L
 
+///|
 let ms_per_hour : Int64 = 3_600_000L
 
+///|
 let ms_per_day : Int64 = 86_400_000L
 
 ///|
@@ -84,6 +86,7 @@ fn civil_from_days(z : Int64) -> (Int64, Int64, Int64) {
   (yoe + era * 400L + (if m <= 2L { 1L } else { 0L }), m, d)
 }
 
+///|
 fn pad(n : Int64, width : Int) -> String {
   n.to_string().pad_start(width, '0')
 }

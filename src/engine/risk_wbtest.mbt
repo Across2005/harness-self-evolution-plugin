@@ -50,10 +50,7 @@ test "generate_signature drops only the trailing version segment" {
     "my-cool-plugin-documentation-enhancement",
   )
   assert_eq(
-    generate_signature(
-      "a-b-c-d-2",
-      @types.EvolutionType::BehaviorOptimization,
-    ),
+    generate_signature("a-b-c-d-2", @types.EvolutionType::BehaviorOptimization),
     // split('-') = [a,b,c,d,2] → slice(0,-1) = [a,b,c,d] → "a-b-c-d"
     "a-b-c-d-behavior-optimization",
   )
@@ -94,15 +91,9 @@ test "determine_confidence follows the TS thresholds and their order" {
   assert_eq(determine_confidence([medium, medium]), @types.Confidence::Medium)
   // strong >= 1 → Medium
   assert_eq(determine_confidence([strong]), @types.Confidence::Medium)
-  assert_eq(
-    determine_confidence([strong, weak]),
-    @types.Confidence::Medium,
-  )
+  assert_eq(determine_confidence([strong, weak]), @types.Confidence::Medium)
   // strong >= 2 → High（优先于 medium 计数）
-  assert_eq(
-    determine_confidence([strong, strong]),
-    @types.Confidence::High,
-  )
+  assert_eq(determine_confidence([strong, strong]), @types.Confidence::High)
   assert_eq(
     determine_confidence([strong, strong, medium, weak]),
     @types.Confidence::High,
@@ -113,6 +104,7 @@ test "determine_confidence follows the TS thresholds and their order" {
 // filter_by_intensity（TS L163-174）
 // ============================================================================
 
+///|
 test "filter_by_intensity keeps everything at Full, only strong at Half" {
   let all = [
     strength_signal(@types.SignalStrength::Strong),
@@ -135,6 +127,7 @@ test "filter_by_intensity keeps everything at Full, only strong at Half" {
 // 风险判定（TS L575-620）
 // ============================================================================
 
+///|
 fn merge(compatible : Bool) -> @types.ToolMerge {
   {
     new_tool: "smart_fill",
@@ -144,10 +137,15 @@ fn merge(compatible : Bool) -> @types.ToolMerge {
   }
 }
 
-fn simplification(removed : Array[String], defaults : Json) -> @types.ParamSimplification {
+///|
+fn simplification(
+  removed : Array[String],
+  defaults : Json,
+) -> @types.ParamSimplification {
   { tool: "t", remove_params: removed, defaults, reason: "r" }
 }
 
+///|
 test "has_breaking_changes detects incompatible merges and undefaulted removals" {
   assert_eq(has_breaking_changes([]), false)
   assert_eq(
@@ -160,36 +158,34 @@ test "has_breaking_changes detects incompatible merges and undefaulted removals"
   )
   // 默认值数量 >= 被移除参数数量 → 不破坏
   assert_eq(
-    has_breaking_changes(
-      [@types.Change::SimplifyParams([simplification(["a", "b"], { "a": 1, "b": 2 })])],
-    ),
+    has_breaking_changes([
+      @types.Change::SimplifyParams([
+        simplification(["a", "b"], { "a": 1, "b": 2 }),
+      ]),
+    ]),
     false,
   )
   // 默认值数量 < 被移除参数数量 → 破坏（TS L582）
   assert_eq(
-    has_breaking_changes(
-      [@types.Change::SimplifyParams([simplification(["a", "b"], { "a": 1 })])],
-    ),
+    has_breaking_changes([
+      @types.Change::SimplifyParams([simplification(["a", "b"], { "a": 1 })]),
+    ]),
     true,
   )
   // 其他变更种类不参与这两条判据
   assert_eq(
-    has_breaking_changes(
-      [
-        @types.Change::AddMiddleware(
-          [
-            {
-              name: "loop_detection",
-              target_tool: Some("a"),
-              target_event: None,
-              threshold: Some(5),
-              intervention: "i",
-              priority: 10,
-            },
-          ],
-        ),
-      ],
-    ),
+    has_breaking_changes([
+      @types.Change::AddMiddleware([
+        {
+          name: "loop_detection",
+          target_tool: Some("a"),
+          target_event: None,
+          threshold: Some(5),
+          intervention: "i",
+          priority: 10,
+        },
+      ]),
+    ]),
     false,
   )
 }
@@ -203,44 +199,39 @@ test "is_backward_compatible treats an empty change set as compatible" {
   assert_eq(is_backward_compatible([]), true)
   // 全部兼容的合并 → true
   assert_eq(
-    is_backward_compatible([@types.Change::MergeTools([merge(true), merge(true)])]),
+    is_backward_compatible([
+      @types.Change::MergeTools([merge(true), merge(true)]),
+    ]),
     true,
   )
   // 有一个不兼容 → false
   assert_eq(
-    is_backward_compatible([@types.Change::MergeTools([merge(true), merge(false)])]),
+    is_backward_compatible([
+      @types.Change::MergeTools([merge(true), merge(false)]),
+    ]),
     false,
   )
   // 每个被移除的参数都有默认值 → true
   assert_eq(
-    is_backward_compatible(
-      [@types.Change::SimplifyParams([simplification(["a"], { "a": 1 })])],
-    ),
+    is_backward_compatible([
+      @types.Change::SimplifyParams([simplification(["a"], { "a": 1 })]),
+    ]),
     true,
   )
   // 有参数没默认值 → false
   assert_eq(
-    is_backward_compatible(
-      [@types.Change::SimplifyParams([simplification(["a", "b"], { "a": 1 })])],
-    ),
+    is_backward_compatible([
+      @types.Change::SimplifyParams([simplification(["a", "b"], { "a": 1 })]),
+    ]),
     false,
   )
   // 既无合并也无参数简化（例如只有文档更新）→ true
   assert_eq(
-    is_backward_compatible(
-      [
-        @types.Change::UpdateDocumentation(
-          [
-            {
-              file: "SKILL.md",
-              section: "s",
-              new_content: "c",
-              reason: "r",
-            },
-          ],
-        ),
-      ],
-    ),
+    is_backward_compatible([
+      @types.Change::UpdateDocumentation([
+        { file: "SKILL.md", section: "s", new_content: "c", reason: "r" },
+      ]),
+    ]),
     true,
   )
 }
@@ -279,49 +270,42 @@ test "estimate_migration_effort counts non-empty change kinds" {
   )
   // **空数组的组不计入** —— 这正是 TS 那个 filter 的作用
   assert_eq(
-    estimate_migration_effort(
-      [
-        @types.Change::UpdateDocumentation([doc]),
-        @types.Change::AddMiddleware([]),
-        @types.Change::MergeTools([]),
-      ],
-    ),
+    estimate_migration_effort([
+      @types.Change::UpdateDocumentation([doc]),
+      @types.Change::AddMiddleware([]),
+      @types.Change::MergeTools([]),
+    ]),
     @types.MigrationEffort::Low,
   )
   // 2-3 组 → Medium
   assert_eq(
-    estimate_migration_effort(
-      [
-        @types.Change::UpdateDocumentation([doc]),
-        @types.Change::AddMiddleware([mw]),
-      ],
-    ),
+    estimate_migration_effort([
+      @types.Change::UpdateDocumentation([doc]),
+      @types.Change::AddMiddleware([mw]),
+    ]),
     @types.MigrationEffort::Medium,
   )
   assert_eq(
-    estimate_migration_effort(
-      [
-        @types.Change::UpdateDocumentation([doc]),
-        @types.Change::AddMiddleware([mw]),
-        @types.Change::AddCapability([cap]),
-      ],
-    ),
+    estimate_migration_effort([
+      @types.Change::UpdateDocumentation([doc]),
+      @types.Change::AddMiddleware([mw]),
+      @types.Change::AddCapability([cap]),
+    ]),
     @types.MigrationEffort::Medium,
   )
   // 4 组及以上 → High
   assert_eq(
-    estimate_migration_effort(
-      [
-        @types.Change::UpdateDocumentation([doc]),
-        @types.Change::AddMiddleware([mw]),
-        @types.Change::AddCapability([cap]),
-        @types.Change::MergeTools([merge(true)]),
-      ],
-    ),
+    estimate_migration_effort([
+      @types.Change::UpdateDocumentation([doc]),
+      @types.Change::AddMiddleware([mw]),
+      @types.Change::AddCapability([cap]),
+      @types.Change::MergeTools([merge(true)]),
+    ]),
     @types.MigrationEffort::High,
   )
 }
 
+///|
 test "assess_risks composes the three judgements" {
   let risk = assess_risks([@types.Change::MergeTools([merge(false)])])
   assert_eq(risk.breaking_changes, true)
@@ -341,7 +325,11 @@ test "assess_risks composes the three judgements" {
 // 变更生成与验证计划（TS L303-334, L381-410, L501-545）
 // ============================================================================
 
-fn plugin_with(tools : Array[String], doc_quality : Double) -> @types.PluginMetadata {
+///|
+fn plugin_with(
+  tools : Array[String],
+  doc_quality : Double,
+) -> @types.PluginMetadata {
   {
     plugin_id: "p-1.0.0",
     name: "p",
@@ -366,7 +354,14 @@ fn plugin_with(tools : Array[String], doc_quality : Double) -> @types.PluginMeta
 /// TS L315-331 的硬编码启发式：少于 3 个工具不提议；
 /// 同时具备 navigate/click/type 才提议 smart_fill。
 test "plan_merges only fires for the navigate+click+type triple" {
-  assert_eq(plan_changes(plugin_with(["a", "b"], 9.0), @types.EvolutionType::InterfaceSimplification, []).length(), 0)
+  assert_eq(
+    plan_changes(
+      plugin_with(["a", "b"], 9.0),
+      @types.EvolutionType::InterfaceSimplification,
+      [],
+    ).length(),
+    0,
+  )
   assert_eq(
     plan_changes(
       plugin_with(["navigate", "click"], 9.0),
@@ -397,7 +392,11 @@ test "plan_merges only fires for the navigate+click+type triple" {
 test "plan_docs reacts to low documentation quality and workflow signals" {
   // 文档质量 9.0 >= 7，且无 workflow 信号 → 空
   assert_eq(
-    plan_changes(plugin_with([], 9.0), @types.EvolutionType::DocumentationEnhancement, []).length(),
+    plan_changes(
+      plugin_with([], 9.0),
+      @types.EvolutionType::DocumentationEnhancement,
+      [],
+    ).length(),
     0,
   )
   // 文档质量 5.0 < 7 → 一条
@@ -422,28 +421,31 @@ test "plan_docs reacts to low documentation quality and workflow signals" {
 /// `capabilities` 有 4 个，故只取 alpha/beta/gamma。
 test "plan_validation takes the first three capabilities then type extras" {
   let plugin = plugin_with([], 9.0)
-  let plan = plan_validation(@types.EvolutionType::InterfaceSimplification, plugin)
-  json_inspect(
-    plan.test_scenarios,
-    content=[
-      "测试 alpha 功能",
-      "测试 beta 功能",
-      "测试 gamma 功能",
-      "测试新工具接口",
-      "测试向后兼容性",
-    ],
+  let plan = plan_validation(
+    @types.EvolutionType::InterfaceSimplification,
+    plugin,
   )
-  assert_eq(plan.success_criteria, "成功率 >= 95%，延迟 < 2s，无回归问题")
-  assert_eq(plan.rollback_strategy, "保留原版本 30 天，支持一键回滚")
+  json_inspect(plan.test_scenarios, content=[
+    "测试 alpha 功能", "测试 beta 功能", "测试 gamma 功能", "测试新工具接口",
+    "测试向后兼容性",
+  ])
+  assert_eq(
+    plan.success_criteria,
+    "成功率 >= 95%，延迟 < 2s，无回归问题",
+  )
+  assert_eq(
+    plan.rollback_strategy,
+    "保留原版本 30 天，支持一键回滚",
+  )
   assert_eq(plan.validation_levels.length(), 3)
-  json_inspect(
-    plan.validation_levels.map(fn(l) { l.level.wire_name() }),
-    content=["T0", "T1", "T2"],
-  )
-  json_inspect(
-    plan.validation_levels.map(fn(l) { l.timeout_ms }),
-    content=[Some(30000), Some(60000), Some(120000)],
-  )
+  json_inspect(plan.validation_levels.map(fn(l) { l.level.wire_name() }), content=[
+    "T0", "T1", "T2",
+  ])
+  json_inspect(plan.validation_levels.map(fn(l) { l.timeout_ms }), content=[
+    Some(30000),
+    Some(60000),
+    Some(120000),
+  ])
 
   // 能力不足 3 个时全取
   let small = plan_validation(

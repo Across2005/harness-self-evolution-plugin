@@ -14,6 +14,7 @@ keywords = [ "harness", "evolution", "self-improvement", "matt-pocock", "mcp" ]
 // 只在 native 后端有实现（其 internal/event_loop/moon.pkg 的 targets 表把
 // fs.mbt/io.mbt 限定为 ["native","wasm"]、event_loop.mbt 限定为 ["native"]；
 // js 后端只有 event_loop.js.mbt + timer.js.mbt + js_async 的 Promise 互操作）。
+
 preferred_target = "native"
 
 source = "src"

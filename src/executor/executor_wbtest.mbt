@@ -7,10 +7,10 @@
 /// 对应 legacy 的 `makeProposal`（executor.test.ts L13-59）。
 /// 默认形态：approved + 一条 merge_tools 变更 + T0/T1/T2 三级验证。
 fn make_proposal(
-  proposal_id~ : String = "evo-test-1",
-  status~ : @types.ProposalStatus = @types.ProposalStatus::Approved,
-  changes~ : Array[@types.Change] = [merge_change()],
-  levels~ : Array[@types.ValidationLevel] = default_levels(),
+  proposal_id? : String = "evo-test-1",
+  status? : @types.ProposalStatus = @types.ProposalStatus::Approved,
+  changes? : Array[@types.Change] = [merge_change()],
+  levels? : Array[@types.ValidationLevel] = default_levels(),
 ) -> @types.EvolutionProposal {
   {
     proposal_id,
@@ -43,20 +43,18 @@ fn make_proposal(
 ///|
 /// legacy makeProposal L23-33 里的那条 smart_fill 合并变更。
 fn merge_change() -> @types.Change {
-  @types.Change::MergeTools(
-    [
-      {
-        new_tool: "smart_fill",
-        merged_from: ["navigate", "click", "type"],
-        new_interface: {
-          params: ["url", "selector", "text"],
-          description: "One-stop form filling",
-          defaults: None,
-        },
-        backward_compatible: true,
+  @types.Change::MergeTools([
+    {
+      new_tool: "smart_fill",
+      merged_from: ["navigate", "click", "type"],
+      new_interface: {
+        params: ["url", "selector", "text"],
+        description: "One-stop form filling",
+        defaults: None,
       },
-    ],
-  )
+      backward_compatible: true,
+    },
+  ])
 }
 
 ///|
@@ -96,6 +94,7 @@ fn make_executor(
   (UpgradeExecutor::new(proposals, log), proposals, log)
 }
 
+///|
 fn has_agent(
   results : ArrayView[@types.SubAgentResult],
   agent : @types.AgentType,
@@ -261,14 +260,10 @@ async test "rejects executing a pending proposal" {
 /// 与 TS 的串行 3 步任务数相同 —— 收益要在有 doc-writer 时才显现（见下一例）。
 test "decompose_tasks reproduces the legacy task set for a merge-only proposal" {
   let tasks = decompose_tasks(make_proposal())
-  json_inspect(
-    tasks.map(fn(t) { t.id }),
-    content=["cg-merge", "tw", "integ"],
-  )
-  json_inspect(
-    tasks.map(fn(t) { t.agent.wire_name() }),
-    content=["code-generator", "test-writer", "integration"],
-  )
+  json_inspect(tasks.map(fn(t) { t.id }), content=["cg-merge", "tw", "integ"])
+  json_inspect(tasks.map(fn(t) { t.agent.wire_name() }), content=[
+    "code-generator", "test-writer", "integration",
+  ])
   // ★ deps 引用的是**任务 id**，不是 TS L193/L217 那种 agent 类型名
   json_inspect(tasks[1].deps, content=["cg-merge"])
   json_inspect(tasks[2].deps, content=["cg-merge", "tw"])
@@ -290,22 +285,19 @@ test "decompose_tasks reproduces the legacy task set for a merge-only proposal" 
 test "doc-writer runs in the same layer as code-generator" {
   let changes = [
     merge_change(),
-    @types.Change::UpdateDocumentation(
-      [
-        {
-          file: "SKILL.md",
-          section: "Usage Examples",
-          new_content: "c",
-          reason: "r",
-        },
-      ],
-    ),
+    @types.Change::UpdateDocumentation([
+      {
+        file: "SKILL.md",
+        section: "Usage Examples",
+        new_content: "c",
+        reason: "r",
+      },
+    ]),
   ]
-  let tasks = decompose_tasks(make_proposal(changes=changes))
-  json_inspect(
-    tasks.map(fn(t) { t.id }),
-    content=["cg-merge", "tw", "dw", "integ"],
-  )
+  let tasks = decompose_tasks(make_proposal(changes~))
+  json_inspect(tasks.map(fn(t) { t.id }), content=[
+    "cg-merge", "tw", "dw", "integ",
+  ])
   // dw 无依赖 → 与 cg-merge 同层
   json_inspect(tasks[2].deps, content=[])
 
@@ -323,18 +315,11 @@ test "doc-writer runs in the same layer as code-generator" {
 /// `tasks.length > 1`（严格大于），单个 dw 任务不满足。
 test "a documentation-only proposal yields exactly one task and no integration" {
   let changes = [
-    @types.Change::UpdateDocumentation(
-      [
-        {
-          file: "SKILL.md",
-          section: "Workflow",
-          new_content: "c",
-          reason: "r",
-        },
-      ],
-    ),
+    @types.Change::UpdateDocumentation([
+      { file: "SKILL.md", section: "Workflow", new_content: "c", reason: "r" },
+    ]),
   ]
-  let tasks = decompose_tasks(make_proposal(changes=changes))
+  let tasks = decompose_tasks(make_proposal(changes~))
   json_inspect(tasks.map(fn(t) { t.id }), content=["dw"])
   // 没有 code-generator → 也不产生 test-writer（TS L188 的条件）
   assert_eq(has_agent([], @types.AgentType::TestWriter), false)
@@ -556,9 +541,13 @@ async test "writes an execution log with the legacy line format" {
   let lines = log.read()
   assert_true(lines.length() >= 2)
   // 首行是 start，末行是 complete
-  assert_true(lines[0].contains("[evo-test-1] [start] Starting execution of evo-test-1"))
+  assert_true(
+    lines[0].contains("[evo-test-1] [start] Starting execution of evo-test-1"),
+  )
   let last = lines[lines.length() - 1]
-  assert_true(last.contains("[evo-test-1] [complete] Execution completed successfully"))
+  assert_true(
+    last.contains("[evo-test-1] [complete] Execution completed successfully"),
+  )
   // 每层一条 progress
   let mut progress = 0
   for line in lines {

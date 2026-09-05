@@ -31,6 +31,7 @@ fn assert_metrics(
   assert_eq(m.usage_frequency, Some(@types.UsageFrequency::Idle))
 }
 
+///|
 test "compute_metrics matches the TS formula on nine node-verified cases" {
   // 无根 SKILL.md → documentationScore 恒为 5（TS L308）
   assert_metrics(None, 0, 0, 2.0, 9.0, 5.0)

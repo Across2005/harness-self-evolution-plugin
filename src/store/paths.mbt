@@ -37,14 +37,14 @@ pub fn DataPaths::default() -> DataPaths {
     Some(h) if h.length() > 0 => @util.expand_home(h)
     _ => @util.expand_home("~/.harness-evolution/v2")
   }
-  { root: @util.path_normalize(root), }
+  { root: @util.path_normalize(root) }
 }
 
 ///|
 /// 指定根目录。测试用它把数据隔离到 `@fs.tmpdir` 里，
 /// 从而不必触碰真实的 home 目录 —— 这是全部 store 测试能并行安全的前提。
 pub fn DataPaths::at(root : String) -> DataPaths {
-  { root: @util.path_normalize(@util.expand_home(root)), }
+  { root: @util.path_normalize(@util.expand_home(root)) }
 }
 
 ///|
@@ -87,7 +87,7 @@ pub fn DataPaths::execution_log(self : DataPaths) -> String {
 /// 确保根目录存在。所有写入前调用一次即可（`@fs.mkdir` 缺省 `recursive=false`，
 /// 且其递归回退仅在 ENOENT 时生效，故必须显式传 `recursive=true` —— Phase 0 门禁实测）。
 pub async fn DataPaths::ensure_root(self : DataPaths) -> Unit {
-  if !(@fs.exists(self.root)) {
+  if !@fs.exists(self.root) {
     @fs.mkdir(self.root, recursive=true)
   }
 }
@@ -100,7 +100,7 @@ pub async fn DataPaths::warn_on_legacy_v1(self : DataPaths) -> Unit {
   if v1 == self.root {
     return
   }
-  if !(@fs.exists(v1)) {
+  if !@fs.exists(v1) {
     return
   }
   if @fs.exists(self.root) {

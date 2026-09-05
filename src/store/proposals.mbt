@@ -191,7 +191,10 @@ pub async fn ProposalStore::save(
 
 ///|
 /// 把一条记录并入内存索引（append-only 折叠的内存侧）。
-fn ProposalStore::absorb(self : ProposalStore, row : @types.EvolutionProposal) -> Unit {
+fn ProposalStore::absorb(
+  self : ProposalStore,
+  row : @types.EvolutionProposal,
+) -> Unit {
   let index = match self.by_id.get(row.proposal_id) {
     Some(i) => i
     None => {
@@ -231,7 +234,7 @@ pub async fn ProposalStore::set_status(
   self : ProposalStore,
   proposal_id : String,
   status : @types.ProposalStatus,
-) -> Bool raise {
+) -> Bool {
   self.refresh()
   let index = match self.by_id.get(proposal_id) {
     Some(i) => i

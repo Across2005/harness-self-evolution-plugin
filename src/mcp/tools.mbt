@@ -32,13 +32,9 @@ pub struct ServerState {
 /// 用 `DataPaths` 装配整套子系统（生产路径，扫描根取机器默认值）。
 pub fn ServerState::at(
   paths : @store.DataPaths,
-  config~ : @types.EngineConfig = @types.EngineConfig::default(),
+  config? : @types.EngineConfig = @types.EngineConfig::default(),
 ) -> ServerState {
-  ServerState::with_scan_config(
-    paths,
-    @scanner.ScanConfig::at(paths),
-    config=config,
-  )
+  ServerState::with_scan_config(paths, @scanner.ScanConfig::at(paths), config~)
 }
 
 ///|
@@ -58,7 +54,7 @@ pub fn ServerState::at(
 pub fn ServerState::with_scan_config(
   paths : @store.DataPaths,
   scan : @scanner.ScanConfig,
-  config~ : @types.EngineConfig = @types.EngineConfig::default(),
+  config? : @types.EngineConfig = @types.EngineConfig::default(),
 ) -> ServerState {
   let proposals = @store.ProposalStore::at(paths)
   let monitor = @monitor.PerformanceMonitor::at(paths)
@@ -120,7 +116,10 @@ pub async fn ServerState::shutdown(self : ServerState) -> Unit {
 
 ///|
 /// 用扫描结果重建注册表。
-fn ServerState::adopt(self : ServerState, profiles : ArrayView[@types.PluginMetadata]) -> Unit {
+fn ServerState::adopt(
+  self : ServerState,
+  profiles : ArrayView[@types.PluginMetadata],
+) -> Unit {
   self.registry.clear()
   self.registry_index.clear()
   for p in profiles {
@@ -150,7 +149,9 @@ pub struct Tool {
 /// `JSON.stringify(value, null, 2)` 逐字节对齐（决策 D14）。
 pub fn json_ok(value : Json) -> Json {
   {
-    "content": Json::array([{ "type": "text", "text": Json::string(value.stringify(indent=2)) }]),
+    "content": Json::array([
+      { "type": "text", "text": Json::string(value.stringify(indent=2)) },
+    ]),
   }
 }
 
@@ -162,7 +163,9 @@ pub fn json_error(message : String) -> Json {
   // struct 字面量推断（工具链报 "Type Map[String, Bool] has no method stringify"）。
   let body : Json = { "success": false, "error": Json::string(message) }
   {
-    "content": Json::array([{ "type": "text", "text": Json::string(body.stringify(indent=2)) }]),
+    "content": Json::array([
+      { "type": "text", "text": Json::string(body.stringify(indent=2)) },
+    ]),
     "isError": true,
   }
 }
@@ -191,11 +194,11 @@ pub fn json_error(message : String) -> Json {
 /// 但**只能匹配该 try 体声明过的 raise 类型** —— 匹配不在集合里的构造器
 /// 会报 "Constr Type Mismatch"，所以下面三个分支缺一不可。
 pub async fn call_tool(state : ServerState, tool : Tool, args : Json) -> Json {
-  let outcome : Result[Json, String] = try {
+  let outcome : Result[Json, String] = Ok(
     // 函数型字段必须加括号调用：`tool.handler(..)` 会被当成方法查找
     // 而报 "Type Tool has no method handler"。
-    Ok((tool.handler)(state, args))
-  } catch {
+    (tool.handler)(state, args),
+  ) catch {
     // 业务错误走内置 `Failure`（携带一个 String）—— 取出裸消息
     Failure(message) => Err(message)
     // 参数解码失败：载荷是 (路径, 消息) 二元组。
@@ -286,13 +289,11 @@ pub fn find_tool(name : String) -> Tool? {
 pub fn tools_list_result() -> Json {
   let list : Array[Json] = []
   for t in tools() {
-    list.push(
-      {
-        "name": Json::string(t.name),
-        "description": Json::string(t.description),
-        "inputSchema": t.schema,
-      },
-    )
+    list.push({
+      "name": Json::string(t.name),
+      "description": Json::string(t.description),
+      "inputSchema": t.schema,
+    })
   }
   { "tools": Json::array(list) }
 }
@@ -327,18 +328,16 @@ async fn handle_scan_plugins(state : ServerState, args : Json) -> Json {
 
   let plugins : Array[Json] = []
   for p in state.registry {
-    plugins.push(
-      {
-        "plugin_id": Json::string(p.plugin_id),
-        "name": Json::string(p.name),
-        "version": Json::string(p.version),
-        // 响应里的键名仍是 `type`（不是 `kind`）：这是对外契约，
-        // 与 TS L141 一致，改它会让既有客户端读不到字段。
-        "type": ToJson::to_json(p.kind),
-        "capabilities": ToJson::to_json(p.capabilities),
-        "tools_count": Json::number(p.tools.length().to_double()),
-      },
-    )
+    plugins.push({
+      "plugin_id": Json::string(p.plugin_id),
+      "name": Json::string(p.name),
+      "version": Json::string(p.version),
+      // 响应里的键名仍是 `type`（不是 `kind`）：这是对外契约，
+      // 与 TS L141 一致，改它会让既有客户端读不到字段。
+      "type": ToJson::to_json(p.kind),
+      "capabilities": ToJson::to_json(p.capabilities),
+      "tools_count": Json::number(p.tools.length().to_double()),
+    })
   }
   {
     "success": true,
@@ -383,9 +382,7 @@ async fn handle_propose_evolution(state : ServerState, args : Json) -> Json {
     Some(p) => p
     // 抛错即走 call_tool 的 isError 路径，消息与 TS L173 逐字一致
     None =>
-      raise Failure(
-        "Plugin not found: \{a.plugin_id}. Run scan_plugins first.",
-      )
+      raise Failure("Plugin not found: \{a.plugin_id}. Run scan_plugins first.")
   }
 
   // 手动提供的信号描述 → medium/pattern 信号（对应 TS L177-186）
@@ -394,18 +391,16 @@ async fn handle_propose_evolution(state : ServerState, args : Json) -> Json {
       let now = @util.now_ms()
       let out : Array[@types.EvolutionSignal] = []
       for description in descriptions {
-        out.push(
-          {
-            strength: @types.SignalStrength::Medium,
-            category: @types.SignalCategory::Pattern,
-            description,
-            evidence: @types.Evidence::UserManual,
-            ts: now,
-            plugin_id: a.plugin_id,
-            count: None,
-            tool: None,
-          },
-        )
+        out.push({
+          strength: @types.SignalStrength::Medium,
+          category: @types.SignalCategory::Pattern,
+          description,
+          evidence: @types.Evidence::UserManual,
+          ts: now,
+          plugin_id: a.plugin_id,
+          count: None,
+          tool: None,
+        })
       }
       Some(out)
     }
@@ -443,7 +438,7 @@ async fn handle_propose_evolution(state : ServerState, args : Json) -> Json {
 async fn handle_execute_evolution(state : ServerState, args : Json) -> Json {
   let a : ExecuteEvolutionArgs = @json.from_json(args)
   let dry_run = a.dry_run.unwrap_or(default_dry_run)
-  let result = state.executor.execute(a.proposal_id, dry_run=dry_run)
+  let result = state.executor.execute(a.proposal_id, dry_run~)
 
   let items : Array[Json] = []
   for r in result.results {
@@ -506,19 +501,17 @@ async fn handle_list_proposals(state : ServerState, args : Json) -> Json {
 
   let items : Array[Json] = []
   for p in proposals {
-    items.push(
-      {
-        "proposal_id": Json::string(p.proposal_id),
-        "plugin_id": Json::string(p.plugin_id),
-        "evolution_type": ToJson::to_json(p.evolution_type),
-        "status": ToJson::to_json(p.status),
-        // 内部表示是 Int64 毫秒，但**对外仍输出 ISO-8601 字符串**：
-        // TS L256 返回的就是 `created_at` 原文（ISO 串），保持响应形状不变，
-        // 而且 ISO 串对读它的人和 LLM 都更有用。
-        "created_at": Json::string(@util.iso_utc(p.created_at)),
-        "confidence": ToJson::to_json(p.confidence),
-      },
-    )
+    items.push({
+      "proposal_id": Json::string(p.proposal_id),
+      "plugin_id": Json::string(p.plugin_id),
+      "evolution_type": ToJson::to_json(p.evolution_type),
+      "status": ToJson::to_json(p.status),
+      // 内部表示是 Int64 毫秒，但**对外仍输出 ISO-8601 字符串**：
+      // TS L256 返回的就是 `created_at` 原文（ISO 串），保持响应形状不变，
+      // 而且 ISO 串对读它的人和 LLM 都更有用。
+      "created_at": Json::string(@util.iso_utc(p.created_at)),
+      "confidence": ToJson::to_json(p.confidence),
+    })
   }
   {
     "success": true,
@@ -601,10 +594,7 @@ fn tool_call_target(params : Json) -> Result[(Tool, Json), String] {
 /// | `tools/list` | 7 个工具 |
 /// | `tools/call` | 工具结果或 isError |
 /// | 其他 | `-32601 Method not found` |
-pub async fn handle_message(
-  state : ServerState,
-  req : RpcRequest,
-) -> Json? {
+pub async fn handle_message(state : ServerState, req : RpcRequest) -> Json? {
   if req.is_notification() {
     // notifications/initialized、notifications/cancelled 等一律不回应
     return None
@@ -617,8 +607,7 @@ pub async fn handle_message(
       match tool_call_target(req.params) {
         Ok((tool, arguments)) =>
           Some(result_msg(req.id, call_tool(state, tool, arguments)))
-        Err(message) =>
-          Some(error_msg(req.id, code_invalid_params, message))
+        Err(message) => Some(error_msg(req.id, code_invalid_params, message))
       }
     _ =>
       Some(

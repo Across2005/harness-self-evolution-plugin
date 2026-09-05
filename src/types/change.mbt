@@ -103,6 +103,8 @@ pub fn changes_kinds(cs : ArrayView[Change]) -> Array[ChangeKind] {
 // 于是 executor 跳包调 `ToJson::to_json(Array[Change])` 会报
 // "type Change does not implement trait ToJson: no impl is defined"。
 // （types 包内部的 derive 能看见它们，所以这个错误只会在下游包暴露。）
+
+///|
 pub impl ToJson for Change with fn to_json(self : Change) -> Json {
   // "kind" 一律取自 `ChangeKind` 的 wire 表，**不在本文件重写字面量** ——
   // 否则词汇表就有了两份副本，正是 util/wire.mbt 要消除的问题。
@@ -122,6 +124,7 @@ pub impl ToJson for Change with fn to_json(self : Change) -> Json {
   { "kind": kind, "items": items }
 }
 
+///|
 pub impl @json.FromJson for Change with fn from_json(
   json : Json,
   path : @json.JsonPath,
@@ -142,7 +145,8 @@ pub impl @json.FromJson for Change with fn from_json(
   let items_path = path.add_key("items")
   let items = match obj.get("items") {
     Some(j) => j
-    None => raise @json.JsonDecodeError((items_path, "Change: missing \"items\""))
+    None =>
+      raise @json.JsonDecodeError((items_path, "Change: missing \"items\""))
   }
   match kind {
     ChangeKind::MergeTools =>

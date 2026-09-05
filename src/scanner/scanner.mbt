@@ -65,11 +65,7 @@ pub fn ScanConfig::at(paths : @store.DataPaths) -> ScanConfig {
 ///|
 /// 指定缓存路径，扫描根取默认值。
 pub fn ScanConfig::with_cache(cache_path : String) -> ScanConfig {
-  {
-    roots: default_scan_roots(),
-    cache_path,
-    max_depth: max_discovery_depth,
-  }
+  { roots: default_scan_roots(), cache_path, max_depth: max_discovery_depth }
 }
 
 ///|
@@ -79,7 +75,7 @@ pub fn ScanConfig::with_cache(cache_path : String) -> ScanConfig {
 pub fn ScanConfig::custom(
   roots : Array[String],
   cache_path : String,
-  max_depth~ : Int = max_discovery_depth,
+  max_depth? : Int = max_discovery_depth,
 ) -> ScanConfig {
   { roots, cache_path, max_depth }
 }
@@ -148,7 +144,10 @@ fn PluginScanner::reset(self : PluginScanner) -> Unit {
 ///|
 /// 并入一份档案；同 id 已存在则**先到先得**跳过（对齐 TS L115-117）。
 /// 返回是否真的并入了。
-fn PluginScanner::absorb(self : PluginScanner, profile : @types.PluginMetadata) -> Bool {
+fn PluginScanner::absorb(
+  self : PluginScanner,
+  profile : @types.PluginMetadata,
+) -> Bool {
   if self.index.contains(profile.plugin_id) {
     return false
   }
@@ -171,7 +170,7 @@ fn PluginScanner::absorb(self : PluginScanner, profile : @types.PluginMetadata) 
 /// · 缓存里有、但本轮没发现（目录已删）→ 自然被丢弃，不进输出、不进新缓存
 pub async fn PluginScanner::scan_all(
   self : PluginScanner,
-  force_rescan~ : Bool = false,
+  force_rescan? : Bool = false,
 ) -> Unit {
   let cache_by_dir : Map[String, @store.CachedProfile] = Map([])
   if !force_rescan {
@@ -182,7 +181,7 @@ pub async fn PluginScanner::scan_all(
 
   self.reset()
   for root in self.cfg.roots {
-    self.scan_root(root, @types.PluginKind::Official, cache_by_dir=cache_by_dir)
+    self.scan_root(root, @types.PluginKind::Official, cache_by_dir~)
   }
   self.save_cache()
 }
@@ -199,15 +198,15 @@ pub async fn PluginScanner::scan_root(
   self : PluginScanner,
   root : String,
   kind : @types.PluginKind,
-  cache_by_dir~ : Map[String, @store.CachedProfile] = Map([]),
+  cache_by_dir? : Map[String, @store.CachedProfile] = Map([]),
 ) -> Unit {
-  if !(@fs.exists(root)) {
+  if !@fs.exists(root) {
     @util.log_info("Scanner", "Path does not exist: \{root}")
     return
   }
   let found = discover_plugins(root, max_depth=self.cfg.max_depth)
   for plugin in found {
-    self.scan_plugin_dir(plugin, kind, cache_by_dir=cache_by_dir)
+    self.scan_plugin_dir(plugin, kind, cache_by_dir~)
   }
 }
 
@@ -225,7 +224,7 @@ pub async fn PluginScanner::scan_plugin_dir(
   self : PluginScanner,
   plugin : DiscoveredPlugin,
   kind : @types.PluginKind,
-  cache_by_dir~ : Map[String, @store.CachedProfile] = Map([]),
+  cache_by_dir? : Map[String, @store.CachedProfile] = Map([]),
 ) -> Unit {
   let dir = plugin.dir
 
@@ -284,7 +283,11 @@ pub async fn PluginScanner::scan_plugin_dir(
   // 档案里存**去重后**的数组（对齐 TS L140-142 的 [...new Set(...)]）。
   // 这两个时机必须分开：合并它们会静默改变 complexity_score，
   // 进而翻转 engine L196 的 `> 7` 判定。
-  let metrics = compute_metrics(root_skill_len, tools.length(), capabilities.length())
+  let metrics = compute_metrics(
+    root_skill_len,
+    tools.length(),
+    capabilities.length(),
+  )
 
   let profile : @types.PluginMetadata = {
     plugin_id,

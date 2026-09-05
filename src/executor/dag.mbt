@@ -32,7 +32,9 @@
 /// · 依赖成环
 ///
 /// 调用方（`UpgradeExecutor::execute`）会把它当作执行失败处理并回滚到 pending。
-pub fn topo_layers(tasks : ArrayView[@types.SubAgentTask]) -> Array[Array[Int]] raise {
+pub fn topo_layers(
+  tasks : ArrayView[@types.SubAgentTask],
+) -> Array[Array[Int]] raise {
   let n = tasks.length()
   if n == 0 {
     return []

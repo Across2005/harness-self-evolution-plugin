@@ -7,7 +7,6 @@
 /// 这是全案唯一一个「没有 TS 原文可对照、只能靠外部基准验证」的组件，
 /// 因此单列为硬门禁：本文件不绿，不得进入 Phase 2。
 /// 黑盒测试用 `@util.` 前缀，顺带证明这些函数确实是 `pub` 的。
-
 test "iso_utc matches Date.prototype.toISOString byte for byte" {
   // Unix 纪元
   assert_eq(@util.iso_utc(0L), "1970-01-01T00:00:00.000Z")
@@ -46,25 +45,26 @@ test "iso_utc day and millisecond boundaries" {
 ///|
 /// 输出恒为 24 字符 —— MCP 客户端与 execution.log 都依赖这一稳定宽度。
 test "iso_utc is always 24 characters" {
-  for ms in [
-    0L, 1L, 999L, 1_000L, 1_757_000_000_700L, -2_208_988_800_000L,
-  ] {
+  for ms in [0L, 1L, 999L, 1_000L, 1_757_000_000_700L, -2_208_988_800_000L] {
     assert_eq(@util.iso_utc(ms).length(), 24)
   }
 }
 
+///|
 test "date_utc takes the calendar date prefix" {
   assert_eq(@util.date_utc(1_757_000_000_700L), "2025-09-04")
   assert_eq(@util.date_utc(0L), "1970-01-01")
   assert_eq(@util.date_utc(-2_208_988_800_000L), "1900-01-01")
 }
 
+///|
 test "hours_to_ms and minutes_to_ms" {
   assert_eq(@util.hours_to_ms(24), 86_400_000L)
   assert_eq(@util.hours_to_ms(0), 0L)
   assert_eq(@util.minutes_to_ms(90), 5_400_000L)
 }
 
+///|
 test "now_ms is a 13-digit unix millisecond value" {
   let ms = @util.now_ms()
   // 2001-09-09 之后、2286-11-20 之前
@@ -72,6 +72,7 @@ test "now_ms is a 13-digit unix millisecond value" {
   assert_true(ms < 10_000_000_000_000L)
 }
 
+///|
 test "elapsed_ms is monotonic non-negative" {
   let t0 = @util.now_ms()
   assert_true(@util.elapsed_ms(t0) >= 0L)

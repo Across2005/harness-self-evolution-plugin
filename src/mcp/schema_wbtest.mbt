@@ -22,7 +22,9 @@ fn enum_of(schema : Json, prop : String) -> Array[String] {
   let one = p.get(prop)
   guard one is Some(Object(f)) else { abort("property \{prop} must exist") }
   let values = f.get("enum")
-  guard values is Some(Array(a)) else { abort("property \{prop} must have enum") }
+  guard values is Some(Array(a)) else {
+    abort("property \{prop} must have enum")
+  }
   let out : Array[String] = []
   for v in a {
     guard v is String(s2) else { abort("enum entries must be strings") }
@@ -39,9 +41,10 @@ fn default_of(schema : Json, prop : String) -> Json {
   guard props is Some(Object(p)) else { abort("properties must be an object") }
   let one = p.get(prop)
   guard one is Some(Object(f)) else { abort("property \{prop} must exist") }
-  (f.get("default")).unwrap_or(Json::null())
+  f.get("default").unwrap_or(Json::null())
 }
 
+///|
 fn required_of(schema : Json) -> Array[String] {
   guard schema is Object(s) else { abort("schema must be an object") }
   let req = s.get("required")
@@ -118,6 +121,7 @@ test "the schema advertises exactly the wire vocabulary, no more no less" {
 // 约束 2：声明的 default 与 handler 实际用的默认值一致
 // ============================================================================
 
+///|
 test "scan_plugins declares default_force_rescan" {
   assert_eq(
     default_of(scan_plugins_schema(), "force_rescan"),
@@ -125,6 +129,7 @@ test "scan_plugins declares default_force_rescan" {
   )
 }
 
+///|
 test "get_plugin_metrics declares default_time_range" {
   assert_eq(
     default_of(get_metrics_schema(), "time_range"),
@@ -132,6 +137,7 @@ test "get_plugin_metrics declares default_time_range" {
   )
 }
 
+///|
 test "execute_evolution declares default_dry_run" {
   assert_eq(
     default_of(execute_evolution_schema(), "dry_run"),
@@ -139,6 +145,7 @@ test "execute_evolution declares default_dry_run" {
   )
 }
 
+///|
 test "list_proposals declares default_limit" {
   assert_eq(
     default_of(list_proposals_schema(), "limit"),
@@ -181,18 +188,10 @@ test "the seven tool names appear in the legacy order" {
   for t in tools() {
     names.push(t.name)
   }
-  assert_eq(
-    names,
-    [
-      "scan_plugins",
-      "get_plugin_metrics",
-      "propose_evolution",
-      "execute_evolution",
-      "list_proposals",
-      "approve_proposal",
-      "reject_proposal",
-    ],
-  )
+  assert_eq(names, [
+    "scan_plugins", "get_plugin_metrics", "propose_evolution", "execute_evolution",
+    "list_proposals", "approve_proposal", "reject_proposal",
+  ])
 }
 
 ///|
@@ -201,7 +200,9 @@ test "the seven tool names appear in the legacy order" {
 test "every tool has a non-empty description and an object schema" {
   for t in tools() {
     assert_true(t.description.length() > 0)
-    guard t.schema is Object(s) else { abort("\{t.name}: schema must be an object") }
+    guard t.schema is Object(s) else {
+      abort("\{t.name}: schema must be an object")
+    }
     assert_eq(s.get("type"), Some(Json::string("object")))
     assert_true(s.contains("properties"))
     assert_true(s.contains("required"))

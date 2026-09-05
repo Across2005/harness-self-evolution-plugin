@@ -99,7 +99,9 @@ pub fn EvolutionType::principle(self : EvolutionType) -> MattPocockPrinciple {
 /// 字段全为 `Option`，`None` 时 derive 会自动省略该键
 /// （实证：core/json/to_json_test.mbt 的 "optional field" 用例
 /// `{x:None,t:None}` → `{}`），与 TS 里「不写这个键」的行为一致。
-pub fn EvolutionType::expected_benefits(self : EvolutionType) -> ExpectedBenefits {
+pub fn EvolutionType::expected_benefits(
+  self : EvolutionType,
+) -> ExpectedBenefits {
   match self {
     InterfaceSimplification =>
       {
@@ -157,7 +159,8 @@ pub fn EvolutionType::expected_benefits(self : EvolutionType) -> ExpectedBenefit
 /// 插件能力相关的场景由 engine 另行追加（取 capabilities 前 3 个）。
 pub fn EvolutionType::extra_scenarios(self : EvolutionType) -> Array[String] {
   match self {
-    InterfaceSimplification => ["测试新工具接口", "测试向后兼容性"]
+    InterfaceSimplification =>
+      ["测试新工具接口", "测试向后兼容性"]
     BehaviorOptimization => ["测试循环检测", "测试干预提示"]
     PerformanceTuning => ["性能基准测试", "负载测试"]
     DocumentationEnhancement => []

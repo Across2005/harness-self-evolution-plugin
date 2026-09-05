@@ -52,15 +52,18 @@ pub(all) enum Evidence {
   FilePath(String)
 } derive(Eq, Debug)
 
+///|
 pub impl ToJson for Evidence with fn to_json(self : Evidence) -> Json {
   match self {
     Session(id) => { "kind": "session", "id": Json::string(id) }
-    Metrics(plugin_id) => { "kind": "metrics", "plugin_id": Json::string(plugin_id) }
+    Metrics(plugin_id) =>
+      { "kind": "metrics", "plugin_id": Json::string(plugin_id) }
     UserManual => { "kind": "user_manual" }
     FilePath(p) => { "kind": "file", "path": Json::string(p) }
   }
 }
 
+///|
 pub impl @json.FromJson for Evidence with fn from_json(
   json : Json,
   path : @json.JsonPath,
@@ -71,12 +74,18 @@ pub impl @json.FromJson for Evidence with fn from_json(
   let kind_path = path.add_key("kind")
   let kind = match obj.get("kind") {
     Some(String(s)) => s
-    _ => raise @json.JsonDecodeError((kind_path, "Evidence: missing or non-string \"kind\""))
+    _ =>
+      raise @json.JsonDecodeError(
+        (kind_path, "Evidence: missing or non-string \"kind\""),
+      )
   }
   fn field(name : String) -> String raise @json.JsonDecodeError {
     match obj.get(name) {
       Some(String(s)) => s
-      _ => raise @json.JsonDecodeError((path.add_key(name), "Evidence: missing \"\{name}\""))
+      _ =>
+        raise @json.JsonDecodeError(
+          (path.add_key(name), "Evidence: missing \"\{name}\""),
+        )
     }
   }
   match kind {
@@ -86,7 +95,10 @@ pub impl @json.FromJson for Evidence with fn from_json(
     "file" => FilePath(field("path"))
     _ =>
       raise @json.JsonDecodeError(
-        (kind_path, "Evidence: unknown kind \"\{kind}\"; expected session|metrics|user_manual|file"),
+        (
+          kind_path,
+          "Evidence: unknown kind \"\{kind}\"; expected session|metrics|user_manual|file",
+        ),
       )
   }
 }
@@ -131,5 +143,5 @@ pub(all) struct SignalThresholds {
 ///|
 /// 默认阈值，逐一对应 legacy-ts 里 monitor 的硬编码常量。
 pub fn SignalThresholds::default() -> SignalThresholds {
-  { consecutive_failures: 3, loop_detection: 5, latency_regression: 0.2, }
+  { consecutive_failures: 3, loop_detection: 5, latency_regression: 0.2 }
 }

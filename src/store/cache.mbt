@@ -59,6 +59,7 @@ struct CacheFile {
   plugins : Array[CachedProfile]
 } derive(Eq, Debug, ToJson, @json.FromJson)
 
+///|
 let cache_version : Int = 2
 
 ///|
@@ -86,42 +87,31 @@ pub fn PluginCache::at(paths : DataPaths) -> PluginCache {
 /// **不读任何文件内容** —— 这正是「指纹校验」比「全量重扫」
 /// 便宜几个数量级的原因（重扫要递归遍历 + 读文件 + 跑 9 条正则）。
 pub async fn fingerprint_of(dir : String) -> DirFingerprint? {
-  if !(@fs.exists(dir)) {
+  if !@fs.exists(dir) {
     return None
   }
   let (sec, nsec) = @fs.mtime(dir)
   // readdir 失败（权限、竞态删除）时直接当作无法指纹 → 上层会重扫。
   // 宁可多扫一次，也不要沿用一份无法核实的缓存。
-  let names : Array[String] = try {
-    @fs.readdir(dir, include_hidden=true, sort=true)
-  } catch {
+  let names : Array[String] = @fs.readdir(dir, include_hidden=true, sort=true) catch {
     _ => return None
   }
   // 直接子项中最新的 mtime（见 DirFingerprint 的文档：捕捉就地改写）
   let mut newest : Int64 = 0L
   for name in names {
     let child = @util.path_join(dir, name)
-    let stamp : (Int64, Int)? = try {
-      Some(@fs.mtime(child))
-    } catch {
-      _ => None
-    }
+    let stamp : (Int64, Int)? = Some(@fs.mtime(child)) catch { _ => None }
     match stamp {
-      Some((csec, _)) =>
-        if csec > newest {
-          newest = csec
-        }
+      Some((csec, _)) => if csec > newest { newest = csec }
       None => ()
     }
   }
-  Some(
-    {
-      mtime_sec: sec,
-      mtime_nsec: nsec,
-      entry_count: names.length(),
-      child_mtime_sec: newest,
-    },
-  )
+  Some({
+    mtime_sec: sec,
+    mtime_nsec: nsec,
+    entry_count: names.length(),
+    child_mtime_sec: newest,
+  })
 }
 
 ///|
@@ -135,9 +125,7 @@ pub async fn PluginCache::load(self : PluginCache) -> Array[CachedProfile] {
     Some(j) => j
     None => return []
   }
-  let parsed : Result[CacheFile, String] = try {
-    Ok(@json.from_json(json))
-  } catch {
+  let parsed : Result[CacheFile, String] = Ok(@json.from_json(json)) catch {
     e => Err(e.to_string())
   }
   match parsed {
@@ -152,7 +140,10 @@ pub async fn PluginCache::load(self : PluginCache) -> Array[CachedProfile] {
         file.plugins
       }
     Err(reason) => {
-      @util.log_warn("Store", "Ignoring unreadable plugin cache \{self.path}: \{reason}")
+      @util.log_warn(
+        "Store",
+        "Ignoring unreadable plugin cache \{self.path}: \{reason}",
+      )
       []
     }
   }

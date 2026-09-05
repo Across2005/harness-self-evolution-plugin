@@ -7,16 +7,18 @@
 ///
 /// 注意：本仓一律用 `derive(Debug)` 而非 `derive(Show)` ——
 /// 后者已被工具链标记为 deprecated（"Use derive(Debug) or manually implement Show"）。
-
 enum Color {
   Red
   Green
   Blue
 } derive(Eq, Debug)
 
-let color_wire : @util.WireEnum[Color] = @util.WireEnum::of(
-  [("red", Red), ("green", Green), ("blue", Blue)],
-)
+///|
+let color_wire : @util.WireEnum[Color] = @util.WireEnum::of([
+  ("red", Red),
+  ("green", Green),
+  ("blue", Blue),
+])
 
 ///|
 /// `JsonPath` 没有公开构造器（只能由 `add_key` / `add_index` 扩展），
@@ -26,8 +28,9 @@ struct ColorBox {
   value : Color
 }
 
+///|
 impl @json.FromJson for ColorBox with fn from_json(json, path) {
-  { value: @util.WireEnum::decode(color_wire, json, path), }
+  { value: @util.WireEnum::decode(color_wire, json, path) }
 }
 
 ///|
@@ -44,10 +47,12 @@ fn decode_fails(json : Json) -> Bool {
   }
 }
 
+///|
 test "WireEnum names preserves table order for MCP inputSchema enum arrays" {
   json_inspect(color_wire.names(), content=["red", "green", "blue"])
 }
 
+///|
 test "WireEnum name_of and encode produce the wire string, not a tagged array" {
   // 这条断言就是 D3 的反面教材：derive(ToJson) 会给出 ["Green"]，
   // 而 WireEnum 必须给出 "green"。
@@ -57,6 +62,7 @@ test "WireEnum name_of and encode produce the wire string, not a tagged array" {
   inspect(color_wire.encode(Blue).stringify(), content="\"blue\"")
 }
 
+///|
 test "WireEnum decode round-trips every variant" {
   for c in [Red, Green, Blue] {
     let box : ColorBox = @json.from_json(color_wire.encode(c))
@@ -64,10 +70,12 @@ test "WireEnum decode round-trips every variant" {
   }
 }
 
+///|
 test "WireEnum decode rejects an unknown value" {
   assert_true(decode_fails(Json::string("purple")))
 }
 
+///|
 test "WireEnum decode rejects a non-string value" {
   assert_true(decode_fails(Json::boolean(true)))
   assert_true(decode_fails(Json::null()))

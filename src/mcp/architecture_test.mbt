@@ -24,9 +24,10 @@
 ///|
 /// 读一个文本文件。
 async fn read_text(path : String) -> String {
-  (@fs.read_file(path)).text()
+  @fs.read_file(path).text()
 }
 
+///|
 async fn exists(path : String) -> Bool {
   @fs.exists(path)
 }
@@ -249,6 +250,7 @@ fn layer_of(pkg : String) -> Int {
   }
 }
 
+///|
 async test "G1: the package graph equals the declared graph and is strictly layered" {
   let root = module_root()
   let packages = package_dirs(root)
@@ -288,7 +290,9 @@ async test "G1: the package graph equals the declared graph and is strictly laye
     }
     want.sort_by(fn(a, b) { a.lexical_compare(b) })
     if actual != want {
-      abort("\{pkg}: imports \{join_names(actual)}, declared \{join_names(want)}")
+      abort(
+        "\{pkg}: imports \{join_names(actual)}, declared \{join_names(want)}",
+      )
     }
     // 每条边严格向下 → 构造性无环
     for dep in actual {
@@ -402,13 +406,10 @@ async test "G2b: log.mbt exposes exactly three sinks and all of them are stderr"
 /// `mtime` / `kind`）**不在**此列：scanner 当然要读文件系统，
 /// 不变量①管的是「谁有权改变磁盘上的持久状态」。
 let fs_write_ops : Array[String] = [
-  "@fs.write_file",
-  "@fs.mkdir",
-  "@fs.rename",
-  "@fs.remove",
-  "@fs.rmdir",
+  "@fs.write_file", "@fs.mkdir", "@fs.rename", "@fs.remove", "@fs.rmdir",
 ]
 
+///|
 async test "G3: no package outside store performs filesystem writes" {
   let root = module_root()
   let src = @util.path_join(root, "src")
@@ -535,10 +536,7 @@ async test "G4b: store/paths.mbt is the single source of the data directory" {
 ///|
 /// legacy 测试文件。计划 1.1 明确保留它们「供 Phase 8 对拍」。
 let legacy_test_files : Array[String] = [
-  "engine.test.ts",
-  "executor.test.ts",
-  "monitor.test.ts",
-  "scanner.test.ts",
+  "engine.test.ts", "executor.test.ts", "monitor.test.ts", "scanner.test.ts",
 ]
 
 ///|
@@ -558,186 +556,142 @@ fn legacy_parity_table() -> Array[(String, String, String)] {
   [
     // --- engine.test.ts (12) → src/engine/engine_wbtest.mbt ---
     (
-      "engine.test.ts",
-      "should generate an error_handling proposal from a strong correction signal",
+      "engine.test.ts", "should generate an error_handling proposal from a strong correction signal",
       "generates an error_handling proposal from a strong correction signal",
     ),
     (
-      "engine.test.ts",
-      "should persist the proposal via the shared ProposalStore",
+      "engine.test.ts", "should persist the proposal via the shared ProposalStore",
       "persists the proposal through the shared ProposalStore",
     ),
     (
-      "engine.test.ts",
-      "should ignore medium-only signals at 50% intensity",
-      "ignores medium-only signals at 50% intensity",
+      "engine.test.ts", "should ignore medium-only signals at 50% intensity", "ignores medium-only signals at 50% intensity",
     ),
-    ("engine.test.ts", "should ignore weak-only signals", "ignores weak-only signals"),
     (
-      "engine.test.ts",
-      "should return the existing pending proposal instead of duplicating",
+      "engine.test.ts", "should ignore weak-only signals", "ignores weak-only signals",
+    ),
+    (
+      "engine.test.ts", "should return the existing pending proposal instead of duplicating",
       "returns the existing pending proposal instead of duplicating",
     ),
     (
-      "engine.test.ts",
-      "should stay silent during cooldown after a recent proposal",
+      "engine.test.ts", "should stay silent during cooldown after a recent proposal",
       "stays silent during the cooldown period",
     ),
     (
-      "engine.test.ts",
-      "should allow a new proposal once the cooldown has elapsed",
+      "engine.test.ts", "should allow a new proposal once the cooldown has elapsed",
       "allows a new proposal once the cooldown has elapsed",
     ),
     (
-      "engine.test.ts",
-      "should produce no proposal when there are no signals",
-      "produces no proposal when there are no signals",
+      "engine.test.ts", "should produce no proposal when there are no signals", "produces no proposal when there are no signals",
     ),
     (
-      "engine.test.ts",
-      "should disable generation entirely at 0% intensity",
-      "disables generation entirely at 0% intensity",
+      "engine.test.ts", "should disable generation entirely at 0% intensity", "disables generation entirely at 0% intensity",
     ),
     (
-      "engine.test.ts",
-      "should map a struggle signal with high complexity to interface_simplification",
+      "engine.test.ts", "should map a struggle signal with high complexity to interface_simplification",
       "maps struggle + high complexity to interface_simplification",
     ),
     (
-      "engine.test.ts",
-      "should map a loop signal to behavior_optimization with middleware proposal",
+      "engine.test.ts", "should map a loop signal to behavior_optimization with middleware proposal",
       "maps a loop signal to behavior_optimization with middleware",
     ),
     (
-      "engine.test.ts",
-      "should assign high confidence when two strong signals are present",
+      "engine.test.ts", "should assign high confidence when two strong signals are present",
       "assigns high confidence when two strong signals are present",
     ),
     // --- executor.test.ts (10) → src/executor + src/store ---
     (
-      "executor.test.ts",
-      "should fail when the proposal does not exist",
-      "fails when the proposal does not exist",
+      "executor.test.ts", "should fail when the proposal does not exist", "fails when the proposal does not exist",
     ),
     (
-      "executor.test.ts",
-      "should fail when the proposal is already completed",
-      "fails when the proposal is already completed",
+      "executor.test.ts", "should fail when the proposal is already completed", "fails when the proposal is already completed",
     ),
     (
-      "executor.test.ts",
-      "should fail when the proposal is rejected",
-      "fails when the proposal is rejected",
+      "executor.test.ts", "should fail when the proposal is rejected", "fails when the proposal is rejected",
     ),
     (
-      "executor.test.ts",
-      "should complete a dry run over an approved proposal",
+      "executor.test.ts", "should complete a dry run over an approved proposal",
       "completes a dry run over an approved proposal",
     ),
     (
-      "executor.test.ts",
-      "should mark the proposal completed after a successful run",
+      "executor.test.ts", "should mark the proposal completed after a successful run",
       "marks the proposal completed after a successful run",
     ),
     (
-      "executor.test.ts",
-      "should reset the proposal to pending when dry run is not requested and a task fails",
+      "executor.test.ts", "should reset the proposal to pending when dry run is not requested and a task fails",
       "a failing task rolls the proposal back to pending",
     ),
     (
-      "executor.test.ts",
-      "should reject executing a pending proposal (state machine)",
+      "executor.test.ts", "should reject executing a pending proposal (state machine)",
       "rejects executing a pending proposal",
     ),
     // 下面三条在 legacy 里属于 executor.test.ts 的 ProposalStore describe 块，
     // 移植后归到 store 包（状态机是 store 的职责，不是 executor 的）
     (
-      "executor.test.ts",
-      "should allow legal transitions pending → approved → executing → completed",
+      "executor.test.ts", "should allow legal transitions pending → approved → executing → completed",
       "ProposalStore allows the legal transition chain",
     ),
     (
-      "executor.test.ts",
-      "should throw on illegal transitions like completed → approved",
+      "executor.test.ts", "should throw on illegal transitions like completed → approved",
       "ProposalStore rejects an illegal transition with the TS-exact message",
     ),
     (
-      "executor.test.ts",
-      "should be idempotent for same-status updates",
-      "ProposalStore set_status is idempotent and appends nothing",
+      "executor.test.ts", "should be idempotent for same-status updates", "ProposalStore set_status is idempotent and appends nothing",
     ),
     // --- monitor.test.ts (10) → src/monitor/monitor_wbtest.mbt ---
     (
-      "monitor.test.ts",
-      "should aggregate success rate and latency",
-      "aggregates success rate and latency",
-    ),
-    ("monitor.test.ts", "should aggregate token usage", "aggregates token usage"),
-    (
-      "monitor.test.ts",
-      "should isolate statistics per plugin",
-      "isolates statistics per plugin",
+      "monitor.test.ts", "should aggregate success rate and latency", "aggregates success rate and latency",
     ),
     (
-      "monitor.test.ts",
-      "should return zeroed stats for an unknown plugin",
-      "returns zeroed stats for an unknown plugin",
+      "monitor.test.ts", "should aggregate token usage", "aggregates token usage",
     ),
     (
-      "monitor.test.ts",
-      "should emit a struggle signal after 3 consecutive failures",
+      "monitor.test.ts", "should isolate statistics per plugin", "isolates statistics per plugin",
+    ),
+    (
+      "monitor.test.ts", "should return zeroed stats for an unknown plugin", "returns zeroed stats for an unknown plugin",
+    ),
+    (
+      "monitor.test.ts", "should emit a struggle signal after 3 consecutive failures",
       "emits a struggle signal after 3 consecutive failures",
     ),
     (
-      "monitor.test.ts",
-      "should not emit a struggle signal for fewer than 3 consecutive failures",
+      "monitor.test.ts", "should not emit a struggle signal for fewer than 3 consecutive failures",
       "does not emit a struggle signal below the failure threshold",
     ),
     (
-      "monitor.test.ts",
-      "should emit a loop signal after 5 consecutive calls of the same tool",
+      "monitor.test.ts", "should emit a loop signal after 5 consecutive calls of the same tool",
       "emits a loop signal after 5 consecutive calls of the same tool",
     ),
     (
-      "monitor.test.ts",
-      "should emit a correction signal on negative user feedback",
+      "monitor.test.ts", "should emit a correction signal on negative user feedback",
       "emits a correction signal on negative user feedback",
     ),
     (
-      "monitor.test.ts",
-      "should update the last event feedback in memory",
-      "backfills user feedback onto the in-memory session ring",
+      "monitor.test.ts", "should update the last event feedback in memory", "backfills user feedback onto the in-memory session ring",
     ),
     (
-      "monitor.test.ts",
-      "should flush buffered events to the metrics file on stop",
+      "monitor.test.ts", "should flush buffered events to the metrics file on stop",
       "flushes buffered events to the metrics file on shutdown",
     ),
     // --- scanner.test.ts (5) → src/scanner/scanner_wbtest.mbt ---
     (
-      "scanner.test.ts",
-      "should discover a plugin with a package.json and SKILL.md",
+      "scanner.test.ts", "should discover a plugin with a package.json and SKILL.md",
       "discovers a plugin with a package.json and SKILL.md",
     ),
     (
-      "scanner.test.ts",
-      "should extract tools from MCP registerTool calls in source files",
+      "scanner.test.ts", "should extract tools from MCP registerTool calls in source files",
       "extracts tools from MCP registerTool calls in source files",
     ),
     (
-      "scanner.test.ts",
-      "should ignore directories without any manifest",
-      "ignores directories without any manifest",
+      "scanner.test.ts", "should ignore directories without any manifest", "ignores directories without any manifest",
     ),
     (
-      "scanner.test.ts",
-      "should skip directories it cannot parse instead of throwing",
+      "scanner.test.ts", "should skip directories it cannot parse instead of throwing",
       "skips entries it cannot treat as directories instead of raising",
     ),
     (
-      "scanner.test.ts",
-      "should write the cache file after scanning",
-      "writes the cache and keeps results stable across scanner instances",
+      "scanner.test.ts", "should write the cache file after scanning", "writes the cache and keeps results stable across scanner instances",
     ),
   ]
 }
@@ -779,6 +733,7 @@ async fn moonbit_test_names(root : String) -> Array[String] {
   out
 }
 
+///|
 async test "G5: every legacy jest case has a MoonBit counterpart, both directions" {
   let root = module_root()
   let table = legacy_parity_table()
@@ -841,8 +796,8 @@ async test "G5b: the MoonBit suite is a strict superset in size of the legacy su
   let legacy_dir = @util.path_join(root, "legacy-ts/tests")
   let mut legacy_total = 0
   for file in legacy_test_files {
-    legacy_total =
-      legacy_total + legacy_case_names(read_text(@util.path_join(legacy_dir, file))).length()
+    legacy_total = legacy_total +
+      legacy_case_names(read_text(@util.path_join(legacy_dir, file))).length()
   }
   assert_true(mb_names.length() >= legacy_total * 5)
 }

@@ -35,9 +35,11 @@ pub let default_protocol_version : String = "2024-11-05"
 /// 版本随「运行时从 Node 换成 native exe」这一 breaking change 升到 2.0.0。
 pub let server_name : String = "harness-self-evolution"
 
+///|
 pub let server_version : String = "2.0.0"
 
 // JSON-RPC 2.0 的标准错误码
+
 ///|
 /// 收到非法 JSON
 pub let code_parse_error : Int = -32700
@@ -94,7 +96,7 @@ pub fn parse_message(json : Json) -> RpcRequest? {
     true => Some(obj.get("id").unwrap_or(Json::null()))
     false => None
   }
-  Some({ id, method_name, params, })
+  Some({ id, method_name, params })
 }
 
 ///|

@@ -20,7 +20,7 @@ async fn make_plugin(
     let (rel, content) = pair
     let full = @util.path_join(dir, rel)
     let parent = @util.path_dirname(full)
-    if !(@fs.exists(parent)) {
+    if !@fs.exists(parent) {
       @fs.mkdir(parent, recursive=true)
     }
     @fs.write_file(full, content, create_mode=CreateOrTruncate)
@@ -28,6 +28,7 @@ async fn make_plugin(
   dir
 }
 
+///|
 fn test_scanner(root : String) -> PluginScanner {
   PluginScanner::new(
     ScanConfig::custom([root], @util.path_join(root, "plugin-cache.json")),
@@ -45,15 +46,18 @@ async test "discovers a plugin with a package.json and SKILL.md" {
   let tmp = @fs.tmpdir(prefix="evo-scan-")
   defer @fs.rmdir(tmp, recursive=true)
 
-  let pkg = #|{"name":"my-plugin","version":"2.1.0"}
+  let pkg =
+    #|{"name":"my-plugin","version":"2.1.0"}
   let skill = "# My Plugin\nThis tool can navigate and supports clicks."
-  ignore(make_plugin(tmp, "my-plugin", [("package.json", pkg), ("SKILL.md", skill)]))
+  ignore(
+    make_plugin(tmp, "my-plugin", [("package.json", pkg), ("SKILL.md", skill)]),
+  )
 
   let scanner = test_scanner(tmp)
   scanner.scan_root(tmp, @types.PluginKind::Community)
 
   assert_eq(scanner.count(), 1)
-  let plugin = (scanner.get("my-plugin-2.1.0")).unwrap()
+  let plugin = scanner.get("my-plugin-2.1.0").unwrap()
   assert_eq(plugin.name, "my-plugin")
   assert_eq(plugin.version, "2.1.0")
   assert_eq(plugin.kind, @types.PluginKind::Community)
@@ -68,14 +72,20 @@ async test "extracts tools from MCP registerTool calls in source files" {
   let tmp = @fs.tmpdir(prefix="evo-scan-")
   defer @fs.rmdir(tmp, recursive=true)
 
-  let pkg = #|{"name":"mcp-plugin","version":"1.0.0"}
+  let pkg =
+    #|{"name":"mcp-plugin","version":"1.0.0"}
   let server = "\n  server.registerTool('scan_plugins', { description: 'scan' }, cb);\n  server.registerTool('propose_evolution', { description: 'propose' }, cb);\n"
-  ignore(make_plugin(tmp, "mcp-plugin", [("package.json", pkg), ("src/server.ts", server)]))
+  ignore(
+    make_plugin(tmp, "mcp-plugin", [
+      ("package.json", pkg),
+      ("src/server.ts", server),
+    ]),
+  )
 
   let scanner = test_scanner(tmp)
   scanner.scan_root(tmp, @types.PluginKind::Official)
 
-  let plugin = (scanner.get("mcp-plugin-1.0.0")).unwrap()
+  let plugin = scanner.get("mcp-plugin-1.0.0").unwrap()
   assert_true(plugin.tools.contains("scan_plugins"))
   assert_true(plugin.tools.contains("propose_evolution"))
 }
@@ -132,7 +142,8 @@ async test "writes the cache and keeps results stable across scanner instances" 
   let tmp = @fs.tmpdir(prefix="evo-scan-")
   defer @fs.rmdir(tmp, recursive=true)
 
-  let pkg = #|{"name":"cached-plugin","version":"0.1.0"}
+  let pkg =
+    #|{"name":"cached-plugin","version":"0.1.0"}
   let plugin_dir = make_plugin(tmp, "cached-plugin", [("package.json", pkg)])
 
   let cache_path = @util.path_join(tmp, "plugin-cache.json")
@@ -147,7 +158,7 @@ async test "writes the cache and keeps results stable across scanner instances" 
   second.scan_all(force_rescan=false)
   assert_eq(second.count(), 1)
   assert_eq(
-    (second.get("cached-plugin-0.1.0")).unwrap().plugin_id,
+    second.get("cached-plugin-0.1.0").unwrap().plugin_id,
     "cached-plugin-0.1.0",
   )
 
@@ -160,10 +171,9 @@ async test "writes the cache and keeps results stable across scanner instances" 
   let third = PluginScanner::new(ScanConfig::custom([tmp], cache_path))
   third.scan_all(force_rescan=false)
   assert_eq(third.count(), 1)
-  json_inspect(
-    (third.get("cached-plugin-0.1.0")).unwrap().capabilities,
-    content=["fly"],
-  )
+  json_inspect(third.get("cached-plugin-0.1.0").unwrap().capabilities, content=[
+    "fly",
+  ])
 }
 
 // ============================================================================
@@ -182,22 +192,21 @@ async test "F1: discovers plugins nested at <plugin>/<version>/" {
   // 复刻实测布局：顶层目录零文件，清单在第 2 层
   // 注：`#|` 多行串**没有闭合符**，每行以 `#|` 开头即为全部内容；
   // 多写一个结尾 `|` 会把它带进字符串里，让 JSON 静默失效。故统一先 `let` 绑定。
-  let seed_041 = #|{"name":"browser-use","version":"0.4.1"}
-  let seed_031 = #|{"name":"browser-use","version":"0.3.1"}
-  let seed_inner = #|{"name":"inner","version":"9.9.9"}
+  let seed_041 =
+    #|{"name":"browser-use","version":"0.4.1"}
+  let seed_031 =
+    #|{"name":"browser-use","version":"0.3.1"}
+  let seed_inner =
+    #|{"name":"inner","version":"9.9.9"}
   ignore(
-    make_plugin(
-      tmp,
-      "browser-use/0.4.1",
-      [(".zcode-plugin/plugin.json", seed_041)],
-    ),
+    make_plugin(tmp, "browser-use/0.4.1", [
+      (".zcode-plugin/plugin.json", seed_041),
+    ]),
   )
   ignore(
-    make_plugin(
-      tmp,
-      "browser-use/0.3.1",
-      [(".zcode-plugin/plugin.json", seed_031)],
-    ),
+    make_plugin(tmp, "browser-use/0.3.1", [
+      (".zcode-plugin/plugin.json", seed_031),
+    ]),
   )
   // 第 3 层也要能发现（max_discovery_depth = 3）
   ignore(make_plugin(tmp, "deep/nest/inner", [("package.json", seed_inner)]))
@@ -225,26 +234,29 @@ async test "F3: accepts the six manifest forms, in priority order" {
   defer @fs.rmdir(tmp, recursive=true)
 
   // mimosa 形态：只有 .zcode-plugin/plugin.json
-  let mimosa_seed = #|{"name":"mimosa","version":"1.0.3"}
-  let zcode_seed = #|{"name":"from-zcode","version":"1.1.1"}
-  let package_seed = #|{"name":"from-package","version":"2.2.2"}
+  let mimosa_seed =
+    #|{"name":"mimosa","version":"1.0.3"}
+  let zcode_seed =
+    #|{"name":"from-zcode","version":"1.1.1"}
+  let package_seed =
+    #|{"name":"from-package","version":"2.2.2"}
   ignore(
-    make_plugin(tmp, "mimosa/1.0.3", [(".zcode-plugin/plugin.json", mimosa_seed)]),
+    make_plugin(tmp, "mimosa/1.0.3", [
+      (".zcode-plugin/plugin.json", mimosa_seed),
+    ]),
   )
   // browser-use 形态：同时有 .zcode-plugin/plugin.json 与 package.json，
   // 前者优先（manifest_priority 的第一项）
   ignore(
-    make_plugin(
-      tmp,
-      "browser-use/0.4.1",
-      [
-        (".zcode-plugin/plugin.json", zcode_seed),
-        ("package.json", package_seed),
-      ],
-    ),
+    make_plugin(tmp, "browser-use/0.4.1", [
+      (".zcode-plugin/plugin.json", zcode_seed),
+      ("package.json", package_seed),
+    ]),
   )
   // 只有 SKILL.md（最低优先级）：没有 JSON 元数据 → 回退到目录名 + 0.0.0
-  ignore(make_plugin(tmp, "skill-only", [("SKILL.md", "# Just a skill\ncan read")]))
+  ignore(
+    make_plugin(tmp, "skill-only", [("SKILL.md", "# Just a skill\ncan read")]),
+  )
 
   let scanner = test_scanner(tmp)
   scanner.scan_root(tmp, @types.PluginKind::Official)
@@ -255,7 +267,7 @@ async test "F3: accepts the six manifest forms, in priority order" {
   assert_true(scanner.get("from-zcode-1.1.1") is Some(_))
   assert_eq(scanner.get("from-package-2.2.2"), None)
   // SKILL.md 只能证明「这是个插件」，提供不了 name/version → 回退
-  let fallback = (scanner.get("skill-only-0.0.0")).unwrap()
+  let fallback = scanner.get("skill-only-0.0.0").unwrap()
   assert_eq(fallback.name, "skill-only")
   assert_eq(fallback.version, "0.0.0")
   json_inspect(fallback.capabilities, content=["read"])
@@ -271,8 +283,12 @@ async test "F2: a ghost cache entry does not resurrect itself on the next scan" 
   let cache_path = @util.path_join(tmp, "plugin-cache.json")
 
   // 手工写一份毒化缓存：条目指向一个不存在的目录（复刻实测的那份 526 字节文件）
-  let poisoned = #|{"version":2,"plugins":[{"profile":{"plugin_id":"cached-plugin-0.1.0","name":"cached-plugin","version":"0.1.0","kind":"official","capabilities":[],"tools":[],"events":[],"dependencies":[],"scanned_at":"1757000000000","path":"__GHOST__/cached-plugin","initial_metrics":{"complexity_score":2.0,"interface_clarity":9.0,"documentation_quality":5.0,"usage_frequency":"idle"}},"fingerprint":{"mtime_sec":"1","mtime_nsec":0,"entry_count":3,"child_mtime_sec":"1"}}]}
-  let ghost = poisoned.replace_all(old="__GHOST__", new=@util.path_join(tmp, "already-deleted"))
+  let poisoned =
+    #|{"version":2,"plugins":[{"profile":{"plugin_id":"cached-plugin-0.1.0","name":"cached-plugin","version":"0.1.0","kind":"official","capabilities":[],"tools":[],"events":[],"dependencies":[],"scanned_at":"1757000000000","path":"__GHOST__/cached-plugin","initial_metrics":{"complexity_score":2.0,"interface_clarity":9.0,"documentation_quality":5.0,"usage_frequency":"idle"}},"fingerprint":{"mtime_sec":"1","mtime_nsec":0,"entry_count":3,"child_mtime_sec":"1"}}]}
+  let ghost = poisoned.replace_all(
+    old="__GHOST__",
+    new=@util.path_join(tmp, "already-deleted"),
+  )
   @fs.write_file(cache_path, ghost, create_mode=CreateOrTruncate)
 
   // 空的扫描根：没有任何真实插件
@@ -298,28 +314,25 @@ async test "P14: prunes node_modules and dot-directories on both traversals" {
   let tmp = @fs.tmpdir(prefix="evo-scan-")
   defer @fs.rmdir(tmp, recursive=true)
 
-  let plug_pkg = #|{"name":"plug","version":"1.0.0"}
+  let plug_pkg =
+    #|{"name":"plug","version":"1.0.0"}
   ignore(
-    make_plugin(
-      tmp,
-      "plug",
-      [
-        ("package.json", plug_pkg),
-        ("SKILL.md", "can real"),
-        // 这些都不该被计入
-        ("node_modules/dep/SKILL.md", "can leaked_via_node_modules"),
-        (".git/hooks/SKILL.md", "can leaked_via_git"),
-        ("dist/bundle.js", "server.registerTool('leaked_dist', h)"),
-        // 这个应该被计入
-        ("src/real.ts", "server.registerTool('real_tool', h)"),
-      ],
-    ),
+    make_plugin(tmp, "plug", [
+      ("package.json", plug_pkg),
+      ("SKILL.md", "can real"),
+      // 这些都不该被计入
+      ("node_modules/dep/SKILL.md", "can leaked_via_node_modules"),
+      (".git/hooks/SKILL.md", "can leaked_via_git"),
+      ("dist/bundle.js", "server.registerTool('leaked_dist', h)"),
+      // 这个应该被计入
+      ("src/real.ts", "server.registerTool('real_tool', h)"),
+    ]),
   )
 
   let scanner = test_scanner(tmp)
   scanner.scan_root(tmp, @types.PluginKind::Official)
 
-  let plugin = (scanner.get("plug-1.0.0")).unwrap()
+  let plugin = scanner.get("plug-1.0.0").unwrap()
   json_inspect(plugin.capabilities, content=["real"])
   json_inspect(plugin.tools, content=["real_tool"])
 }
@@ -333,20 +346,19 @@ async test "first-wins on duplicate plugin_id, deterministically" {
   defer @fs.rmdir(tmp, recursive=true)
 
   // 两个目录声明了同一个 name+version
-  let dup_pkg = #|{"name":"dup","version":"1.0.0"}
+  let dup_pkg =
+    #|{"name":"dup","version":"1.0.0"}
   ignore(
-    make_plugin(
-      tmp,
-      "aaa-first",
-      [("package.json", dup_pkg), ("SKILL.md", "can from_aaa")],
-    ),
+    make_plugin(tmp, "aaa-first", [
+      ("package.json", dup_pkg),
+      ("SKILL.md", "can from_aaa"),
+    ]),
   )
   ignore(
-    make_plugin(
-      tmp,
-      "zzz-second",
-      [("package.json", dup_pkg), ("SKILL.md", "can from_zzz")],
-    ),
+    make_plugin(tmp, "zzz-second", [
+      ("package.json", dup_pkg),
+      ("SKILL.md", "can from_zzz"),
+    ]),
   )
 
   let scanner = test_scanner(tmp)
@@ -354,10 +366,9 @@ async test "first-wins on duplicate plugin_id, deterministically" {
 
   assert_eq(scanner.count(), 1)
   // 排序后 aaa-first 在前，故它的 capabilities 胜出
-  json_inspect(
-    (scanner.get("dup-1.0.0")).unwrap().capabilities,
-    content=["from_aaa"],
-  )
+  json_inspect(scanner.get("dup-1.0.0").unwrap().capabilities, content=[
+    "from_aaa",
+  ])
 }
 
 ///|
@@ -384,15 +395,11 @@ async test "read_entries sorts lexicographically, not by length" {
   )
 
   let entries = read_entries(tmp)
-  json_inspect(
-    entries.map(fn(e) { e.0 }),
-    content=["a-file.txt", "alpha", "mid", "zeta"],
-  )
+  json_inspect(entries.map(fn(e) { e.0 }), content=[
+    "a-file.txt", "alpha", "mid", "zeta",
+  ])
   // 目录/文件标志必须准确（walk 的 names 混淆两者，正是 D9 不用它的原因）
-  json_inspect(
-    entries.map(fn(e) { e.1 }),
-    content=[false, true, true, true],
-  )
+  json_inspect(entries.map(fn(e) { e.1 }), content=[false, true, true, true])
 }
 
 ///|
@@ -403,9 +410,12 @@ async test "all() returns profiles in deterministic discovery order" {
   let tmp = @fs.tmpdir(prefix="evo-scan-")
   defer @fs.rmdir(tmp, recursive=true)
   for name in ["zeta", "alpha", "mid"] {
-    let pkg = #|{"name":"__N__","version":"1.0.0"}
+    let pkg =
+      #|{"name":"__N__","version":"1.0.0"}
     ignore(
-      make_plugin(tmp, name, [("package.json", pkg.replace_all(old="__N__", new=name))]),
+      make_plugin(tmp, name, [
+        ("package.json", pkg.replace_all(old="__N__", new=name)),
+      ]),
     )
   }
 

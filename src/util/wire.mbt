@@ -39,7 +39,9 @@ pub fn[T : Eq] WireEnum::name_of(self : WireEnum[T], value : T) -> String {
       return name
     }
   }
-  abort("WireEnum::name_of: value is absent from the wire table (table is incomplete)")
+  abort(
+    "WireEnum::name_of: value is absent from the wire table (table is incomplete)",
+  )
 }
 
 ///|

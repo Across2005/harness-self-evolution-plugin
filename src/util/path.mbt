@@ -24,13 +24,7 @@ pub fn path_normalize(p : String) -> String {
       segments.push(t)
     }
   }
-  let prefix = if unc {
-    "//"
-  } else if absolute {
-    "/"
-  } else {
-    ""
-  }
+  let prefix = if unc { "//" } else if absolute { "/" } else { "" }
   prefix + segments.join("/")
 }
 

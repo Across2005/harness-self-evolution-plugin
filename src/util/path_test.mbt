@@ -2,7 +2,6 @@
 /// 路径工具的纯函数断言。全部无需文件系统。
 /// 对应 legacy-ts/src/store/index.ts L13-19 的 `expandPath` 与 scanner 里的
 /// `path.join` / `path.basename` / `path.dirname` 调用。
-
 test "path_normalize unifies separators and collapses duplicates" {
   assert_eq(@util.path_normalize("C:\\Users\\x\\y"), "C:/Users/x/y")
   assert_eq(@util.path_normalize("a//b///c"), "a/b/c")
@@ -12,15 +11,20 @@ test "path_normalize unifies separators and collapses duplicates" {
   assert_eq(@util.path_normalize("\\\\server\\share"), "//server/share")
 }
 
+///|
 test "path_join normalizes both sides" {
   assert_eq(@util.path_join("a", "b"), "a/b")
   assert_eq(@util.path_join("a/", "b"), "a/b")
   assert_eq(@util.path_join("a\\", "b"), "a/b")
   assert_eq(@util.path_join("", "b"), "b")
   assert_eq(@util.path_join("a", ""), "a")
-  assert_eq(@util.path_join("C:\\Users\\x", ".harness-evolution"), "C:/Users/x/.harness-evolution")
+  assert_eq(
+    @util.path_join("C:\\Users\\x", ".harness-evolution"),
+    "C:/Users/x/.harness-evolution",
+  )
 }
 
+///|
 test "path_dirname mirrors Node path.dirname for the cases we use" {
   assert_eq(@util.path_dirname("a/b/c"), "a/b")
   assert_eq(@util.path_dirname("a/b/c/"), "a/b")
@@ -29,14 +33,19 @@ test "path_dirname mirrors Node path.dirname for the cases we use" {
   assert_eq(@util.path_dirname("C:\\Users\\x\\y.jsonl"), "C:/Users/x")
 }
 
+///|
 test "path_basename mirrors Node path.basename" {
   assert_eq(@util.path_basename("a/b/c.txt"), "c.txt")
   // 尾分隔符先被 trim_end 掉，故 "a/b/" 的 basename 是 "b"
   assert_eq(@util.path_basename("a/b/"), "b")
   assert_eq(@util.path_basename("c.txt"), "c.txt")
-  assert_eq(@util.path_basename("C:\\Users\\x\\proposals.jsonl"), "proposals.jsonl")
+  assert_eq(
+    @util.path_basename("C:\\Users\\x\\proposals.jsonl"),
+    "proposals.jsonl",
+  )
 }
 
+///|
 test "path_extname replaces the scanner's /\\.(ts|js|mjs)$/ regex" {
   assert_eq(@util.path_extname("a/b/x.TS"), ".ts")
   assert_eq(@util.path_extname("x.mjs"), ".mjs")
@@ -46,6 +55,7 @@ test "path_extname replaces the scanner's /\\.(ts|js|mjs)$/ regex" {
   assert_eq(@util.path_extname("a.b.c"), ".c")
 }
 
+///|
 test "expand_home resolves ~ against HOME/USERPROFILE/cwd in that order" {
   let home = @util.home_dir()
   assert_true(home.length() > 0)
@@ -53,8 +63,10 @@ test "expand_home resolves ~ against HOME/USERPROFILE/cwd in that order" {
   assert_eq(@util.expand_home("~/x"), @util.path_join(home, "x"))
   // Windows 风格的 ~\ 同样要展开（先归一化再判定）
   assert_eq(@util.expand_home("~\\x"), @util.path_join(home, "x"))
-  assert_eq(@util.expand_home("~/.harness-evolution/v2/proposals.jsonl"),
-    @util.path_join(home, ".harness-evolution/v2/proposals.jsonl"))
+  assert_eq(
+    @util.expand_home("~/.harness-evolution/v2/proposals.jsonl"),
+    @util.path_join(home, ".harness-evolution/v2/proposals.jsonl"),
+  )
   // 非 ~ 开头的路径原样归一化返回，不做展开
   assert_eq(@util.expand_home("a/b"), "a/b")
   assert_eq(@util.expand_home("C:\\x"), "C:/x")
@@ -65,7 +77,7 @@ test "expand_home resolves ~ against HOME/USERPROFILE/cwd in that order" {
 /// ★ **字符串排序语义陷阱（实测结论，非推测）。**
 ///
 /// `core/builtin/string.mbt` L221 的 `impl Compare for String` 实现是：
-/// ```moonbit
+/// ```moonbit nocheck
 /// let len = self.length()
 /// match len.compare(other.length()) {
 ///   0 => { /* 逐字符比较 */ }
@@ -107,15 +119,18 @@ test "String compare is length-first; lexical_compare is lexicographic" {
 
   // 元组数组按第一个分量字典序排（read_entries 的实际用法）
   let pairs : Array[(String, Bool)] = [
-    ("zeta", true), ("a-file.txt", false), ("alpha", true), ("mid", true),
+    ("zeta", true),
+    ("a-file.txt", false),
+    ("alpha", true),
+    ("mid", true),
   ]
   pairs.sort_by(fn(a, b) { a.0.lexical_compare(b.0) })
-  json_inspect(
-    pairs.map(fn(p) { p.0 }),
-    content=["a-file.txt", "alpha", "mid", "zeta"],
-  )
+  json_inspect(pairs.map(fn(p) { p.0 }), content=[
+    "a-file.txt", "alpha", "mid", "zeta",
+  ])
 }
 
+///|
 test "path_depth_from counts segments below the root" {
   assert_eq(@util.path_depth_from("a", "a"), 0)
   assert_eq(@util.path_depth_from("a", "a/"), 0)

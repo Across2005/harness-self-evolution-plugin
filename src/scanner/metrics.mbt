@@ -21,7 +21,7 @@
 /// 不依赖 `Double::round` 的语义。
 /// `Double::to_int()` 是向零截断，对非负值即 floor。
 fn round1(d : Double) -> Double {
-  ((d * 10.0) + 0.5).to_int().to_double() / 10.0
+  (d * 10.0 + 0.5).to_int().to_double() / 10.0
 }
 
 ///|

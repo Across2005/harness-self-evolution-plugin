@@ -22,6 +22,9 @@
 /// 2. `append` / `append_many` 的 I/O 错误**直接透传 raise**。
 ///    写失败必须让调用方知道；用 `Result` 包装会污染 20+ 个调用点，
 ///    而绝大多数调用方对「写不进去」毫无补救手段。
+///    唯一的例外是 `monitor.flush_buffers`：它是**有补救手段**的那个调用方
+///    （批次会回填缓冲、下一轮重试），于是它按批 `try/catch` 并打告警 ——
+///    注意是「接住后重试 + 告警」，不是吞掉。见 CONTEXT.md 的 H1。
 /// 3. **不提供 `rewrite` / `update`**。TS 版有这两个方法（L63-83），
 ///    `update` = 全量 load + map + 全量 rewrite，`setStatus` 因此每次要
 ///    「读两遍全文件、写一遍全文件」。新版把提案状态改成
@@ -44,7 +47,7 @@ pub struct Jsonl {
 ///|
 /// 构造。路径经 `expand_home` 展开，故可以直接传 `~/...`。
 pub fn Jsonl::new(path : String) -> Jsonl {
-  { path: @util.expand_home(path), }
+  { path: @util.expand_home(path) }
 }
 
 ///|
@@ -65,7 +68,7 @@ pub async fn Jsonl::exists(self : Jsonl) -> Bool {
 /// 供 `ProposalStore::refresh` 做「有没有被别人改过」的廉价判定 ——
 /// 一次 stat 换掉一次全量读盘 + 全量解析。
 pub async fn Jsonl::mtime(self : Jsonl) -> (Int64, Int)? {
-  if !(@fs.exists(self.path)) {
+  if !@fs.exists(self.path) {
     return None
   }
   Some(@fs.mtime(self.path))
@@ -81,7 +84,7 @@ async fn Jsonl::ensure_parent(self : Jsonl) -> Unit {
   if dir == "." || dir == "/" {
     return
   }
-  if !(@fs.exists(dir)) {
+  if !@fs.exists(dir) {
     @fs.mkdir(dir, recursive=true)
   }
 }
@@ -102,7 +105,7 @@ fn[T : ToJson] encode_line(item : T) -> String {
 /// 只约束 `FromJson`（不约束 `ToJson`）：读取路径不做序列化，
 /// 多余的约束会被工具链判为 unused_trait_bound。
 pub async fn[T : @json.FromJson] Jsonl::load(self : Jsonl) -> Array[T] {
-  if !(@fs.exists(self.path)) {
+  if !@fs.exists(self.path) {
     return []
   }
   let content = @fs.read_file(self.path).text()
@@ -116,9 +119,7 @@ pub async fn[T : @json.FromJson] Jsonl::load(self : Jsonl) -> Array[T] {
     }
     // 解析与解码分两步，两者的失败都归入「损坏行」：
     // 前者是 JSON 语法坏了，后者是结构/词汇不符（如未知的 enum wire 名）。
-    let decoded : Result[T, String] = try {
-      Ok(@json.from_json(@json.parse(trimmed)))
-    } catch {
+    let decoded : Result[T, String] = Ok(@json.from_json(@json.parse(trimmed))) catch {
       e => Err(e.to_string())
     }
     match decoded {
@@ -177,7 +178,7 @@ pub async fn[T : ToJson] Jsonl::append_many(
 pub async fn write_json_atomic(path : String, json : Json) -> Unit {
   let target = @util.expand_home(path)
   let dir = @util.path_dirname(target)
-  if dir != "." && dir != "/" && !(@fs.exists(dir)) {
+  if dir != "." && dir != "/" && !@fs.exists(dir) {
     @fs.mkdir(dir, recursive=true)
   }
   let tmp = "\{target}.tmp"
@@ -194,12 +195,10 @@ pub async fn write_json_atomic(path : String, json : Json) -> Unit {
 /// 对齐 legacy-ts scanner L337-339 的「缓存坏了就当没有」。
 pub async fn read_json(path : String) -> Json? {
   let target = @util.expand_home(path)
-  if !(@fs.exists(target)) {
+  if !@fs.exists(target) {
     return None
   }
-  try {
-    Some(@json.parse(@fs.read_file(target).text()))
-  } catch {
+  Some(@json.parse(@fs.read_file(target).text())) catch {
     e => {
       @util.log_warn("Store", "Cannot parse \{target}: \{e.to_string()}")
       None

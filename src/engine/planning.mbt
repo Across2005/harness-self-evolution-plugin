@@ -174,25 +174,21 @@ fn plan_docs(
 ) -> Array[@types.DocumentationUpdate] {
   let updates : Array[@types.DocumentationUpdate] = []
   if plugin.initial_metrics.documentation_quality < 7.0 {
-    updates.push(
-      {
-        file: "SKILL.md",
-        section: "Usage Examples",
-        new_content: "添加具体使用示例和常见场景说明",
-        reason: "文档质量评分较低，需要增强实用性",
-      },
-    )
+    updates.push({
+      file: "SKILL.md",
+      section: "Usage Examples",
+      new_content: "添加具体使用示例和常见场景说明",
+      reason: "文档质量评分较低，需要增强实用性",
+    })
   }
   for signal in signals {
     if signal.category == @types.SignalCategory::Workflow {
-      updates.push(
-        {
-          file: "SKILL.md",
-          section: "Workflow",
-          new_content: "记录可复用工作流：\{signal.description}",
-          reason: "用户形成了可复用的工作流模式",
-        },
-      )
+      updates.push({
+        file: "SKILL.md",
+        section: "Workflow",
+        new_content: "记录可复用工作流：\{signal.description}",
+        reason: "用户形成了可复用的工作流模式",
+      })
     }
   }
   updates
