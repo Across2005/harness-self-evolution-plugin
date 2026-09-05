@@ -195,22 +195,39 @@ R 组（观测日志窗口裁剪）落地后为 `253, passed: 253, failed: 0.`�
 | **H1** | **一次瞬时写失败 = 丢事件 + 周期 flush 永久停摆** | 这是 2.0 重写**自己带进来的回归**。`store/jsonl.mbt` 有意让 `append` / `append_many` 的 I/O 错误直接 raise（决策本身没错），但新版 `flush_buffers` 为了「无锁、不可重入」把顺序改成 `copy → clear → 写`，raise 就落在了清空之后。对照 1.0（`legacy-ts/src/monitor/index.ts` L377-389）：它是 `await appendMany()` **成功之后**才 `this.eventBuffer = []`，所以 **1.0 不丢数据**；1.0 的代价在别处 —— `void this.flushBuffers()`（L54-56）把 rejection 丢在地上没人接，而 `legacy-ts/src/**` 实测没有任何 `unhandledRejection` 兜底，在 `engines: node >=18` 下未接住的 rejection 默认直接崩掉进程。**两边各错一半，而 2.0 错的是「丢数据」这半** | `flush_buffers keeps events when the write fails` 当场抛 `OSError("@fs.File::write(): Incorrect function.")`；`a metrics write failure does not block signals from being stored` 断言 `0 != 1` —— signals 一条都没落盘：走 `record_tool_call → maybe_deep_check → get_statistics → flush_buffers` 那条链时，raise 被 `Deep check failed` 的兜底接住、只留下一行日志，而缓冲早就清空了，于是**静默丢失**。夹具自检（先断言这条路径确实写不进去）排除了假绿 | metrics 与 signals **各自独立 `try/catch`**，互不牵连；写不进去的批次由 `bounded_requeue` 按时间序放回缓冲**头部**（未存盘的那批比缓冲里现有的更旧）等下一轮重试；新增上界 `max_buffered_items = 1000`，溢出丢**最旧**的并告警（否则磁盘长期写不进时，监控循环等于替磁盘吃内存）。`flush_buffers` 从此不 raise ⇒ `run_flush_loop` 的循环体无需兜错即可存活 |
 | **H2** | **配置可以写成退化值，且被静默兜底** | 1.0 的三个阈值是 `monitor` 里的硬编码常量（3 / 5 / 0.2），用户无从写错；2.0 修掉配置孤岛、改由 `EngineConfig::from_json` 读取后，**只做了类型兜底、没做取值域校验** —— 接通配置入口的同时接通了一条新的失效通道 | `EngineConfig::from_json_checked reports out-of-domain values by name` 断言 `cfg == default` 失败（`-1 / 0 / 1 / 0` 全部原样生效）；`keeps in-domain values untouched` 断言 `0 != 2` | 新增 `EngineConfig::from_json_checked`，对 4 个数值字段做取值域校验：`cooldown_hours ∈ [0, 87600]`、`consecutive_failures ≥ 1`、`loop_detection ≥ 2`、`latency_regression ∈ (0, 100]`。越界即**回落默认值 + 点名字段告警**；`from_json` 委托它并丢掉告警（保持同步签名与既有 4 处调用点）。告警由 `main.mbt` 的 `load_config` 打到 stderr。缺失与类型不符**仍然静默回落**，为它们告警会淹没要紧的这几条 |
 | **W** | **解析出来的 `evolution_config` 没接到 monitor：改阈值与日志上限在运行时是空操作** | H2 只把「配置读不读」修到 `EngineConfig` 为止。生产路径上 monitor 有且只有一个构造点（`mcp/tools.mbt` 的 `ServerState::with_scan_config` → `PerformanceMonitor::at`），而它的签名里根本没有 config，转手走 `new()` → `with_thresholds(..., SignalThresholds::default())`。于是 `types/signal.mbt` 承诺的「可由 plugin.json 覆盖」与 R 组新加的 `max_log_bytes` **只有解析方、没有消费方** —— 配置孤岛换了个位置继续存在。1.0 不存在这条路径（阈值本就是 monitor 里的硬编码常量，没人声称它可配），故算 2.0 自己引入 | `ServerState threads evolution_config.max_log_bytes into the monitor`：磁盘上 9 条事件全在，配置的 600 字节上限没触发裁剪（monitor 仍在用默认 32 MiB）；`ServerState threads evolution_config.signal_thresholds into the monitor`：先断言 `config.thresholds.consecutive_failures == 1` **通过**，随后 signals.jsonl 是 0 行 —— 红点精确落在**构造侧而非解析侧**，排除了「JSON 没解析对」这种假因。`Total tests: 255, passed: 253, failed: 2.` | `PerformanceMonitor::at` 增可选参数 `config?`（默认 `EngineConfig::default()`，`at(paths)` 的老调用点行为逐字节不变），把 `config.thresholds` 与 `config.max_log_bytes` 交给 `with_thresholds`；构造点改为 `at(paths, config~)`。修复后 `Total tests: 255, passed: 255, failed: 0.`，且日志里出现 `[Store] Trimmed .../evo-wire-cap-*/metrics.jsonl: kept 414 of 1863 bytes` —— 配置值真的驱动了裁剪，而非仅测试通过 |
+| **P1** | **`trim_to` 把「整个文件只有一行且超上限」的日志裁成空文件** | R 组（窗口裁剪）的按字节算法本身是对的，但兜底分支拿 `last_start > 0` 当「存在候选行起点」的判据 —— 而**整个文件只有一行时，该行的起点恰好是 0**，永远不满足 `> 0`，于是落到「裁空」分支，直接违反 `jsonl.mbt` 自己写在文档里的「**至少保留最新的一个完整行**，哪怕它自己就超过上限」。上轮复核 R 时我按 6 个用例手工推演过，**没有一个覆盖单行超限**，所以这条边界躲过了复核 | 新增 `trim_to keeps the newest line when it is also the first line`（断言文件仍是 `bbbbbbbbbb\n`，实得空串）与 `trim_to leaves a single oversized record loadable`（断言磁盘 5 字节、`load()` 仍有 1 条，实得 0 字节 / 0 条）。既有 7 条裁剪用例全部从**第二行**开始构造，正好绕开这个分支 | 兜底判据从 `last_start > 0` 改成「有完整行即可用 `last_start`」（走到该分支时 `eff_end > 0` 必然成立，真·无完整行在上面的「放得下」就提前返回了），单行超限整条保留；同时改掉 `trim_to` 里那句「此分支不可达」的注释 —— 修复后它反而是单行场景的正常出口 |
+| **P3** | **执行账本写不进去时异常逃出 `execute`；完成记账失败还会把成功的执行改判成失败** | 1.0 的 `execute` 把一切圈在一个 `try` 里；2.0 重写时，进入执行的 `set_status(Executing)` 与首条 `Start` 日志落在了「兜住一切意外」的 catch **之前**（`executor.mbt`），而 `set_status` / `ExecutionLog::append` 最终都走 `Jsonl::append`，I/O 错误按设计直接 raise（H1 的决策），`ignore()` 拦不住。后果两层：未捕获异常打到 stdout = MCP 协议通道；以及完成记账（`Completed` + `Complete` 日志）写不进时，异常被外层 catch 接住 → **已改好并验过**的执行被报成 `Unexpected error`，提案退回 `pending`，于是可以被再批一次、把同一份改动二次套用 | `an unwritable execution log does not abort a successful execution` 与 `a validation failure is still reported when the log is unwritable` 当场抛 `OSError("@fs.File::write(): Incorrect function.")`（夹具与 H1 同款：把日志路径做成目录）。夹具自检：这两条在改前必须是红的，且红的就是这个 OSError | 新增 `mark_status` / `note_event` 两个收口函数，与 monitor 的 `trim_quietly` 同构（`Ok(expr) catch { err => Err(...) }` + `log_warn`），7 处记账全部改走它们：账本没写成会留下 `Cannot record proposal status ...` / `Cannot append execution log ... 告警，但既不逸出、也**不改变执行结论** |
 
 H1 的失败面是**每一轮 flush 都可能踩到**（磁盘满、临时目录被回收、杀毒软件占用），
 H2 的失败面是**配置里写错一个数就永久生效**，W 的失败面最隐蔽：**配置里写对了数，
 也一样不生效**，而且解析与校验全都绿，只有最后一厘米没接上。三条修复后
 `Total tests: 255, passed: 255, failed: 0.`，且 `moon check --deny-warn` 通过。
 
+P1 / P3 是**再下一轮**（对 `c46943f…HEAD` 整个 v2 重写面做两轴评审）挖出来的：
+P1 加完测试未实现时 `Total tests: 257, passed: 255, failed: 2.`，实现后 `257, passed: 257, failed: 0.`；
+P3 与 P2 的用例一起把总数推到 262，未实现时 `262, passed: 260, failed: 2.`，实现后
+`262, passed: 262, failed: 0.`。
+
 > **给下一位改动者的通则**：新增一个 `EngineConfig` 字段时，必须同时回答
 > 「谁解析它」（`types/config.mbt` 的 `from_json_checked`）与「**谁消费它**」
-> （engine 消费 `intensity` / `cooldown_hours` / `auto_approve`；monitor 经
+> （engine 消费 `intensity` / `cooldown_hours`；monitor 经
 > `PerformanceMonitor::at(paths, config~)` 消费 `thresholds` / `max_log_bytes`）。
 > 只补前者就会重演 W。用例名以 `ServerState threads ...` 开头的那两条就是这条通则的守卫。
+>
+> 上一版本这里还写着「engine 消费 `auto_approve`」，**是失实的**：全仓只有
+> `types/config.mbt` 解析它，没有任何消费方（1.0 同样只声明不读，
+> `legacy-ts/src/types/index.ts:295`）。已按已知缺陷第 8 条改成显式失效。
+> 通则的自查方式只有一条：`grep` 字段名，看**非测试、非解析**的命中有几个 —— 0 个就是孤岛。
+>
+> **第二条通则（P3 换来）**：所有「账本型」写入（状态机流转、执行日志）都必须
+> 经收口函数，兜错的那一层自己不能再成为抛错源。`ignore(f(...))` **只丢返回值、
+> 拦不住 `f` 内部的 raise**；而 native 后端下未捕获异常打到 stdout，stdout 是
+> MCP 的协议通道。新增记账调用点时先问：它抛出去会怎样？
 
 ## 有意的语义修正
 
-移植过程中**只有一处**故意改变了 1.0 的行为语义，记录在此以免被当成 bug 回退
-（上一节 H1 / H2 是加固轮次引入的语义变化，不属于移植期间的改动）：
+移植过程中**只有两处**故意改变了 1.0 的行为语义，记录在此以免被当成 bug 回退
+（上一节 H1 / H2 / P1 / P3 是加固轮次引入的语义变化，不属于移植期间的改动）：
 
 - **`is_backward_compatible` 在空变更集时返回 `true`（1.0 返回 `false`）**
   1.0 的 `checkBackwardCompatibility` 用 `changes.merge_tools?.every(...)` 与
@@ -221,6 +238,15 @@ H2 的失败面是**配置里写错一个数就永久生效**，W 的失败面�
   —— 自相矛盾。2.0 统一为 `true`：空变更集不破坏任何既有调用方。
   专门测试：`engine/risk_wbtest.mbt` 的
   `"is_backward_compatible treats an empty change set as compatible"`。
+- **`scan_plugins` 的 `target_paths` 从「声明了但完全无效」变成真正生效**
+  1.0 的 schema 声明了这个参数，handler 却只往下传 `force_rescan`
+  （`legacy-ts/src/mcp/server.ts` L29 声明 / L131 只用 force_rescan），参数是纯摆设；
+  2.0 在 `mcp/tools.mbt` 里真的用它替换默认扫描根。
+  连带两处覆盖，一并记在这里：那次扫描复用**同一个** `plugin_cache()` 路径，
+  而 `save_cache` 是整份重写（`scanner.mbt` 只回写本次扫到的档案），
+  所以一次 `target_paths` 扫描会把默认根的缓存条目全部冲掉 —— 缓存是**派生数据**，
+  下一轮默认扫描会重算，代价是多扫一遍，不丢真实数据；`state.adopt(scanner.all())`
+  也会把注册表替换成这批临时档案。按插件切分缓存文件仍属后续工作。
 
 ## 已知缺陷与有意保留的行为
 
@@ -256,6 +282,23 @@ H2 的失败面是**配置里写错一个数就永久生效**，W 的失败面�
 7. **首次 `record_tool_call` 会立即触发一次落盘**。
    链路是 `record_tool_call → maybe_deep_check → get_statistics → flush_buffers`。
    反直觉（缓冲本该等 5s 周期），但忠实移植自 1.0，并有专门用例钉住。
+8. **`auto_approve` 没有消费方**（P2，1.0 继承）。
+   `legacy-ts/src/types/index.ts:295` 声明后从未读过，2.0 忠实移植。缺陷不在「没接通」，
+   而在**静默**：配置里写 `true` 的人会以为绕过了人工审批，而审批照旧必经。
+   本轮按 H2 同款原则改成**显式失效** —— `from_json_checked` 遇 `true` 告警并回落
+   `false`，用例 `auto_approve: true is reported and falls back to false` 钉住。
+   **刻意不接通**：人工审批是「自动改代码失控」这条最大风险的唯一闸门，接通它属于
+   对外语义变更，要单独决策，不在缺陷修复范围内。
+9. **monitor 没有生产数据源**（本轮评审新发现，1.0 继承）。
+   `record_tool_call` / `record_user_feedback` 在**整个仓库（含 `legacy-ts/src`）都没有
+   非测试调用方**，MCP 侧只暴露读取用的 `get_plugin_metrics`。于是「指标采集 → 信号识别
+   → 自动提案」这条链**第一环就没有输入**：`metrics.jsonl` 只被动等待一个不存在的喂数据方，
+   `get_plugin_metrics` 恒返回全零，跑得通的只有手动 `propose_evolution`。
+   `DESIGN.md` 原先那句「性能事件确实在采集」是失实的，已就地改掉。
+   接通它需要平台提供「其他插件被调用」的回调（就是 `addEventHandler` 那段从未实现的草图），
+   属于功能决策而非缺陷修复，故记录在此不动代码。
+10. **`target_paths` 生效后带来的两处覆盖**（见「有意的语义修正」第二条）。
+    一次带 `target_paths` 的扫描会冲掉默认根的插件缓存、并把注册表替换成这批临时档案。
 
 ## 与移植计划的已知偏差
 

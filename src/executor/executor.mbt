@@ -119,10 +119,8 @@ pub async fn UpgradeExecutor::execute(
     }
   }
 
-  ignore(
-    self.proposals.set_status(proposal_id, @types.ProposalStatus::Executing),
-  )
-  self.log.append(
+  self.mark_status(proposal_id, @types.ProposalStatus::Executing)
+  self.note_event(
     proposal_id,
     @store.ExecEvent::Start,
     "Starting execution of \{proposal_id}",
@@ -134,15 +132,13 @@ pub async fn UpgradeExecutor::execute(
   let outcome : ExecutionResult = self.run_pipeline(proposal, dry_run) catch {
     e => {
       let msg = e.to_string()
-      self.log.append(
+      self.note_event(
         proposal_id,
         @store.ExecEvent::Error,
         "Unexpected error: \{msg}",
       )
       // executing → pending 是合法迁移（失败自动回滚，见 CONTEXT.md L24）
-      ignore(
-        self.proposals.set_status(proposal_id, @types.ProposalStatus::Pending),
-      )
+      self.mark_status(proposal_id, @types.ProposalStatus::Pending)
       { success: false, results: [], error: Some("Unexpected error: \{msg}") }
     }
   }
@@ -182,18 +178,13 @@ async fn UpgradeExecutor::run_pipeline(
       Some(failed) => {
         let detail = failed.error.unwrap_or("unknown error")
         let label = failed.agent.wire_name()
-        self.log.append(
+        self.note_event(
           proposal.proposal_id,
           @store.ExecEvent::Error,
           "Task \{label} failed: \{detail}",
         )
         self.rollback(proposal)
-        ignore(
-          self.proposals.set_status(
-            proposal.proposal_id,
-            @types.ProposalStatus::Pending,
-          ),
-        )
+        self.mark_status(proposal.proposal_id, @types.ProposalStatus::Pending)
         return {
           success: false,
           results,
@@ -202,7 +193,7 @@ async fn UpgradeExecutor::run_pipeline(
       }
       None => ()
     }
-    self.log.append(
+    self.note_event(
       proposal.proposal_id,
       @store.ExecEvent::Progress,
       "Layer completed (\{layer.length()} task(s))",
@@ -220,18 +211,13 @@ async fn UpgradeExecutor::run_pipeline(
     if !result.success {
       let detail = result.error.unwrap_or("unknown error")
       let label = spec.level.wire_name()
-      self.log.append(
+      self.note_event(
         proposal.proposal_id,
         @store.ExecEvent::Error,
         "Validation failed: \{label} \{detail}",
       )
       self.rollback(proposal)
-      ignore(
-        self.proposals.set_status(
-          proposal.proposal_id,
-          @types.ProposalStatus::Pending,
-        ),
-      )
+      self.mark_status(proposal.proposal_id, @types.ProposalStatus::Pending)
       let all = results.copy()
       for r in validation {
         all.push(r)
@@ -244,13 +230,8 @@ async fn UpgradeExecutor::run_pipeline(
     }
   }
 
-  ignore(
-    self.proposals.set_status(
-      proposal.proposal_id,
-      @types.ProposalStatus::Completed,
-    ),
-  )
-  self.log.append(
+  self.mark_status(proposal.proposal_id, @types.ProposalStatus::Completed)
+  self.note_event(
     proposal.proposal_id,
     @store.ExecEvent::Complete,
     "Execution completed successfully",
@@ -409,11 +390,69 @@ async fn UpgradeExecutor::rollback(
   proposal : @types.EvolutionProposal,
 ) -> Unit {
   @util.log_info("Executor", "Rolling back changes...")
-  self.log.append(
+  self.note_event(
     proposal.proposal_id,
     @store.ExecEvent::Rollback,
     "Changes rolled back",
   )
+}
+
+// ============================================================================
+// 记账收口
+// ============================================================================
+
+///|
+/// 记一次提案状态流转，**写盘失败只告警**。
+///
+/// 原先这些调用点直接 `ignore(set_status(...))`：`ignore` 只丢返回值，
+/// 拦不住 `set_status` 内部的 `raise`（它要写 `proposals.jsonl`）。
+/// 后果有两层：
+/// · 记账发生在「兜住一切意外」的 catch **之前**，异常直接逃出 `execute`，
+///   而 native 后端下未捕获异常会打到 **stdout** = MCP 的协议通道；
+/// · 完成记账写不进去时，异常被外层 catch 接住 → 一次**已经改好并验过**的
+///   执行被改判为「Unexpected error」，提案还被放回 pending —— 于是它可以
+///   被重新批准、把同一份改动**再套一遍**。
+/// 与 `monitor` 的 `trim_quietly` 同构：账本没写成要让人看见，
+/// 但不能因此改变执行结论。
+async fn UpgradeExecutor::mark_status(
+  self : UpgradeExecutor,
+  proposal_id : String,
+  status : @types.ProposalStatus,
+) -> Unit {
+  let outcome : Result[Bool, String] = Ok(
+    self.proposals.set_status(proposal_id, status),
+  ) catch {
+    err => Err(err.to_string())
+  }
+  match outcome {
+    Ok(_) => ()
+    Err(msg) => @util.log_warn(
+      "Executor",
+      "Cannot record proposal status \{status.wire_name()}: \{msg}",
+    )
+  }
+}
+
+///|
+/// 追加一条执行日志，**写盘失败只告警**。理由同 `mark_status`。
+async fn UpgradeExecutor::note_event(
+  self : UpgradeExecutor,
+  proposal_id : String,
+  event : @store.ExecEvent,
+  message : String,
+) -> Unit {
+  let outcome : Result[Unit, String] = Ok(
+    self.log.append(proposal_id, event, message),
+  ) catch {
+    err => Err(err.to_string())
+  }
+  match outcome {
+    Ok(_) => ()
+    Err(msg) => @util.log_warn(
+      "Executor",
+      "Cannot append execution log: \{msg}",
+    )
+  }
 }
 
 // ============================================================================

@@ -133,3 +133,40 @@ async test "trim_to keeps the newest records loadable" {
   assert_eq(loaded[0], Json::string("e2"))
   assert_eq(loaded[1], Json::string("e3"))
 }
+
+///|
+/// 单行文件、且这一行自己就超过上限。`last_start` 只记「某个换行之后的起点」，
+/// 对单行文件它永远取不到值（唯一那行的起点是 0），旧实现于是落到「裁空」分支，
+/// 把仅存的一条证据抹掉。这钉的是 `trim_to` 文档里
+/// 「**至少保留最新的一个完整行**，哪怕它自己就超过上限」那条承诺。
+async test "trim_to keeps the newest line when it is also the first line" {
+  let dir = @fs.tmpdir(prefix="evo-trim-8-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = @util.path_join(dir, "log.jsonl")
+  write_raw(path, "bbbbbbbbbb\n")
+  let store = Jsonl::new(path)
+  // 返回 false：唯一那行必须整条留下，也就是「无需重写」。
+  // trim_to 的返回值语义是「是否真的发生了裁剪」，不是「文件是否超限」。
+  assert_false(store.trim_to(8))
+  assert_eq(read_raw(path), "bbbbbbbbbb\n")
+}
+
+///|
+/// 同一处缺陷在 signals 上的表现：裁剪后文件必须还能 `load` 出一条记录。
+/// 旧实现返回空窗口，磁盘变 0 字节，`load()` 得到空数组 ——
+/// 「保留最近一条证据」在监控日志上彻底落空。
+async test "trim_to leaves a single oversized record loadable" {
+  let dir = @fs.tmpdir(prefix="evo-trim-9-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = @util.path_join(dir, "signals.jsonl")
+  let store = Jsonl::new(path)
+  // 一条 `"s0"` + 换行 = 5 字节；上限 2 → 没有任何窗口放得下它
+  store.append_many([Json::string("s0")])
+  // 同上：唯一一条记录整条保留、不发生重写，但磁盘仍在上限之上 ——
+  // 这是「至少保住最新一条证据」优先于「严格不超上限」的取舍。
+  assert_false(store.trim_to(2))
+  assert_eq(disk_size(path), 5L)
+  let loaded : Array[Json] = store.load()
+  assert_eq(loaded.length(), 1)
+  assert_eq(loaded[0], Json::string("s0"))
+}

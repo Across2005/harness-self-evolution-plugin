@@ -173,7 +173,9 @@ pub async fn Jsonl::trim_to(self : Jsonl, max_bytes : Int) -> Bool {
   let total = raw.length()
   let (cut, eff_end) = trim_window(raw, max_bytes)
   if cut == 0 && eff_end == total {
-    // 不可达（前置已保证 size > max_bytes）；防御性返回，避免无意义重写
+    // 整个有效区就是「最新的那一行」且它自己超过上限：按承诺整条保留，
+    // 于是不需要重写（文件原样留着，字节数仍可能 > max_bytes）。
+    // 这是「至少保住最新一条证据」优先于「严格不超上限」的唯一例外。
     return false
   }
   let tmp = self.path + ".tmp"
@@ -193,8 +195,8 @@ pub async fn Jsonl::trim_to(self : Jsonl, max_bytes : Int) -> Bool {
 /// 最后一个换行之后（残行丢弃）。`cut` 的选取：
 /// · 整个有效区放得下 → `0`（只丢残行）；
 /// · 否则取**最小的**、使保留区 ≤ 上限的行起点（保留尽量多）；
-/// · 都放不下 → 最新一行的起点（至少保住一行）；
-/// · 没有任何完整行 → `eff_end`（裁空）。
+/// · 都放不下 → 最新一行的起点（至少保住一行；整个文件只有一行时该起点就是 0）；
+/// · 没有任何完整行（`eff_end == 0`）在上面「放得下」那条已提前返回，不会走到兜底分支。
 fn trim_window(raw : Bytes, max_bytes : Int) -> (Int, Int) {
   let total = raw.length()
   let mut eff_end = total
@@ -223,10 +225,12 @@ fn trim_window(raw : Bytes, max_bytes : Int) -> (Int, Int) {
   }
   if best_fit >= 0 {
     (best_fit, eff_end)
-  } else if last_start > 0 {
-    (last_start, eff_end)
   } else {
-    (eff_end, eff_end)
+    // 没有任何行起点放得下 -> 保住最新一行的起点。`last_start` 的初值 0
+    // 正是「整个文件只有一行」时该行的起点，所以这里**不能**用
+    // `last_start > 0` 当判据 —— 那样单行超限的文件会被裁成 0 字节。
+    // 真正的「没有任何完整行」（eff_end == 0）在上面已提前返回，到不了这里。
+    (last_start, eff_end)
   }
 }
 

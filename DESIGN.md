@@ -487,8 +487,10 @@ server.addTool({
 // 事件监听
 // ⚠️ 下面这段**从未实现**。1.0 没有调用过任何 registerEvent，
 // 2.0 也没有 —— 本插件不注册 MCP Event，只提供 7 个工具。
-// 性能事件确实在采集，但走的是本地 JSONL 落盘（metrics.jsonl），
-// 由 monitor 自己触发，不是外部事件回调。
+// 而「性能事件在采集」这句原先也是**失实的**，2026-09 复核时改掉：
+// monitor 的 record_tool_call / record_user_feedback 在全仓（含 1.0）都**没有
+// 生产调用方**，MCP 只暴露读取用的 get_plugin_metrics —— 采集链的第一环没有输入，
+// metrics.jsonl 只被动等待一个不存在的喂数据方。详见 CONTEXT.md 已知缺陷第 9 条。
 server.addEventHandler('on_plugin_call', async (event) => {
   await monitor.recordEvent(event);
 });

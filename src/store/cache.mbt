@@ -5,9 +5,10 @@
 ///
 /// **同时修掉缺陷 F2：缓存永久毒化。**
 /// 实测本机 `~/.harness-evolution/plugin-cache.json`（526 字节）的唯一条目是
+/// （用户名与临时目录随机段已脱敏，结构与原文件一致）
 /// ```json
 /// { "cached-plugin-0.1.0": { ...,
-///     "path": "C:\\Users\\19207\\AppData\\Local\\Temp\\evo-scan-c8AcoZ\\cached-plugin" } }
+///     "path": "C:\\Users\\<user>\\AppData\\Local\\Temp\\evo-scan-<rand>\\cached-plugin" } }
 /// ```
 /// 那是 jest 测试的残留，指向一个早已被 `tests/scanner.test.ts` L19 的
 /// `afterEach(fs.remove)` 删除的临时目录。而 TS 的 `scanAll`（L36-42）

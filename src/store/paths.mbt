@@ -29,7 +29,8 @@ pub struct DataPaths {
 /// 的 7 字段结构改为变体列表），与 v1 的 JSONL 不兼容。
 /// 实测本机 `~/.harness-evolution/` 当前**只有**一个 526 字节的 `plugin-cache.json`，
 /// 且其唯一条目指向一个早已被 jest `afterEach` 删除的临时目录
-/// （`C:\Users\...\Temp\evo-scan-c8AcoZ\cached-plugin`）—— 即缺陷 F2 的毒化缓存。
+/// （`C:\Users\<user>\AppData\Local\Temp\evo-scan-<rand>\cached-plugin`，随机段已脱敏）
+/// —— 即缺陷 F2 的毒化缓存。
 /// 没有 `metrics/signals/proposals.jsonl`，所以自动迁移是空操作；
 /// 而那个缓存丢弃重扫比迁移更安全。故：**只提示，不迁移**。
 pub fn DataPaths::default() -> DataPaths {

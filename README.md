@@ -178,6 +178,14 @@ zcode plugin link .
 2. **运行中**：监控插件性能，累积信号
 3. **信号触发**：检测到足够信号时，生成提案
 
+> ⚠️ 第 2、3 步**目前跑不起来**：本插件没有「其他插件被调用」的事件来源
+> （`record_tool_call` / `record_user_feedback` 无生产调用方，1.0 亦如此），
+> 所以 `metrics.jsonl` 不会有数据、信号不会自动触发。可用的是手动路径：
+> `propose_evolution` → `approve_proposal` → `execute_evolution`
+> （注意已知缺陷第 1 条 F5：默认 50% 强度下手动信号也是无效的，
+> 要生效得把 `evolution_config.intensity` 设为 `"100%"`）。
+> 原因与取舍见 `CONTEXT.md` 已知缺陷第 9 条。
+
 ### 手动命令
 
 ```bash

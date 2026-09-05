@@ -139,7 +139,8 @@ pub fn PerformanceMonitor::with_thresholds(
 ///
 /// ★ **config 必须从这里进来**：`thresholds` 与 `max_log_bytes` 的消费方是
 /// 本 monitor（`check_for_signals` / `flush_buffers`），而 engine 只读
-/// `intensity` / `cooldown_hours` / `auto_approve`。过去这个构造点丢弃
+/// `intensity` / `cooldown_hours`（`auto_approve` 无消费方，见
+/// `types/config.mbt`）。过去这个构造点丢弃
 /// config、转手走 `new()` 的默认值，于是「改 plugin.json 里的阈值或日志上限」
 /// 在运行时一动不动 —— H2 把解析侧的配置孤岛修通了，构造侧却还留着
 /// 同一个洞。可选参数带默认值，`at(paths)` 的老调用点行为不变。

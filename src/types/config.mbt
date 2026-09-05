@@ -33,7 +33,11 @@ pub(all) struct EngineConfig {
   intensity : Intensity
   /// 同一插件两次提案之间的最短间隔（小时）。默认 24（engine L47）
   cooldown_hours : Int
-  /// 是否跳过人工审批。默认 false —— CONTEXT.md「审批强制」不变量
+  /// **目前没有消费方**：1.0 只在 `types/index.ts:295` 声明了它、从未读过
+  /// （2.0 忠实移植了这个孤岛）。人工审批是本插件压住「自动改代码失控」
+  /// 这条最大风险的唯一闸门，所以这里刻意**不接通**它 —— 但也不再静默
+  /// 采纳：`from_json_checked` 遇到 true 会告警并回落 false（见 H2 同款处理）。
+  /// 默认 false。
   auto_approve : Bool
   thresholds : SignalThresholds
   /// 观测日志（metrics.jsonl 与 signals.jsonl）的保留上限（字节）。
@@ -291,9 +295,19 @@ pub fn EngineConfig::from_json_checked(
     Some(n) => n.to_int()
     None => defaults.cooldown_hours
   }
-  let auto_approve = bool_field(cfg, "auto_approve").unwrap_or(
-    defaults.auto_approve,
-  )
+  // 与 H2 同一套原则：非法/做不到的取值不能静默采纳。`auto_approve` 的
+  // 「非法」不在于格式，而在于**没有消费方** —— 写 true 的人会以为绕过了审批，
+  // 而审批其实照旧必经。所以显式告警 + 回落到 false，让失效变成可见的失效。
+  let auto_approve = match bool_field(cfg, "auto_approve") {
+    Some(true) => {
+      warn.push(
+        "auto_approve: true is not supported (approval is always manual), using false",
+      )
+      false
+    }
+    Some(false) => defaults.auto_approve
+    None => defaults.auto_approve
+  }
   let max_log_raw = match num_field(cfg, "max_log_bytes") {
     Some(n) => n.to_int()
     None => defaults.max_log_bytes

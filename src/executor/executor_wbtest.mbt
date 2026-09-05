@@ -557,3 +557,64 @@ async test "writes an execution log with the legacy line format" {
   }
   assert_eq(progress, 3) // cg-merge / tw / integ 三层
 }
+
+///|
+/// P3（成功面）：执行日志写不进去时，一次**已经成功**的执行不能被改判，
+/// 也不能让异常逸出 —— native 后端下未捕获异常会打到 **stdout**，而 stdout
+/// 是 MCP 的协议通道（`execute` 自己的注释里就记着这条 Phase 0 实测结论）。
+/// 夹具与 H1 同款：把日志路径做成一个目录，`@fs.write_file` 对它必然失败。
+/// 修之前的失败点：`executor.mbt` 的 Start 记账落在「兜住一切意外」的
+/// catch **之前**，异常直接从 `execute` 逃出去。
+async test "an unwritable execution log does not abort a successful execution" {
+  let dir = @fs.tmpdir(prefix="evo-exec-")
+  defer @fs.rmdir(dir, recursive=true)
+  let proposals = @store.ProposalStore::new(
+    @util.path_join(dir, "proposals.jsonl"),
+  )
+  let log_path = @util.path_join(dir, "execution.log")
+  @fs.mkdir(log_path, recursive=true)
+  let executor = UpgradeExecutor::new(
+    proposals,
+    @store.ExecutionLog::new(log_path),
+  )
+  proposals.save(make_proposal())
+
+  let result = executor.execute("evo-test-1", dry_run=true)
+  assert_true(result.success)
+  match proposals.find("evo-test-1") {
+    Some(p) => assert_eq(p.status, @types.ProposalStatus::Completed)
+    None => abort("proposal vanished")
+  }
+}
+
+///|
+/// P3（失败面）：验证失败 **且** 日志写不进去时，报告里必须是「验证失败」
+/// 这个真实原因，而不是被记账异常顶掉的「Unexpected error」，更不能逸出。
+/// 这一条同时钉住 catch 臂自身：它里面也有两处会 raise 的记账写入。
+async test "a validation failure is still reported when the log is unwritable" {
+  let dir = @fs.tmpdir(prefix="evo-exec-")
+  defer @fs.rmdir(dir, recursive=true)
+  let proposals = @store.ProposalStore::new(
+    @util.path_join(dir, "proposals.jsonl"),
+  )
+  let log_path = @util.path_join(dir, "execution.log")
+  @fs.mkdir(log_path, recursive=true)
+  let executor = UpgradeExecutor::new(
+    proposals,
+    @store.ExecutionLog::new(log_path),
+    validate_level=failing_validation,
+  )
+  proposals.save(make_proposal())
+
+  let result = executor.execute("evo-test-1", dry_run=false)
+  assert_eq(result.success, false)
+  let reason = result.error.unwrap_or("")
+  assert_true(
+    reason.contains("T0 validation failed"),
+    msg="期望真实的验证失败原因，实际得到: " + reason,
+  )
+  match proposals.find("evo-test-1") {
+    Some(p) => assert_eq(p.status, @types.ProposalStatus::Pending)
+    None => abort("proposal vanished")
+  }
+}

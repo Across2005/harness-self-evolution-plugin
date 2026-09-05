@@ -305,7 +305,9 @@ test "EngineConfig::from_json reads the real plugin.json shape" {
   let cfg = EngineConfig::from_json(@json.parse(raw))
   assert_eq(cfg.intensity, Intensity::Full)
   assert_eq(cfg.cooldown_hours, 6)
-  assert_eq(cfg.auto_approve, true)
+  // auto_approve 没有消费方，写 true 会被显式告警并回落 false（见下面
+  // "auto_approve: true is reported..." 用例），这里断言回落后的值。
+  assert_eq(cfg.auto_approve, false)
   assert_eq(cfg.thresholds.consecutive_failures, 7)
   assert_eq(cfg.thresholds.loop_detection, 9)
   assert_eq(cfg.thresholds.latency_regression, 0.75)
@@ -711,4 +713,50 @@ test "EngineConfig::from_json_checked validates max_log_bytes" {
   )
   assert_eq(absent.max_log_bytes, default_max_log_bytes)
   assert_eq(absent_warns.length(), 0)
+}
+
+///|
+/// P2：`auto_approve` 在 1.0 就只是声明、从未被读过（`legacy-ts/src/types/index.ts:295`），
+/// 2.0 忠实移植了这个孤岛。缺陷不在「没接通」，而在**静默**：配置里写
+/// `auto_approve: true` 的人以为绕过了审批，而审批照旧必经，且没有任何提示。
+/// 这里钉成「显式告警 + 回落 false」，与 H2 对越界取值的处理同一套原则。
+/// 注意这**不是**接通自动审批：人工审批是「自动改代码失控」的唯一闸门，
+/// 要接通它属于对外语义变更，需要单独决策（见 CONTEXT.md 已知缺陷清单）。
+test "auto_approve: true is reported and falls back to false" {
+  let raw =
+    #|{
+    #|  "intensity": "100%",
+    #|  "auto_approve": true,
+    #|  "cooldown_hours": 6
+    #|}
+  let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
+  assert_eq(cfg.auto_approve, false)
+  let mut mentions = false
+  for w in warns {
+    if w.contains("auto_approve") {
+      mentions = true
+    }
+  }
+  assert_true(mentions)
+  // 其余字段不受影响：告警只针对这一项，不做整体回落
+  assert_eq(cfg.intensity, Intensity::Full)
+  assert_eq(cfg.cooldown_hours, 6)
+}
+
+///|
+/// 显式写 false（plugin.json 的出厂值）不该产生任何噪声。
+test "auto_approve: false is accepted silently" {
+  let raw = #|{"auto_approve":false}
+  let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
+  assert_eq(cfg.auto_approve, false)
+  assert_eq(warns.length(), 0)
+}
+
+///|
+/// 缺省不写这一项时也不该告警 —— 否则每次启动都会为「用户没写的字段」刷屏。
+test "absent auto_approve produces no warning" {
+  let raw = #|{"intensity":"50%"}
+  let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
+  assert_eq(cfg.auto_approve, false)
+  assert_eq(warns.length(), 0)
 }
