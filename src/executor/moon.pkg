@@ -1,0 +1,17 @@
+import {
+  "across2005/harness-self-evolution/store",
+  "across2005/harness-self-evolution/types",
+  "across2005/harness-self-evolution/util",
+  "moonbitlang/async",
+  "moonbitlang/core/json",
+}
+
+import {
+  "moonbitlang/async/fs",
+} for "wbtest"
+
+options(
+  // executor 的用例经 ProposalStore 与 ExecutionLog 触碰真实文件系统
+  // （见 monitor 包同名注释里记录的那次并行 I/O panic）。
+  "max-concurrent-tests": 1,
+)

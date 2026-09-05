@@ -340,11 +340,28 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 
 ### 4.1 插件元数据结构
 
+> ⚠️ **2.0 更正**：本节与 §4.2、§4.3 是 **1.0 阶段的设计草图**，其中有几处
+> **连 1.0 的实现都从未符合过**，保留原文是为了留下设计意图的痕迹，
+> 但不得当作现状来读：
+>
+> | 草图里的内容 | 实际情况 |
+> |---|---|
+> | `server.addTool` / `server.addEventHandler` | 1.0 用的是 `@modelcontextprotocol/sdk` 的 `McpServer.registerTool`；2.0 是**自研 stdio JSON-RPC**（`src/mcp/`） |
+> | `on_plugin_call` / `on_user_feedback` 两个事件 | **从未注册过**（实测：`legacy-ts/src/mcp/server.ts` 只有 `registerTool`，无任何 `registerEvent`） |
+> | `~/.harness-evolution/registry.jsonl` | **从未存在**。注册表是进程内存（`ServerState.registry`），落盘的是 `plugin-cache.json` |
+> | `scan_timestamp` / `status` 字段 | 真实字段名是 `scanned_at`（Unix 毫秒），且没有 `status` |
+> | `main: "./dist/mcp/server.js"` | 2.0 是 `"./bin/harness-evolution.exe"` |
+>
+> **权威来源**：接口契约看 `README.md` 的「API」节与 `.zcode-plugin/plugin.json`；
+> 词汇与不变量看 `CONTEXT.md`；数据结构看 `src/types/*.mbt`。
+
+下面是 2.0 的真实清单（与仓库里的 `.zcode-plugin/plugin.json` 一致）：
+
 ```json
 // .zcode-plugin/plugin.json
 {
   "name": "harness-self-evolution",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "DeepSeek Harness 全盘自进化升级插件",
   "author": {
     "name": "AI Agent Designer",
@@ -356,31 +373,40 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
     "type": "git",
     "url": "git+https://github.com/Across2005/harness-self-evolution-plugin.git"
   },
-  "main": "./dist/mcp/server.js",
-  "skills": "skills",
+  "main": "./bin/harness-evolution.exe",
+  "skills": "./skills",
   "capabilities": [
     "plugin_scanning",
     "performance_monitoring",
     "evolution_engine",
-    "upgrade_execution"
+    "upgrade_execution",
+    "sub_agent_orchestration"
   ],
-  "dependencies": {
-    "@modelcontextprotocol/server": "^1.0.0",
-    "@zcode/contracts": "^0.5.0",
-    "@zcode/core": "^0.5.0"
-  },
+  "dependencies": {},
   "engines": {
-    "node": ">=18.0.0",
     "zcode": ">=0.5.0"
   },
   "evolution_config": {
     "intensity": "50%",
     "auto_approve": false,
-    "max_proposals_per_session": 3,
-    "cooldown_hours": 24
+    "cooldown_hours": 24,
+    "signal_thresholds": {
+      "consecutive_failures": 3,
+      "loop_detection": 5,
+      "latency_regression": 0.2
+    }
   }
 }
 ```
+
+三处与草图不同的要点：
+
+- **运行时零依赖**：`dependencies` 是空对象，`engines` 里没有 `node`。
+  产物是独立的 native 可执行文件，构建期才需要 MoonBit + MSVC。
+- **`max_proposals_per_session` 已删除**：1.0 里它被赋值后从未参与任何判定。
+- **`evolution_config` 在 2.0 真的会被读取**（1.0 是一处配置孤岛：写了但
+  没有任何代码读）。`signal_thresholds` 同时接受扁平形状（2.0 规范，键名与
+  `SignalThresholds` 字段逐字相同）与 1.0 的 `strong`/`medium` 嵌套形状（回退）。
 
 ### 4.2 MCP Server 接口
 
@@ -459,6 +485,10 @@ server.addTool({
 });
 
 // 事件监听
+// ⚠️ 下面这段**从未实现**。1.0 没有调用过任何 registerEvent，
+// 2.0 也没有 —— 本插件不注册 MCP Event，只提供 7 个工具。
+// 性能事件确实在采集，但走的是本地 JSONL 落盘（metrics.jsonl），
+// 由 monitor 自己触发，不是外部事件回调。
 server.addEventHandler('on_plugin_call', async (event) => {
   await monitor.recordEvent(event);
 });
@@ -471,8 +501,16 @@ server.addEventHandler('on_user_feedback', async (event) => {
 
 ### 4.3 Plugin Registry 数据结构
 
+> ⚠️ **2.0 更正**：`registry.jsonl` **从未存在**。
+> 注册表是进程内存里的 `ServerState.registry`（`Array` 作事实来源 +
+> `Map` 作 id→下标索引），由 `scan_plugins` 每次重建；
+> 落盘的只有带目录指纹的 `plugin-cache.json`。
+> 下面这段保留作为设计意图的记录，字段名也与真实 schema 不符
+> （真实字段是 `scanned_at`，Unix 毫秒；且没有 `status`）。
+> 真实的文件布局见 `CONTEXT.md` 的「数据文件布局」。
+
 ```jsonl
-// ~/.harness-evolution/registry.jsonl
+// ~/.harness-evolution/registry.jsonl   ← 设计草图，未实现
 {"plugin_id":"browser-use-0.4.1","name":"browser-use","version":"0.4.1","type":"official","scan_timestamp":"2026-09-04T10:30:00Z","status":"active"}
 {"plugin_id":"computer-use-0.5.13","name":"computer-use","version":"0.5.13","type":"official","scan_timestamp":"2026-09-04T10:30:05Z","status":"active"}
 {"plugin_id":"mimosa-1.0.3","name":"mimosa","version":"1.0.3","type":"official","scan_timestamp":"2026-09-04T10:30:10Z","status":"active"}

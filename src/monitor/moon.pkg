@@ -1,0 +1,24 @@
+import {
+  "across2005/harness-self-evolution/store",
+  "across2005/harness-self-evolution/types",
+  "across2005/harness-self-evolution/util",
+  "moonbitlang/async",
+  "moonbitlang/core/deque",
+  "moonbitlang/core/json",
+  "moonbitlang/core/ref",
+}
+
+// monitor 自身不直接碰文件系统（持久化一律经 store，即 CONTEXT.md 不变量①），
+// 但测试需要 @fs.tmpdir 做隔离、需要 @async 才能写 `async test`。
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+} for "wbtest"
+
+options(
+  // monitor 的用例全部触碰真实文件系统（metrics.jsonl / signals.jsonl）。
+  // Phase 4 实测：文件系统密集型用例在默认并行度下会触发 async I/O worker 的
+  // `guard handle.write is Idle` panic，一个用例崩溃会带死整个测试进程，
+  // 只留下一串「active at exit」的名字而无法定位。串行化后问题消失。
+  "max-concurrent-tests": 1,
+)

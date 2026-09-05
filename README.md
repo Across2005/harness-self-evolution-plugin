@@ -28,8 +28,8 @@ Harness Self-Evolution Plugin 是一个为 DeepSeek Harness 框架设计的自�
                               ▼
                     ┌─────────────────┐
                     │   MCP Server    │
-                    │  (7 Tools +     │
-                    │   2 Events)     │
+                    │  (7 Tools,      │
+                    │   stdio JSON-RPC)│
                     └─────────────────┘
 ```
 
@@ -71,12 +71,17 @@ Harness Self-Evolution Plugin 是一个为 DeepSeek Harness 框架设计的自�
 
 ### 前置要求
 
-- Node.js >= 18
+- **MoonBit 工具链**（`moon`）
+- **Windows**：Visual Studio 的 C++ 生成工具（`cl.exe`）+ Windows SDK。
+  native 后端要把 MoonBit 编译成 C 再用 MSVC 链接，`build.ps1` 会自动探测
+  并注入 `INCLUDE` / `LIB` / `PATH`，**不需要**手工跑 `vcvars64.bat`。
 - DeepSeek Harness 或 ZCode CLI
+
+运行时**不需要 Node.js** —— 产物是一个独立的 native 可执行文件。
 
 ### 安装步骤
 
-```bash
+```powershell
 # 克隆仓库
 # GitHub
 git clone https://github.com/Across2005/harness-self-evolution-plugin.git
@@ -84,18 +89,35 @@ git clone https://github.com/Across2005/harness-self-evolution-plugin.git
 # 或 GitLink 国内镜像
 git clone https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin.git
 
-# 进入目录
 cd harness-self-evolution-plugin
 
-# 安装依赖
-npm install
-
-# 构建
-npm run build
+# 构建：check + test + build，产物复制到 bin\harness-evolution.exe
+# 依赖由 moon 根据 moon.mod 里写死的精确版本自动拉取，无需单独的 install 步骤
+.\build.ps1 all
 
 # 链接到 ZCode（可选）
 zcode plugin link .
 ```
+
+> **为什么锁死 async 0.20.1**：0.21.x 开始使用 `noraise + nocancel` 效果注解语法，
+> 而当前工具链（moon 0.1.20260819）解析它会报 `[3002] Parse error, unexpected token '+'`。
+> 升级到能解析该语法的 moon 版本后方可放开约束。
+>
+> **关于 `moon.lock`**：本机工具链**不产生**模块根的 `moon.lock`
+> （`moon mod tidy` 是独立插件 `moon-mod`，未安装时直接报错；
+> `.mooncakes/.moon-lock` 实测为空）。可复现构建靠的是 `moon.mod` 里
+> **写死的精确版本**而不是范围，并由架构守卫 G6 机器化钉住。
+> 用 `moon tree` 可随时核对实际解析结果（应为 `moonbitlang/async@0.20.1`）。
+
+### build.ps1 的子命令
+
+| 命令 | 作用 |
+|------|------|
+| `.\build.ps1 check` | `moon check --deny-warn --target native`（零错零警才算过） |
+| `.\build.ps1 test` | `moon test --target native` |
+| `.\build.ps1 build` | release 构建 + 复制到 `bin\harness-evolution.exe` |
+| `.\build.ps1 fmt` | `moon fmt` |
+| `.\build.ps1 all` | 依次执行 check → test → build |
 
 ## 配置
 
@@ -110,8 +132,13 @@ zcode plugin link .
   - 0% (关闭): 不做任何进化检查
 
 - **冷却期**: 24 小时
-- **每会话最大提案数**: 3
 ```
+
+> ⚠️ **50% 强度下的一个已知限制**：`propose_evolution` 工具的 `signals` 参数
+> 传入的手动信号按设计是 **medium** 强度，而 50% 只放行 **strong** ——
+> 因此在出厂默认配置下，手动信号不会触发提案。这是从 1.0 版继承的行为，
+> 2.0 刻意保持一致（见 CONTEXT.md 的「已知缺陷与有意保留的行为」）。
+> 要让手动信号生效，把 `intensity` 设为 `"100%"`。
 
 ### 在 plugin.json 中配置
 
@@ -120,23 +147,21 @@ zcode plugin link .
   "evolution_config": {
     "intensity": "50%",
     "auto_approve": false,
-    "max_proposals_per_session": 3,
     "cooldown_hours": 24,
     "signal_thresholds": {
-      "strong": {
-        "user_correction": true,
-        "consecutive_failures": 3,
-        "performance_drop": 0.2
-      },
-      "medium": {
-        "pattern_repeat": 2,
-        "loop_detection": 5,
-        "preference_repeat": 2
-      }
+      "consecutive_failures": 3,
+      "loop_detection": 5,
+      "latency_regression": 0.2
     }
   }
 }
 ```
+
+> 2.0 起 `evolution_config` **真的会被读取**（1.0 里它是一处配置孤岛：
+> 写了但没有任何代码读）。查找顺序：`$HARNESS_EVOLUTION_CONFIG` →
+> `<cwd>/.zcode-plugin/plugin.json` → 内置默认值。配置缺失绝不会导致启动失败。
+>
+> `max_proposals_per_session` 已删除：1.0 里它被赋值后从未参与任何判定。
 
 ## 使用
 
@@ -173,10 +198,16 @@ zcode plugin link .
 |------|---------|------------------|---------|
 | `interface_simplification` | 循环 + 高复杂度 | Deep Module > 浅模块 | 合并工具、简化参数 |
 | `behavior_optimization` | 循环检测 | 紧反馈环 > 盲目试错 | 添加中间件、优化流程 |
-| `error_handling_improvement` | 用户纠正 | 先对齐，再动手 | 改进错误处理、增加提示 |
+| `error_handling_improvement` | 用户纠正 | 紧反馈环 > 盲目试错 | 改进错误处理、增加提示 |
 | `documentation_enhancement` | 用户偏好 + 高清晰度 | 词汇即文档 | 更新文档、添加示例 |
-| `capability_extension` | 工作流模式 | 垂直切片 > 水平切片 | 扩展能力、添加工具 |
-| `performance_tuning` | 性能问题 | 定期架构扫描 | 优化性能、减少延迟 |
+| `capability_extension` | 工作流模式 | 先对齐，再动手 | 扩展能力、添加工具 |
+| `performance_tuning` | 性能问题 | 垂直切片 > 水平切片 | 优化性能、减少延迟 |
+
+> 这张表与 `CONTEXT.md` 的「Matt Pocock 原则 ↔ 进化类型」是**同一份映射**，
+> 代码里的单一事实来源是 `types/proposal.mbt` 的 `EvolutionType::principle`，
+> 由 `types/behavior_wbtest.mbt` 逐条核对。1.0 版的 README 在这里有 3 处与
+> CONTEXT.md 不一致（`error_handling_improvement` / `capability_extension` /
+> `performance_tuning`），2.0 已按代码实际行为更正。
 
 ## 信号检测
 
@@ -230,18 +261,30 @@ zcode plugin link .
 
 ## 数据存储
 
-所有数据以 JSONL 格式存储：
+所有数据以 JSONL / JSON 格式存储在**同一个数据根目录**下：
 
 ```
-~/.harness-evolution/
-├── registry.jsonl      # 插件档案
-├── metrics.jsonl       # 性能指标
-├── signals.jsonl       # 进化信号
-├── proposals.jsonl     # 进化提案
-└── backups/            # 升级备份
-    └── <plugin-id>/
-        └── <timestamp>/
+~/.harness-evolution/v2/          # 可用 $HARNESS_EVOLUTION_HOME 覆盖
+├── plugin-cache.json   # 扫描缓存（含目录指纹，见下）
+├── metrics.jsonl       # 性能事件（monitor 写）
+├── signals.jsonl       # 进化信号（monitor 写 / engine 读）
+├── proposals.jsonl     # 进化提案（ProposalStore 唯一读写口）
+└── execution.log       # 执行日志（executor）
 ```
+
+数据根目录的默认值只在 `store/paths.mbt` 一处定义，并由
+`mcp/architecture_test.mbt` 的 G4 守卫机器化地防止它再次扩散
+（1.0 版把它散落在 4 个文件里）。
+
+**关于 v1 目录**：2.0 使用 `v2/` 子目录，**不做自动迁移**。
+若检测到 1.0 的 `~/.harness-evolution/` 存在，启动时会在 stderr 提示一行，
+然后原样保留该目录不动。原因是 1.0 的 `plugin-cache.json` 命中条件过于宽松
+（只要缓存非空就直接返回，从不校验目录是否还存在），实测会被一条指向
+已删除临时目录的幽灵记录永久毒化 —— 丢弃重扫比迁移更安全。
+
+**缓存指纹**：2.0 的每个缓存条目都带目录指纹（`mtime` + 直接子项数 +
+子项 `mtime`）。每次启动逐条校验：目录消失 → 丢弃该条并在 stderr 告警；
+指纹变化 → 只重扫该子树。
 
 ## API
 
@@ -259,10 +302,15 @@ zcode plugin link .
 
 ### MCP Events
 
-| Event | 描述 |
-|-------|------|
-| `on_plugin_call` | 插件调用事件 |
-| `on_user_feedback` | 用户反馈事件 |
+本插件**不注册任何 MCP Event**，只提供上表的 7 个工具。
+
+> 1.0 版的 README 在这里列了 `on_plugin_call` / `on_user_feedback` 两个事件，
+> 但 1.0 的代码里从未调用过 `registerEvent`（实测：`legacy-ts/src/mcp/server.ts`
+> 只有 `registerTool`）。2.0 删掉了这张虚构的表 —— 文档描述不存在的能力
+> 比不描述更糟，它会让集成方去订阅永远不会到达的事件。
+>
+> 性能事件确实在采集，但走的是**本地 JSONL 落盘**（`metrics.jsonl`），
+> 不是 MCP 事件通道。
 
 ## 示例
 
@@ -309,23 +357,63 @@ zcode plugin link .
 
 ## 开发
 
-### 构建
+### 构建与测试
 
-```bash
-npm run build
+```powershell
+.\build.ps1 check    # moon check --deny-warn --target native
+.\build.ps1 test     # moon test --target native
+.\build.ps1 build    # release 构建 + 复制到 bin\
+.\build.ps1 all      # check → test → build
+.\build.ps1 fmt      # moon fmt
 ```
 
-### 测试
+### 代码组织
 
-```bash
-npm test
+```
+src/
+  util/       路径、时间、wire 编解码、日志 —— 四个零依赖 Deep Module
+  types/      ADT 与 18 张 wire 表（词汇表的单一事实来源）
+  store/      唯一的持久化模块（JSONL / 提案索引 / 插件缓存 / 执行日志）
+  scanner/    插件发现与信息提取（纯逻辑与 I/O 分离）
+  monitor/    性能事件采集与信号检测
+  engine/     进化提案生成（决策树 + 风险评估）
+  executor/   提案执行（DAG 分层 + Sub-Agent 编排）
+  mcp/        自研 stdio JSON-RPC 2.0 + 7 工具 + 架构守卫测试
+  harness_evolution/   可执行入口（装配与启动）
 ```
 
-### 代码检查
+依赖图是**严格分层**的（`util` → `types` → `store` → `scanner`/`monitor` →
+`engine`/`executor` → `mcp` → `harness_evolution`），由
+`src/mcp/architecture_test.mbt` 的 11 条守卫机器化验证：任何新增的反向边、
+任何往 stdout 写日志的尝试、任何绕过 `store/` 的持久化写入，都会在
+`moon test` 里立刻变红。
 
-```bash
-npm run lint
+### 架构守卫（G1–G6）
+
+| 守卫 | 约束 |
+|------|------|
+| G1 / G1b | 包依赖图与声明完全一致，且每条边严格向下（构造性无环） |
+| G2 / G2b | `@stdio.stdout` 只在 `mcp/server.mbt`，`@stdio.stderr` 只在 `util/log.mbt` |
+| G3 / G3b | `@fs` 的写操作只在 `store/` |
+| G4 / G4b | 数据目录字面量只在 `store/paths.mbt` |
+| G5 / G5b | `legacy-ts/tests/` 的 37 个 jest 用例逐条有 MoonBit 对应物 |
+| G6 | `moon.mod` 只有一个外部依赖，且 native 是首选目标 |
+
+每条守卫都做过**负向探针**验证（人为引入违规确认会变红），
+否则「永远通过的测试」只是装饰。
+
+### 与 1.0（TypeScript）版对拍
+
+1.0 的完整工程保留在 `legacy-ts/`，仍可运行：
+
+```powershell
+cd legacy-ts
+npm install
+npx jest          # 37 个用例
 ```
+
+它是 2.0 移植正确性的客观参照：G5 守卫会解析这 37 个用例名，
+逐条核对 MoonBit 侧的对应测试是否仍然存在。
 
 ## 风险缓解
 

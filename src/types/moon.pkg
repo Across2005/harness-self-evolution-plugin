@@ -1,0 +1,16 @@
+import {
+  "across2005/harness-self-evolution/util",
+  "moonbitlang/core/json",
+}
+
+// 关闭 unused_value：本包是纯数据模型层，wire_tables.mbt 里的 ToJson / FromJson
+// impl 全部**专为下游包**（store / monitor / engine / executor / mcp）而存在。
+// 实测该 lint 是**按包**分析的 —— 即使 harness_evolution/main.mbt 真的调用了
+// `ToJson::to_json(TimeRange::All)`，types 包内仍然报 "Unused trait implementation"。
+// 也就是说：任何只被下游消费的 impl 都会永久触发此警告，这是工具链的作用域属性，
+// 不是死代码。泛型测试 helper（types_wbtest.mbt 的 round_trip）同样不被计入。
+//
+// 关闭范围仅限本包，且本包内几乎不存在「包内私有的 impl」，
+// 因此不会掩盖真正的死代码。impl 的**正确性**由 types_wbtest.mbt 的
+// 18 表 × 80 变体往返测试保证，而非依赖 lint。
+warnings = "-unused_value"

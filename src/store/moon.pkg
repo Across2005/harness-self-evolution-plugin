@@ -1,0 +1,19 @@
+import {
+  "across2005/harness-self-evolution/types",
+  "across2005/harness-self-evolution/util",
+  "moonbitlang/async/fs",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+import {
+  "moonbitlang/async",
+} for "wbtest"
+
+options(
+  // 本包用例大量读写真实文件（JSONL 追加 / 缓存原子替换 / 日志）。
+  // Phase 4 实测：文件系统密集型用例在默认并行度下会触发 async I/O
+  // worker 的 `guard handle.write is Idle` panic，一个用例崩溃会带死
+  // 整个测试进程，只留下一串「active at exit」的名字而无法定位。
+  "max-concurrent-tests": 1,
+)

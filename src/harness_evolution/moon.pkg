@@ -1,0 +1,14 @@
+import {
+  "across2005/harness-self-evolution/mcp",
+  "across2005/harness-self-evolution/store",
+  "across2005/harness-self-evolution/types",
+  "across2005/harness-self-evolution/util",
+  "moonbitlang/async",
+  "moonbitlang/core/env",
+}
+
+// main 包不放任何 `_test.mbt`：工具链明确警告
+// "Main packages will stop generating blackbox tests in a future release.
+//  Move public behavior into a non-main package"（Phase 0 门禁实测）。
+// 全部测试都在各自被测的非 main 包里，本包只负责装配与启动。
+pkgtype(kind: "executable")

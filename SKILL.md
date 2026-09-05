@@ -148,29 +148,37 @@
 
 ## 配置
 
-在 `~/.harness-evolution/config.json` 中配置：
+配置来自 `.zcode-plugin/plugin.json` 的 `evolution_config` 段。
+查找顺序：
+
+1. `$HARNESS_EVOLUTION_CONFIG` 指向的文件（显式覆盖，多档案场景用）
+2. `<cwd>/.zcode-plugin/plugin.json`
+3. 内置默认值
+
+配置缺失绝不会导致启动失败。
 
 ```json
 {
-  "intensity": "50%",
-  "auto_approve": false,
-  "max_proposals_per_session": 3,
-  "cooldown_hours": 24,
-  "signal_thresholds": {
-    "strong": {
-      "user_correction": true,
-      "explicit_preference": true,
+  "evolution_config": {
+    "intensity": "50%",
+    "auto_approve": false,
+    "cooldown_hours": 24,
+    "signal_thresholds": {
       "consecutive_failures": 3,
-      "performance_drop": 30
-    },
-    "medium": {
-      "pattern_repeat": 3,
       "loop_detection": 5,
-      "preference_repeat": 2
+      "latency_regression": 0.2
     }
   }
 }
 ```
+
+> 旧文档这里写的是 `~/.harness-evolution/config.json` —— **那个文件从来没有
+> 任何代码读它**。同样，`max_proposals_per_session` 被赋值后从未参与任何判定，
+> 已删除。`latency_regression` 是**小数比例**（0.2 = 延迟回归 20%），
+> 旧文档写的 `performance_drop: 30` 量纲就是错的。
+>
+> `signal_thresholds` 也兼容 1.0 的 `strong`/`medium` 嵌套写法（作为回退），
+> 但推荐用上面的扁平形状 —— 它的键名与代码里的 `SignalThresholds` 字段逐字相同。
 
 ### 强度级别
 
@@ -178,24 +186,43 @@
 - **50%**: 仅响应强信号，稳健进化（默认）
 - **0%**: 禁用自动进化
 
+> ⚠️ 默认的 50% 只放行**强信号**，而 `propose_evolution` 工具的 `signals`
+> 参数传入的手动信号是**中信号** —— 因此在默认配置下手动信号不会触发提案。
+> 要让手动信号生效，把 `intensity` 设为 `"100%"`。
+> （这是从 1.0 继承的行为，详见 `CONTEXT.md` 的 F5。）
+
 ## 安装
 
-```bash
-npm install harness-self-evolution
+本插件是一个 **MoonBit native 可执行文件**，运行时不需要 Node.js。
+从源码构建：
+
+```powershell
+git clone https://github.com/Across2005/harness-self-evolution-plugin.git
+cd harness-self-evolution-plugin
+.\build.ps1 all     # check → test → build，产物在 bin\harness-evolution.exe
 ```
 
-或在 ZCode 中配置：
+唯一的外部依赖（`moonbitlang/async@0.20.1`）由 moon 根据 `moon.mod` 里写死的
+精确版本自动拉取，无需单独的 install 步骤。
+
+构建需要 MoonBit 工具链与 MSVC（Visual Studio 的 C++ 生成工具 + Windows SDK）；
+`build.ps1` 会自动探测并注入环境，不需要手工跑 `vcvars64.bat`。
+
+在 ZCode 中配置：
 
 ```json
 {
   "mcpServers": {
     "harness-evolution": {
-      "command": "node",
-      "args": ["path/to/harness-self-evolution/dist/mcp/server.js"]
+      "command": "path/to/harness-self-evolution/bin/harness-evolution.exe",
+      "args": []
     }
   }
 }
 ```
+
+传输是 **stdio NDJSON**（一行一条 JSON-RPC 2.0 消息）。
+所有诊断日志走 **stderr**，stdout 只承载协议字节。
 
 ## 触发条件
 

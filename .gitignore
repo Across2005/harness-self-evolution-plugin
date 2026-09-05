@@ -25,3 +25,23 @@ Thumbs.db
 
 # Local scratch / one-off tooling
 _*.py
+
+# Personal application docs (contain name + phone) and local evidence dumps
+项目申报书*.md
+_report*.txt
+
+# MoonBit
+# 构建产物实测落在 _build/（非 target/），由 build.ps1 复制出 bin/harness-evolution.exe
+_build/
+.mooncakes/
+bin/
+# 关于依赖锁：改写计划原本要求「`moon.lock` 不忽略」，但**本机工具链不产生这个文件**。
+# 实测（moon 0.1.20260819）：
+#   · `moon mod tidy` 不可用 —— 它是独立插件，报 "no such subcommand: `mod`,
+#     is `moon-mod` a valid executable accessible via your `PATH`?"
+#   · 模块根不会出现 `moon.lock`；锁文件在 `.mooncakes/.moon-lock`，而且实测为**空**
+#   · `moon tree` 输出：`moonbitlang/async -> moonbitlang/async@0.20.1`
+# 因此可复现构建由 `moon.mod` 里**写死的精确版本** `moonbitlang/async@0.20.1` 保证
+# （而不是范围），并由 `src/mcp/architecture_test.mbt` 的守卫 G6 机器化钉住。
+# 这也正是必须钉住的原因：0.21.x 的 async 使用 `noraise + nocancel` 效果注解语法，
+# 本工具链解析它会报 `[3002] Parse error, unexpected token '+'` —— 构建直接失败。

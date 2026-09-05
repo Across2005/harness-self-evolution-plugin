@@ -1,0 +1,30 @@
+import {
+  "across2005/harness-self-evolution/engine",
+  "across2005/harness-self-evolution/executor",
+  "across2005/harness-self-evolution/monitor",
+  "across2005/harness-self-evolution/scanner",
+  "across2005/harness-self-evolution/store",
+  "across2005/harness-self-evolution/types",
+  "across2005/harness-self-evolution/util",
+  "moonbitlang/async",
+  "moonbitlang/async/io",
+  "moonbitlang/async/stdio",
+  "moonbitlang/core/json",
+}
+
+import {
+  "moonbitlang/async/fs",
+} for "wbtest"
+
+// architecture_test.mbt 需要读仓库源文件（扫 moon.pkg 的 import 块、
+// grep 各包的 @stdio / @fs / 数据目录字面量），并定位模块根（向上找 moon.mod）。
+// 这是一个**读仓库而不是读运行时数据**的测试，故只给黑盒测试用。
+import {
+  "moonbitlang/async/fs",
+  "moonbitlang/core/env",
+} for "test"
+
+options(
+  // mcp 的用例会经 store/scanner 触碰真实文件系统（见 monitor 包的同名注释）。
+  "max-concurrent-tests": 1,
+)

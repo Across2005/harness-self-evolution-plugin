@@ -1,0 +1,17 @@
+import {
+  "across2005/harness-self-evolution/monitor",
+  "across2005/harness-self-evolution/store",
+  "across2005/harness-self-evolution/types",
+  "across2005/harness-self-evolution/util",
+  "moonbitlang/core/json",
+}
+
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+} for "wbtest"
+
+options(
+  // engine 的用例经 ProposalStore 与 monitor 触碰真实文件系统（见 monitor 包的同名注释）。
+  "max-concurrent-tests": 1,
+)

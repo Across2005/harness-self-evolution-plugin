@@ -1,0 +1,20 @@
+import {
+  "across2005/harness-self-evolution/store",
+  "across2005/harness-self-evolution/types",
+  "across2005/harness-self-evolution/util",
+  "moonbitlang/async/fs",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+import {
+  "moonbitlang/async",
+} for "wbtest"
+
+options(
+  // scanner 的用例全部触碰真实文件系统（递归 readdir + 多文件读写）。
+  // 限制并行度既是磁盘队列考虑，也是为了在出现 I/O 崩溃时
+  // 能把现场收敛到单个用例（否则一个 panic 会带死整个测试进程，
+  // 只留下一堆「active at exit」的名字而无法定位）。
+  "max-concurrent-tests": 1,
+)
