@@ -127,6 +127,7 @@ fn full_intensity_state(tmp : String) -> ServerState {
     cooldown_hours: 24,
     auto_approve: false,
     thresholds: @types.SignalThresholds::default(),
+    max_log_bytes: @types.default_max_log_bytes,
   }
   ServerState::with_scan_config(
     paths,
@@ -835,6 +836,7 @@ async test "propose_evolution with the engine disabled reports success plus a re
     cooldown_hours: 24,
     auto_approve: false,
     thresholds: @types.SignalThresholds::default(),
+    max_log_bytes: @types.default_max_log_bytes,
   }
   let state = ServerState::with_scan_config(
     paths,
@@ -1145,4 +1147,108 @@ async test "repeated tool failures each still produce a well-formed response" {
     // 每次都能重新解析（响应始终合法）
     ignore(@json.parse(resp.stringify()))
   }
+}
+///|
+/// 数一个 JSONL 文件里的行数（按换行符计）。
+///
+/// 接线断言只能看**磁盘**：monitor 的 `thresholds` / `max_log_bytes` 字段是
+/// monitor 包私有的，mcp 测试读不到，但配置有没有真的接上，落盘的
+/// metrics / signals 行数是可观测的。
+async fn jsonl_line_count(path : String) -> Int {
+  if !@fs.exists(path) {
+    return 0
+  }
+  let raw = @fs.read_file(path).binary()
+  let mut n = 0
+  let mut i = 0
+  while i < raw.length() {
+    if raw[i] == b'\n' {
+      n += 1
+    }
+    i += 1
+  }
+  n
+}
+
+///|
+/// 加固 W1：`evolution_config.max_log_bytes` 必须真的作用到运行时的 monitor。
+///
+/// R 组把裁剪挂上了 flush，H2 同款校验也管住了这个字段，但生产路径上
+/// monitor 只有一个构造点（`ServerState::with_scan_config` →
+/// `PerformanceMonitor::at`），它过去不接 config —— 配置里的上限于是
+/// 永远拿不到执行者手上，只有默认 32 MiB 生效。本用例把这条线钉住。
+///
+/// 上限取 600 字节（低于 `min_max_log_bytes`，走 JSON 会被回落成 32 MiB），
+/// 所以这里直接构造结构体 —— config.mbt 已声明「直接构造结构体时 0/小值
+/// 仅供测试与显式豁免使用」。
+async test "ServerState threads evolution_config.max_log_bytes into the monitor" {
+  let tmp = @fs.tmpdir(prefix="evo-wire-cap-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let paths = @store.DataPaths::at(tmp)
+  let config : @types.EngineConfig = {
+    intensity: @types.Intensity::Full,
+    cooldown_hours: 24,
+    auto_approve: false,
+    thresholds: @types.SignalThresholds::default(),
+    max_log_bytes: 600,
+  }
+  let state = ServerState::with_scan_config(
+    paths,
+    @scanner.ScanConfig::custom([tmp], paths.plugin_cache()),
+    config~,
+  )
+  let mut i = 0
+  while i < 9 {
+    state.monitor.record_tool_call(
+      "p-1",
+      "tool-\{i}",
+      Json::empty_object(),
+      100,
+      true,
+    )
+    i += 1
+  }
+  state.monitor.flush_buffers()
+  let n = jsonl_line_count(paths.metrics())
+  assert_true(n > 0, msg="裁剪不得把日志清空")
+  assert_true(
+    n < 9,
+    msg="配置的上限必须真的生效（9 条全在 = monitor 仍用默认 32 MiB）",
+  )
+}
+
+///|
+/// 加固 W2：`evolution_config.signal_thresholds` 必须真的作用到运行时的 monitor。
+///
+/// `types/signal.mbt` 的注释承诺「默认值即那三个硬编码常量，并可由
+/// plugin.json 覆盖」，但覆盖值过去止步于 `EngineConfig`：monitor 拿到的是
+/// `SignalThresholds::default()`。这条走**真实配置通路**（JSON → from_json →
+/// ServerState → monitor）：把 `consecutive_failures` 配成 1（默认 3），
+/// 于是失败一次就该产出一条 strong/struggle 信号。
+async test "ServerState threads evolution_config.signal_thresholds into the monitor" {
+  let tmp = @fs.tmpdir(prefix="evo-wire-th-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let paths = @store.DataPaths::at(tmp)
+  let raw =
+    #|{"signal_thresholds": {"consecutive_failures": 1}}
+  let config = @types.EngineConfig::from_json(@json.parse(raw))
+  let state = ServerState::with_scan_config(
+    paths,
+    @scanner.ScanConfig::custom([tmp], paths.plugin_cache()),
+    config~,
+  )
+  // 先确认解析侧没问题，否则下面的断言会指向错的地方
+  assert_eq(config.thresholds.consecutive_failures, 1)
+  state.monitor.record_tool_call(
+    "p-1",
+    "one-shot",
+    Json::empty_object(),
+    100,
+    false,
+  )
+  state.monitor.flush_buffers()
+  assert_true(
+    jsonl_line_count(paths.signals()) >= 1,
+    msg="阈值 1 时一次失败就该落信号（未接线则沿用默认 3，一条都不会有）",
+  )
 }

@@ -90,6 +90,9 @@ pub struct PerformanceMonitor {
   last_deep_check_at : Map[String, Int64]
   /// 信号阈值（默认取 TS 的三个硬编码常量，可由配置覆盖）
   thresholds : @types.SignalThresholds
+  /// 观测日志（metrics / signals 两个 JSONL）的保留上限（字节），
+  /// 来自 `EngineConfig.max_log_bytes`。0 = 不裁剪（测试豁免用）。
+  max_log_bytes : Int
 }
 
 ///|
@@ -109,10 +112,12 @@ pub fn PerformanceMonitor::new(
 ///|
 /// 带自定义阈值构造。阈值来自 `.zcode-plugin/plugin.json` 的
 /// `evolution_config.signal_thresholds`（见 types/config.mbt）。
+/// `max_log_bytes` 来自 `evolution_config.max_log_bytes`，缺省 32 MiB。
 pub fn PerformanceMonitor::with_thresholds(
   metrics_path : String,
   signals_path : String,
   thresholds : @types.SignalThresholds,
+  max_log_bytes? : Int = @types.default_max_log_bytes,
 ) -> PerformanceMonitor {
   {
     metrics: @store.Jsonl::new(metrics_path),
@@ -125,13 +130,31 @@ pub fn PerformanceMonitor::with_thresholds(
     loop_reported: Map([]),
     last_deep_check_at: Map([]),
     thresholds,
+    max_log_bytes,
   }
 }
 
 ///|
-/// 用 `DataPaths` 构造（生产路径）。
-pub fn PerformanceMonitor::at(paths : @store.DataPaths) -> PerformanceMonitor {
-  PerformanceMonitor::new(paths.metrics(), paths.signals())
+/// 用 `DataPaths` 构造（生产路径），并接上 `evolution_config`。
+///
+/// ★ **config 必须从这里进来**：`thresholds` 与 `max_log_bytes` 的消费方是
+/// 本 monitor（`check_for_signals` / `flush_buffers`），而 engine 只读
+/// `intensity` / `cooldown_hours` / `auto_approve`。过去这个构造点丢弃
+/// config、转手走 `new()` 的默认值，于是「改 plugin.json 里的阈值或日志上限」
+/// 在运行时一动不动 —— H2 把解析侧的配置孤岛修通了，构造侧却还留着
+/// 同一个洞。可选参数带默认值，`at(paths)` 的老调用点行为不变。
+pub fn PerformanceMonitor::at(
+  paths : @store.DataPaths,
+  config? : @types.EngineConfig = @types.EngineConfig::default(),
+) -> PerformanceMonitor {
+  let thresholds = config.thresholds
+  let max_log_bytes = config.max_log_bytes
+  PerformanceMonitor::with_thresholds(
+    paths.metrics(),
+    paths.signals(),
+    thresholds,
+    max_log_bytes~,
+  )
 }
 
 ///|
@@ -568,6 +591,15 @@ pub async fn PerformanceMonitor::flush_buffers(
       }
     }
   }
+  // 窗口裁剪挂在唯一的写入路径上：append 成功后才检查上界，
+  // 且走 trim_quietly 兜错 —— append 已成功的事件不能因裁剪出错被
+  // 判回填（重复落盘），flush_buffers 更不能因此重新开始抛错（H1 承诺）。
+  if events_ok {
+    self.trim_quietly(self.metrics)
+  }
+  if signals_ok {
+    self.trim_quietly(self.signals)
+  }
   if !events_ok {
     let (back, dropped) = bounded_requeue(events, self.event_buffer)
     // 不重新绑定字段（`event_buffer` 不是 `mut` 字段），而是原地改写：
@@ -599,8 +631,30 @@ pub async fn PerformanceMonitor::flush_buffers(
 }
 
 ///|
-/// 把「没写进去的一批」按时间序放回缓冲头部，并裁剪到 `max_buffered_items`。
+/// 裁剪的兜错层：I/O 失败只告警，绝不抛出。
 ///
+/// append 已成功的前提下，`Jsonl::trim_to` 的 I/O 错误若沿 raise 逃出
+/// `flush_buffers`，就破坏了 H1 的「flush 不 raise」承诺；若被当成
+/// append 失败处理，已落盘的事件会回填重试造成重复 —— 两边都错，
+/// 所以在这里收口。`max_log_bytes <= 0` 表示显式豁免，不碰文件。
+async fn PerformanceMonitor::trim_quietly(
+  self : PerformanceMonitor,
+  store : @store.Jsonl,
+) -> Unit {
+  if self.max_log_bytes <= 0 {
+    return
+  }
+  let outcome : Result[Bool, String] = Ok(store.trim_to(self.max_log_bytes)) catch {
+    err => Err(err.to_string())
+  }
+  match outcome {
+    Ok(_) => ()
+    Err(msg) => @util.log_warn("Monitor", "Cannot trim \{store.path()}: \{msg}")
+  }
+}
+
+///|
+/// 把「没写进去的一批」按时间序放回缓冲头部，并裁剪到 `max_buffered_items`。
 /// 顺序是 `unsaved ++ buffered`：`unsaved` 是更早换出的那批，而 `buffered`
 /// 里的条目是换出之后新记录的，必然更新 —— 反过来就会打乱时间序，
 /// 让 `get_metrics` / 统计看到「先后的事件倒着发生」。

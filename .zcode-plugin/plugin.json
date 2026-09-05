@@ -51,6 +51,7 @@
     "intensity": "50%",
     "auto_approve": false,
     "cooldown_hours": 24,
+    "max_log_bytes": 33554432,
     "signal_thresholds": {
       "consecutive_failures": 3,
       "loop_detection": 5,

@@ -109,18 +109,28 @@ Initialize-NativeToolchain
 # 因此跑 moon 时把偏好降到函数作用域内的 Continue，成败一律以 $LASTEXITCODE 为准。
 function Invoke-Moon {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$MoonArgs)
-    # 先确定 moon.exe 的绝对路径：若只写裸 `moon` 而它不在 PATH，
-    # CommandNotFoundException 会被 Continue 吞掉，$LASTEXITCODE 仍是上一次的旧值
-    # —— 那会把「根本没跑」误判成成功（假绿，比假红更危险）。
-    $cmd = Get-Command moon -ErrorAction SilentlyContinue
-    if ($null -eq $cmd) {
-        $candidate = Join-Path $env:USERPROFILE '.moon\bin\moon.exe'
-        if (-not (Test-Path $candidate)) {
-            throw "找不到 moon：PATH 上没有 moon，$candidate 也不存在。请先安装 MoonBit 工具链。"
+    # moon 解析顺序：$env:MOON_EXE > ~/.moon/bin/moon.exe > PATH。
+    # PATH 上可能并存多个 moon 安装（实测 .moonbit\bin 里有旧版 0.1.20260713，
+    # 它按旧布局在 ~/.moon/lib/ 下找 runtime.c，而新版布局在 lib\runtime\ 下
+    # —— BuildRuntimeLib 直接报 "input ... runtime.c missing"，test/build 全挂）。
+    # 因此锚定本项目验证过的 ~/.moon/bin/moon.exe，并始终打印实际版本，
+    # 让装错的工具链在第一屏可见，而不是以一条裸路径缺失报错收场。
+    $cmd = $null
+    if ($env:MOON_EXE) {
+        # 显式覆盖是硬承诺：设了却不存在就直接报错，而不是静默回退
+        # （回退会把「指错了工具链」掩盖成「恰好用了默认的」）。
+        if (-not (Test-Path $env:MOON_EXE)) {
+            throw "MOON_EXE 指向的文件不存在：$env:MOON_EXE"
         }
-        $cmd = $candidate
+        $cmd = $env:MOON_EXE
+    } elseif (Test-Path (Join-Path $env:USERPROFILE '.moon\bin\moon.exe')) {
+        $cmd = Join-Path $env:USERPROFILE '.moon\bin\moon.exe'
     } else {
-        $cmd = $cmd.Source
+        $fromPath = Get-Command moon -ErrorAction SilentlyContinue
+        if ($null -ne $fromPath) { $cmd = $fromPath.Source }
+    }
+    if ($null -eq $cmd) {
+        throw "找不到 moon：$env:USERPROFILE\.moon\bin\moon.exe 不存在，PATH 上也没有 moon。请先安装 MoonBit 工具链。"
     }
     $ErrorActionPreference = 'Continue'
     # 关键：`& $cmd` 的 stdout 会流入**本函数的输出流**，若直接 `return $LASTEXITCODE`
@@ -134,6 +144,14 @@ function Invoke-Moon {
         return 1
     }
     $rc = $LASTEXITCODE
+    # 版本查询必须**完整收住输出**再取首行。若写成一行的
+    # `& $cmd version 2>&1 | Select-Object -First 1`，-First 会提前终止管道，
+    # PS 5.1 会把还在写输出的原生进程一并掐断 —— $LASTEXITCODE 于是变成
+    # 被杀进程的非零码，'all' 分支据此误判 build 失败（假红，同本文件头
+    # 注释警告的那一类）。moon version 至少输出两行，必然触发。
+    $verLines = & $cmd version 2>&1
+    $LASTEXITCODE = 0
+    Write-Host "[build] moon  = $cmd ($(@($verLines)[0]))" -ForegroundColor DarkGray
     foreach ($line in $out) { Write-Host "$line" }
     return $rc
 }

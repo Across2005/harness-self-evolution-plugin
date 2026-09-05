@@ -36,7 +36,29 @@ pub(all) struct EngineConfig {
   /// 是否跳过人工审批。默认 false —— CONTEXT.md「审批强制」不变量
   auto_approve : Bool
   thresholds : SignalThresholds
+  /// 观测日志（metrics.jsonl 与 signals.jsonl）的保留上限（字节）。
+  /// 两个文件各自独立裁到该上限，保留**最新的**完整行；提案与执行日志不裁。
+  /// 0 在配置解析里不是合法值（见 min_max_log_bytes），直接构造结构体时
+  /// 0 表示「不做保留裁剪」，仅供测试与显式豁免使用。
+  max_log_bytes : Int
 } derive(Eq, Debug, ToJson, @json.FromJson)
+
+///|
+/// 观测日志保留上限的默认值：32 MiB。
+///
+/// 定得过小会让裁剪在每轮 flush 都发生（读全文件 + 重写的「裁剪风暴」）；
+/// 32 MiB 在单机插件生态的量级下（一次工具调用 ≈ 数百字节）足够容纳数周
+/// 的历史，而磁盘占用与 `load()` 全量解析的成本都被钉死在这个上界。
+pub let default_max_log_bytes : Int = 33_554_432
+
+///|
+/// 保留上限的下界（1 MiB）。低于它意味着裁剪几乎每轮 flush 都会触发，
+/// 属于退化取值 —— 与 H2 同理，回落默认值并点名告警。
+pub let min_max_log_bytes : Int = 1_048_576
+
+///|
+/// 保留上限的上界：Int 的饱和上界（~2 GiB）。再大，「有界」就失去了意义。
+pub let max_max_log_bytes : Int = 2_147_483_647
 
 ///|
 /// 默认配置，逐一对应 legacy-ts 的实际生效值。
@@ -46,6 +68,7 @@ pub fn EngineConfig::default() -> EngineConfig {
     cooldown_hours: 24,
     auto_approve: false,
     thresholds: SignalThresholds::default(),
+    max_log_bytes: default_max_log_bytes,
   }
 }
 
@@ -271,6 +294,10 @@ pub fn EngineConfig::from_json_checked(
   let auto_approve = bool_field(cfg, "auto_approve").unwrap_or(
     defaults.auto_approve,
   )
+  let max_log_raw = match num_field(cfg, "max_log_bytes") {
+    Some(n) => n.to_int()
+    None => defaults.max_log_bytes
+  }
 
   let td = defaults.thresholds
   let raw_thresholds = match obj_field(cfg, "signal_thresholds") {
@@ -325,7 +352,14 @@ pub fn EngineConfig::from_json_checked(
     raw_thresholds.latency_regression,
     td.latency_regression,
   )
-  for w in [w_cooldown, w_cf, w_loop, w_latency] {
+  let (max_log, w_max_log) = int_domain(
+    "max_log_bytes",
+    max_log_raw,
+    min_max_log_bytes,
+    max_max_log_bytes,
+    defaults.max_log_bytes,
+  )
+  for w in [w_cooldown, w_cf, w_loop, w_latency, w_max_log] {
     match w {
       Some(msg) => warn.push(msg)
       None => ()
@@ -340,6 +374,7 @@ pub fn EngineConfig::from_json_checked(
       loop_detection: loop_n,
       latency_regression: latency,
     },
+    max_log_bytes: max_log,
   }
   (out, warn)
 }

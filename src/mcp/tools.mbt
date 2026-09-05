@@ -57,7 +57,7 @@ pub fn ServerState::with_scan_config(
   config? : @types.EngineConfig = @types.EngineConfig::default(),
 ) -> ServerState {
   let proposals = @store.ProposalStore::at(paths)
-  let monitor = @monitor.PerformanceMonitor::at(paths)
+  let monitor = @monitor.PerformanceMonitor::at(paths, config~)
   {
     paths,
     scanner: @scanner.PluginScanner::new(scan),

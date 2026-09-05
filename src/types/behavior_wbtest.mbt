@@ -669,3 +669,46 @@ test "EngineConfig::from_json_checked stays silent on missing or mistyped keys" 
   assert_eq(warns.length(), 0)
   assert_eq(cfg, EngineConfig::default())
 }
+
+///|
+/// R：`max_log_bytes`（观测日志保留上限）的取值域校验。
+///
+/// 与 H2 的四个数值字段同理：低于下界（1 MiB）意味着裁剪几乎每轮 flush
+/// 都会触发（读全文件 + 原子重写的「裁剪风暴」），属退化取值 ——
+/// 回落默认值并点名告警。上界是 Int 饱和值，正常配置不会触及。
+test "EngineConfig::from_json_checked validates max_log_bytes" {
+  // 低于下界 → 默认 + 点名告警
+  let low_raw =
+    #|{"max_log_bytes": 100}
+  let (low, low_warns) = EngineConfig::from_json_checked(@json.parse(low_raw))
+  assert_eq(low.max_log_bytes, default_max_log_bytes)
+  assert_eq(low_warns.length(), 1)
+  assert_true(warned_fields(low_warns).contains("max_log_bytes"))
+
+  // 0 与负数同样越界（0 会让「不做保留」静默生效，把无界增长带回来）
+  let zero_raw =
+    #|{"max_log_bytes": 0}
+  let (zero, zero_warns) = EngineConfig::from_json_checked(
+    @json.parse(zero_raw),
+  )
+  assert_eq(zero.max_log_bytes, default_max_log_bytes)
+  assert_eq(zero_warns.length(), 1)
+
+  // 下边界值原样生效（区分「接受」与「clamp」）
+  let edge_raw =
+    #|{"max_log_bytes": 1048576}
+  let (edge, edge_warns) = EngineConfig::from_json_checked(
+    @json.parse(edge_raw),
+  )
+  assert_eq(edge_warns.length(), 0)
+  assert_eq(edge.max_log_bytes, 1_048_576)
+
+  // 缺省 → 默认值，无告警
+  let absent_raw =
+    #|{}
+  let (absent, absent_warns) = EngineConfig::from_json_checked(
+    @json.parse(absent_raw),
+  )
+  assert_eq(absent.max_log_bytes, default_max_log_bytes)
+  assert_eq(absent_warns.length(), 0)
+}

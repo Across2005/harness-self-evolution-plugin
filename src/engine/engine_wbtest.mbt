@@ -83,6 +83,7 @@ fn make_engine(
     cooldown_hours: 24,
     auto_approve: false,
     thresholds: @types.SignalThresholds::default(),
+    max_log_bytes: @types.default_max_log_bytes,
   }
   (EvolutionEngine::new(monitor, proposals, signals, config), proposals)
 }

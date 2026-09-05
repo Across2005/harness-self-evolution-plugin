@@ -148,6 +148,7 @@ zcode plugin link .
     "intensity": "50%",
     "auto_approve": false,
     "cooldown_hours": 24,
+    "max_log_bytes": 33554432,
     "signal_thresholds": {
       "consecutive_failures": 3,
       "loop_detection": 5,
@@ -160,6 +161,10 @@ zcode plugin link .
 > 2.0 起 `evolution_config` **真的会被读取**（1.0 里它是一处配置孤岛：
 > 写了但没有任何代码读）。查找顺序：`$HARNESS_EVOLUTION_CONFIG` →
 > `<cwd>/.zcode-plugin/plugin.json` → 内置默认值。配置缺失绝不会导致启动失败。
+>
+> `max_log_bytes` 是观测日志（`metrics.jsonl` / `signals.jsonl`）的**保留上限**
+> （字节，默认 32 MiB，下界 1 MiB）：超限后自动裁掉最旧的完整行，
+> 至少保留最新一条。越界取值会回落默认值并在启动时点名告警。
 >
 > `max_proposals_per_session` 已删除：1.0 里它被赋值后从未参与任何判定。
 
@@ -271,6 +276,13 @@ zcode plugin link .
 ├── proposals.jsonl     # 进化提案（ProposalStore 唯一读写口）
 └── execution.log       # 执行日志（executor）
 ```
+
+**有界保留（窗口裁剪）**：`metrics.jsonl` 与 `signals.jsonl` 是 append-only
+的观测日志，没有上限时会随使用无界增长，而查询路径是全量读盘解析 ——
+增长直接变成每次查询的延迟。因此这两个文件受 `max_log_bytes`（默认 32 MiB）
+约束：flush 成功后若文件超限，自动裁到只保留**最新的完整行**（至少保住
+最新一条，崩溃残留的不完整行一并清除）。`proposals.jsonl`（提案状态机与
+审计的事实来源）与 `execution.log`（事件稀疏）**不裁剪**。
 
 数据根目录的默认值只在 `store/paths.mbt` 一处定义，并由
 `mcp/architecture_test.mbt` 的 G4 守卫机器化地防止它再次扩散

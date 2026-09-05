@@ -135,6 +135,102 @@ pub async fn[T : @json.FromJson] Jsonl::load(self : Jsonl) -> Array[T] {
 }
 
 ///|
+/// 窗口裁剪：把文件裁到只保留**最新的** `max_bytes` 字节内的完整行。
+///
+/// 语义（按字节计，非字符 —— 磁盘上界只有按字节承诺才成立）：
+/// · 保留区从某个**行边界**开始，到有效内容区末尾止，字节数 ≤ `max_bytes`；
+/// · 在放得下的前提下保留**尽量多**的最新数据；
+/// · **至少保留最新的一个完整行**，哪怕它自己就超过上限 ——
+///   裁成空文件会让「保留最近一条证据」的承诺落空；
+/// · 文件末尾若是不完整行（append 单次写原子性被崩溃破坏的残留），
+///   一并丢弃 —— `load` 本来就解析不了它，留着还会让下一次 append
+///   把新行拼接在它后面，毒化两行；
+/// · 文件不存在、或在上限之内、或 `max_bytes <= 0`：无操作，返回 `false`。
+///
+/// 返回是否真的发生了裁剪。重写走「临时文件 + rename」，与
+/// `write_json_atomic` 同一套原子性论证 —— 读者永远看不到半成品。
+///
+/// **并发边界**：本方法是「读全文件 → 原子重写」，与 append 不是原子的
+/// 复合操作。在单写者（monitor 的 flush 循环）下两者天然串行；若未来出现
+/// 第二个并发 append 方，裁剪窗口内的那次 append 可能被重写覆盖 ——
+/// 调用方必须保证裁剪与 append 出自同一条写入路径。
+pub async fn Jsonl::trim_to(self : Jsonl, max_bytes : Int) -> Bool {
+  if max_bytes <= 0 {
+    return false
+  }
+  if !@fs.exists(self.path) {
+    return false
+  }
+  // 廉价预检：开只读句柄查一次大小，没超上限就整体不动。
+  // `@fs` 没有路径级 stat 的 size（只有句级 `File::size`），这样已是最廉价的查法。
+  let f = @fs.open(self.path, mode=ReadOnly)
+  let size = f.size()
+  f.close()
+  if size <= max_bytes.to_int64() {
+    return false
+  }
+  let raw = @fs.read_file(self.path).binary()
+  let total = raw.length()
+  let (cut, eff_end) = trim_window(raw, max_bytes)
+  if cut == 0 && eff_end == total {
+    // 不可达（前置已保证 size > max_bytes）；防御性返回，避免无意义重写
+    return false
+  }
+  let tmp = self.path + ".tmp"
+  @fs.write_file(tmp, raw[cut:eff_end], create_mode=CreateOrTruncate)
+  @fs.rename(tmp, self.path)
+  @util.log_info(
+    "Store",
+    "Trimmed \{self.path}: kept \{eff_end - cut} of \{total} bytes",
+  )
+  true
+}
+
+///|
+/// 计算裁剪窗口：返回 `(cut, eff_end)`，保留区为 `raw[cut:eff_end]`。
+///
+/// `eff_end` 是**有效内容区**的终点：文件以换行结尾时即全长；否则是
+/// 最后一个换行之后（残行丢弃）。`cut` 的选取：
+/// · 整个有效区放得下 → `0`（只丢残行）；
+/// · 否则取**最小的**、使保留区 ≤ 上限的行起点（保留尽量多）；
+/// · 都放不下 → 最新一行的起点（至少保住一行）；
+/// · 没有任何完整行 → `eff_end`（裁空）。
+fn trim_window(raw : Bytes, max_bytes : Int) -> (Int, Int) {
+  let total = raw.length()
+  let mut eff_end = total
+  if total > 0 && raw[total - 1] != b'\n' {
+    let mut p = total - 1
+    while p >= 0 && raw[p] != b'\n' {
+      p -= 1
+    }
+    eff_end = p + 1
+  }
+  if eff_end <= max_bytes {
+    return (0, eff_end)
+  }
+  let mut best_fit = -1
+  let mut last_start = 0
+  let mut p = 0
+  while p < eff_end {
+    if raw[p] == b'\n' && p + 1 < eff_end {
+      let start = p + 1
+      last_start = start
+      if best_fit < 0 && eff_end - start <= max_bytes {
+        best_fit = start
+      }
+    }
+    p += 1
+  }
+  if best_fit >= 0 {
+    (best_fit, eff_end)
+  } else if last_start > 0 {
+    (last_start, eff_end)
+  } else {
+    (eff_end, eff_end)
+  }
+}
+
+///|
 /// 追加一条记录。自动创建父目录。
 pub async fn[T : ToJson] Jsonl::append(self : Jsonl, item : T) -> Unit {
   self.ensure_parent()

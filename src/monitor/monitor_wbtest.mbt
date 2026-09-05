@@ -804,3 +804,117 @@ async test "pending buffer stays bounded when writes keep failing" {
   assert_eq(mon.event_buffer[0].ts, 50L)
   assert_eq(mon.event_buffer[max_buffered_items - 1].ts, (total - 1).to_int64())
 }
+
+// ============================================================================
+// 加固 R：观测日志的窗口裁剪（max_log_bytes）
+// ============================================================================
+
+///|
+fn make_monitor_with_cap(
+  dir : String,
+  max_log_bytes : Int,
+) -> PerformanceMonitor {
+  PerformanceMonitor::with_thresholds(
+    metrics_path(dir),
+    signals_path(dir),
+    @types.SignalThresholds::default(),
+    max_log_bytes~,
+  )
+}
+
+///|
+/// R：metrics.jsonl 必须被裁到配置上限内，且幸存的是**最新**的事件。
+///
+/// 申报书「风险与应对」点名的问题：metrics.jsonl 随使用无界增长，
+/// 而 `get_metrics` 每次全量读盘解析 —— 增长直接变成每次查询的延迟。
+/// flush 是该文件唯一的写入方，裁剪就挂在这条唯一的写入路径上：
+/// append 成功后若文件超过上限，裁到只保留最新的完整行。
+async test "flush_buffers trims metrics.jsonl down to the configured cap" {
+  let dir = @fs.tmpdir(prefix="evo-mon-r1-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor_with_cap(dir, 600)
+
+  let mut i = 0
+  while i < 9 {
+    mon.record_tool_call("p-1", "tool-\{i}", Json::empty_object(), 100, true)
+    i += 1
+  }
+  mon.flush_buffers()
+
+  let events = load_events(dir)
+  // 文件被裁小了，但绝不是空的 —— 至少保住了最新一条
+  assert_true(
+    events.length() > 0,
+    msg="裁剪必须至少保留最新一条事件",
+  )
+  assert_true(events.length() < 9, msg="裁剪必须丢掉旧事件")
+  // 幸存的是最新的事件（append-only 日志的新行在文件末尾）
+  assert_eq(events[events.length() - 1].payload.tool_name(), Some("tool-8"))
+}
+
+///|
+/// R：signals.jsonl 同样受上限约束，且与 metrics 互不牵连。
+async test "flush_buffers trims signals.jsonl down to the configured cap" {
+  let dir = @fs.tmpdir(prefix="evo-mon-r2-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor_with_cap(dir, 600)
+
+  let mut i = 0
+  while i < 9 {
+    mon.record_user_feedback(
+      "p-1",
+      @types.UserFeedback::Negative,
+      context=Some("cycle \{i}"),
+    )
+    i += 1
+  }
+  mon.flush_buffers()
+
+  let signals = load_signals(dir)
+  assert_true(
+    signals.length() > 0,
+    msg="裁剪必须至少保留最新一条信号",
+  )
+  assert_true(signals.length() < 9, msg="裁剪必须丢掉旧信号")
+  assert_true(
+    signals[signals.length() - 1].description.contains("cycle 8"),
+    msg="幸存的必须是最新的信号",
+  )
+}
+
+///|
+/// R：裁剪的失败必须被**独立兜住** —— 不得让 flush_buffers 重新开始抛错
+/// （H1 的承诺），也不得牵连 append 的成败判定（append 成功后若因裁剪
+/// 抛错而被判失败，事件会回填重试，造成重复落盘）。
+///
+/// 裁剪的 I/O 失败无法像 append 那样用「目录占据路径」在 flush 全链路里
+/// 稳定复现（append 会先失败、裁剪根本不会被调用），所以这里分两层测：
+/// ① 对占据路径直接调用裁剪兜错层 —— 走到这里即未抛；
+/// ② 故障解除后整条链路补写成功、无重复。
+async test "a trim failure neither raises nor disturbs the flush path" {
+  let dir = @fs.tmpdir(prefix="evo-mon-r3-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor_with_cap(dir, 600)
+
+  // metrics.jsonl 被目录占据：append 失败 → 事件回填（H1 语义），
+  // 且因为 append 没成功，flush 里的裁剪根本不会执行
+  @fs.mkdir(metrics_path(dir))
+  mon.record_tool_call("p-1", "click", Json::empty_object(), 100, true)
+  mon.flush_buffers()
+  assert_eq(
+    mon.pending_event_count(),
+    1,
+    msg="append 失败的事件必须回填",
+  )
+
+  // ① 裁剪兜错层：对占据路径直接裁剪不得抛出（trim_to 的 I/O 错误在此收口）
+  mon.trim_quietly(mon.metrics)
+
+  // ② 故障解除后补写成功，恰好一条，无重复
+  @fs.rmdir(metrics_path(dir))
+  mon.flush_buffers()
+  assert_eq(mon.pending_event_count(), 0)
+  let events = load_events(dir)
+  assert_eq(events.length(), 1)
+  assert_eq(events[0].payload.tool_name(), Some("click"))
+}

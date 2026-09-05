@@ -27,6 +27,7 @@
 | **DirFingerprint（目录指纹）** | `mtime` + 直接子项数 + 子项 `mtime`，用于判定扫描缓存条目是否仍然有效 | `store/cache.mbt` |
 | **ProposalOutcome（提案结果）** | `generate_proposal` 的 6 个结果：`Created` / `AlreadyPending` / `Duplicate` / `Disabled` / `NoSignals` / `InCooldown` | `engine/engine.mbt` |
 | **Trailing State（尾计数状态）** | 每插件的 O(1) 增量计数器（连续失败数、同一工具连击数） | `monitor/trailing.mbt` |
+| **Retention（保留上限）** | 观测日志（metrics / signals 两个 JSONL）按字节自动**窗口裁剪**的上限：保留最新的完整行、至少保住最新一条，崩溃残行一并清除 | `store/jsonl.mbt` 的 `Jsonl::trim_to`、`types/config.mbt` 的 `max_log_bytes` |
 | **DAG Layer（DAG 层）** | Sub-Agent 任务按依赖拓扑排序后的分层，同层可并行 | `executor/dag.mbt` 的 `topo_layers` |
 
 ## 提案状态机
@@ -126,11 +127,21 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 ```
 ~/.harness-evolution/v2/          # 可用 $HARNESS_EVOLUTION_HOME 覆盖
 ├── plugin-cache.json   # 扫描缓存（每条带 DirFingerprint）
-├── metrics.jsonl       # 性能事件（monitor）
-├── signals.jsonl       # 进化信号（monitor 写 / engine 读）
+├── metrics.jsonl       # 性能事件（monitor）※ 受 max_log_bytes 窗口裁剪
+├── signals.jsonl       # 进化信号（monitor 写 / engine 读）※ 同上
 ├── proposals.jsonl     # 进化提案（ProposalStore 唯一读写口）
 └── execution.log       # 执行日志（executor）
 ```
+
+**窗口裁剪（Retention）**：metrics / signals 两个 JSONL 是 append-only 的
+观测日志，而 `get_metrics` / `get_signals_for_plugin` 每次全量读盘解析 ——
+无上限的增长会直接变成每次查询的延迟。二者受 `max_log_bytes`（默认 32 MiB，
+下界 1 MiB）约束：flush 成功后若超限，`Jsonl::trim_to` 裁到只保留**最新的
+完整行**（至少保住最新一条；崩溃残留的不完整行一并清除，否则下一次 append
+会把新行拼在残行后面毒化两行）。裁剪挂在**唯一的写入路径**（flush）上，
+失败被 `trim_quietly` 独立兜住 —— 既不能让 flush 重新 raise（H1 承诺），
+也不能被判成 append 失败而回填重试（重复落盘）。**提案与执行日志不裁**：
+前者是状态机与审计的事实来源，后者事件稀疏；按插件切分文件仍为后续工作。
 
 **v1 目录不做自动迁移**：2.0 使用 `v2/` 子目录。若检测到 1.0 的
 `~/.harness-evolution/` 存在，启动时在 stderr 提示一行，然后原样保留不动。
@@ -150,6 +161,11 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 `loop_detection` / `latency_regression`，2.0 规范，键名与 `SignalThresholds`
 的字段逐字相同）优先，**嵌套**（`.strong.*` / `.medium.*`，1.0 写法）作为回退。
 
+`max_log_bytes`（观测日志保留上限）走与 H2 同款的取值域校验：
+合法域 `[1 MiB, ~2 GiB]`（下界之下意味着裁剪几乎每轮 flush 都触发，属退化
+取值；`0` 会把「无界增长」静默带回来，故同样不合法），越界即回落默认值
+（32 MiB）+ 点名字段告警。
+
 > 1.0 里 `evolution_config` 是一处**配置孤岛**：写了但 `src/**` 里没有任何代码读它，
 > 改配置等于空操作。2.0 已接通。相邻的 `scan_targets` 仍是孤岛，见下面第 6 条。
 
@@ -168,19 +184,28 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 
 ## 已修复的缺陷（2.0 自身引入，非 1.0 遗留）
 
-上面 F1-F5 是 1.0 就存在、移植时必须一并修掉的缺陷。下面两条不同：它们是
-**2.0 重写自己带进来的失效面**。两条都按「先写测试 → 实测变红 → 再改实现 →
-转绿」的顺序处理，红绿都是当场跑出来的数字（`moon test --target native`：加完测试未实现时为
-`Total tests: 242, passed: 237, failed: 5.`，实现后 `242, passed: 242, failed: 0.`）。
+上面 F1-F5 是 1.0 就存在、移植时必须一并修掉的缺陷。下面三条不同：它们是
+**2.0 重写自己带进来的失效面**。三条都按「先写测试 → 实测变红 → 再改实现 →
+转绿」的顺序处理，红绿都是当场跑出来的数字。H1 / H2 那一轮：加完测试未实现时为
+`Total tests: 242, passed: 237, failed: 5.`，实现后 `242, passed: 242, failed: 0.`。
+R 组（观测日志窗口裁剪）落地后为 `253, passed: 253, failed: 0.`。W 的数字见表内与下面一段。
 
 | ID | 缺陷 | 为什么是 2.0 新引入 | 实测证据（红） | 修复（绿） |
 |----|------|--------------------|----------------|------------|
 | **H1** | **一次瞬时写失败 = 丢事件 + 周期 flush 永久停摆** | 这是 2.0 重写**自己带进来的回归**。`store/jsonl.mbt` 有意让 `append` / `append_many` 的 I/O 错误直接 raise（决策本身没错），但新版 `flush_buffers` 为了「无锁、不可重入」把顺序改成 `copy → clear → 写`，raise 就落在了清空之后。对照 1.0（`legacy-ts/src/monitor/index.ts` L377-389）：它是 `await appendMany()` **成功之后**才 `this.eventBuffer = []`，所以 **1.0 不丢数据**；1.0 的代价在别处 —— `void this.flushBuffers()`（L54-56）把 rejection 丢在地上没人接，而 `legacy-ts/src/**` 实测没有任何 `unhandledRejection` 兜底，在 `engines: node >=18` 下未接住的 rejection 默认直接崩掉进程。**两边各错一半，而 2.0 错的是「丢数据」这半** | `flush_buffers keeps events when the write fails` 当场抛 `OSError("@fs.File::write(): Incorrect function.")`；`a metrics write failure does not block signals from being stored` 断言 `0 != 1` —— signals 一条都没落盘：走 `record_tool_call → maybe_deep_check → get_statistics → flush_buffers` 那条链时，raise 被 `Deep check failed` 的兜底接住、只留下一行日志，而缓冲早就清空了，于是**静默丢失**。夹具自检（先断言这条路径确实写不进去）排除了假绿 | metrics 与 signals **各自独立 `try/catch`**，互不牵连；写不进去的批次由 `bounded_requeue` 按时间序放回缓冲**头部**（未存盘的那批比缓冲里现有的更旧）等下一轮重试；新增上界 `max_buffered_items = 1000`，溢出丢**最旧**的并告警（否则磁盘长期写不进时，监控循环等于替磁盘吃内存）。`flush_buffers` 从此不 raise ⇒ `run_flush_loop` 的循环体无需兜错即可存活 |
 | **H2** | **配置可以写成退化值，且被静默兜底** | 1.0 的三个阈值是 `monitor` 里的硬编码常量（3 / 5 / 0.2），用户无从写错；2.0 修掉配置孤岛、改由 `EngineConfig::from_json` 读取后，**只做了类型兜底、没做取值域校验** —— 接通配置入口的同时接通了一条新的失效通道 | `EngineConfig::from_json_checked reports out-of-domain values by name` 断言 `cfg == default` 失败（`-1 / 0 / 1 / 0` 全部原样生效）；`keeps in-domain values untouched` 断言 `0 != 2` | 新增 `EngineConfig::from_json_checked`，对 4 个数值字段做取值域校验：`cooldown_hours ∈ [0, 87600]`、`consecutive_failures ≥ 1`、`loop_detection ≥ 2`、`latency_regression ∈ (0, 100]`。越界即**回落默认值 + 点名字段告警**；`from_json` 委托它并丢掉告警（保持同步签名与既有 4 处调用点）。告警由 `main.mbt` 的 `load_config` 打到 stderr。缺失与类型不符**仍然静默回落**，为它们告警会淹没要紧的这几条 |
+| **W** | **解析出来的 `evolution_config` 没接到 monitor：改阈值与日志上限在运行时是空操作** | H2 只把「配置读不读」修到 `EngineConfig` 为止。生产路径上 monitor 有且只有一个构造点（`mcp/tools.mbt` 的 `ServerState::with_scan_config` → `PerformanceMonitor::at`），而它的签名里根本没有 config，转手走 `new()` → `with_thresholds(..., SignalThresholds::default())`。于是 `types/signal.mbt` 承诺的「可由 plugin.json 覆盖」与 R 组新加的 `max_log_bytes` **只有解析方、没有消费方** —— 配置孤岛换了个位置继续存在。1.0 不存在这条路径（阈值本就是 monitor 里的硬编码常量，没人声称它可配），故算 2.0 自己引入 | `ServerState threads evolution_config.max_log_bytes into the monitor`：磁盘上 9 条事件全在，配置的 600 字节上限没触发裁剪（monitor 仍在用默认 32 MiB）；`ServerState threads evolution_config.signal_thresholds into the monitor`：先断言 `config.thresholds.consecutive_failures == 1` **通过**，随后 signals.jsonl 是 0 行 —— 红点精确落在**构造侧而非解析侧**，排除了「JSON 没解析对」这种假因。`Total tests: 255, passed: 253, failed: 2.` | `PerformanceMonitor::at` 增可选参数 `config?`（默认 `EngineConfig::default()`，`at(paths)` 的老调用点行为逐字节不变），把 `config.thresholds` 与 `config.max_log_bytes` 交给 `with_thresholds`；构造点改为 `at(paths, config~)`。修复后 `Total tests: 255, passed: 255, failed: 0.`，且日志里出现 `[Store] Trimmed .../evo-wire-cap-*/metrics.jsonl: kept 414 of 1863 bytes` —— 配置值真的驱动了裁剪，而非仅测试通过 |
 
 H1 的失败面是**每一轮 flush 都可能踩到**（磁盘满、临时目录被回收、杀毒软件占用），
-H2 的失败面是**配置里写错一个数就永久生效**。修复后
-`Total tests: 242, passed: 242, failed: 0.`，且 `moon check --deny-warn` 通过。
+H2 的失败面是**配置里写错一个数就永久生效**，W 的失败面最隐蔽：**配置里写对了数，
+也一样不生效**，而且解析与校验全都绿，只有最后一厘米没接上。三条修复后
+`Total tests: 255, passed: 255, failed: 0.`，且 `moon check --deny-warn` 通过。
+
+> **给下一位改动者的通则**：新增一个 `EngineConfig` 字段时，必须同时回答
+> 「谁解析它」（`types/config.mbt` 的 `from_json_checked`）与「**谁消费它**」
+> （engine 消费 `intensity` / `cooldown_hours` / `auto_approve`；monitor 经
+> `PerformanceMonitor::at(paths, config~)` 消费 `thresholds` / `max_log_bytes`）。
+> 只补前者就会重演 W。用例名以 `ServerState threads ...` 开头的那两条就是这条通则的守卫。
 
 ## 有意的语义修正
 
