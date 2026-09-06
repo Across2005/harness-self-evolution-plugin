@@ -1,6 +1,7 @@
 import {
   "across2005/harness-self-evolution/engine",
   "across2005/harness-self-evolution/executor",
+  "across2005/harness-self-evolution/factory",
   "across2005/harness-self-evolution/monitor",
   "across2005/harness-self-evolution/scanner",
   "across2005/harness-self-evolution/store",

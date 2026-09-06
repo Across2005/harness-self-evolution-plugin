@@ -85,6 +85,24 @@ pub fn DataPaths::execution_log(self : DataPaths) -> String {
 }
 
 ///|
+/// 子 Agent 定义目录（v2.1）：数据根下的 `agents/`。
+/// scope=plugin 的定义写在这里；目录由 `AgentDefStore::ensure_dir` 惰性创建。
+/// 路径字面量保持单点定义（G4 的精神），与 proposals() / metrics() 同一模式。
+pub fn DataPaths::agent_defs(self : DataPaths) -> String {
+  @util.path_join(self.root, "agents")
+}
+
+///|
+/// 宿主的用户级子 Agent 定义目录（v2.1）。**跨出插件数据根**：
+/// `~/.zcode/agents/` 是 ZCode loader 约定的用户级 agent 目录，
+/// scope=user 的定义写在这里，宿主会在后续会话中发现并加载。
+/// `~/.zcode/agents` 字面量同址单点定义；测试经 `AgentFactory::with_dirs`
+/// 注入临时目录，绝不触碰真实的用户 home。
+pub fn user_agents_dir() -> String {
+  @util.expand_home("~/.zcode/agents")
+}
+
+///|
 /// 确保根目录存在。所有写入前调用一次即可（`@fs.mkdir` 缺省 `recursive=false`，
 /// 且其递归回退仅在 ENOENT 时生效，故必须显式传 `recursive=true` —— Phase 0 门禁实测）。
 pub async fn DataPaths::ensure_root(self : DataPaths) -> Unit {

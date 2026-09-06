@@ -1,0 +1,17 @@
+import {
+  "across2005/harness-self-evolution/store",
+  "across2005/harness-self-evolution/types",
+  "across2005/harness-self-evolution/util",
+}
+
+// async 供 async test 使用；fs 供测试在 @fs.tmpdir 里构造损坏文件与隔离目录。
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+} for "wbtest"
+
+options(
+  // factory 的用例经 store 触碰真实文件系统（见 monitor 包的同名注释：
+  // 文件系统密集型用例在默认并行度下会触发 async I/O worker 的 panic）。
+  "max-concurrent-tests": 1,
+)

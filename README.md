@@ -28,7 +28,7 @@ Harness Self-Evolution Plugin 是一个为 DeepSeek Harness 框架设计的自�
                               ▼
                     ┌─────────────────┐
                     │   MCP Server    │
-                    │  (7 Tools,      │
+                    │  (10 Tools,     │
                     │   stdio JSON-RPC)│
                     └─────────────────┘
 ```
@@ -209,7 +209,7 @@ zcode plugin link .
 
 | 类型 | 触发条件 | Matt Pocock 原则 | 变更内容 |
 |------|---------|------------------|---------|
-| `interface_simplification` | 循环 + 高复杂度 | Deep Module > 浅模块 | 合并工具、简化参数 |
+| `interface_simplification` | struggle 信号 + 高复杂度 | Deep Module > 浅模块 | 合并工具、简化参数 |
 | `behavior_optimization` | 循环检测 | 紧反馈环 > 盲目试错 | 添加中间件、优化流程 |
 | `error_handling_improvement` | 用户纠正 | 紧反馈环 > 盲目试错 | 改进错误处理、增加提示 |
 | `documentation_enhancement` | 用户偏好 + 高清晰度 | 词汇即文档 | 更新文档、添加示例 |
@@ -228,7 +228,7 @@ zcode plugin link .
 
 - 用户明确纠正插件行为
 - 用户明确表达"以后都这样/不要这样"
-- 连续失败 >= 3 次后成功
+- 连续失败 >= 3 次
 - 性能指标持续下降（> 20%）
 
 ### 中信号（累积触发）
@@ -272,6 +272,11 @@ zcode plugin link .
 - **integration**：处理依赖和集成
 - **validator**：运行验证测试
 
+> 出厂模板随插件的 `agents/` 目录分发（frontmatter + 系统提示词，ZCode 的
+> agent 载体格式），宿主会自动发现加载；`create_sub_agent` /
+> `list_sub_agents` / `delete_sub_agent` 三个工具可以增删管理这些定义，
+> 设计与研究结论见 `docs/subagent-factory.md`。
+
 ## 数据存储
 
 所有数据以 JSONL / JSON 格式存储在**同一个数据根目录**下：
@@ -282,8 +287,12 @@ zcode plugin link .
 ├── metrics.jsonl       # 性能事件（monitor 写）
 ├── signals.jsonl       # 进化信号（monitor 写 / engine 读）
 ├── proposals.jsonl     # 进化提案（ProposalStore 唯一读写口）
-└── execution.log       # 执行日志（executor）
+├── execution.log       # 执行日志（executor）
+└── agents/             # 子 Agent 定义（factory 写，scope=plugin）
 ```
+
+> scope=user 的子 Agent 定义写到宿主的 `~/.zcode/agents/`
+> （跨出数据根，宿主会在后续会话加载），路径单点定义在 `store/paths.mbt`。
 
 **有界保留（窗口裁剪）**：`metrics.jsonl` 与 `signals.jsonl` 是 append-only
 的观测日志，没有上限时会随使用无界增长，而查询路径是全量读盘解析 ——
@@ -319,10 +328,13 @@ zcode plugin link .
 | `list_proposals` | 列出所有提案 |
 | `approve_proposal` | 批准提案 |
 | `reject_proposal` | 拒绝提案 |
+| `create_sub_agent` | 创建子 Agent 定义文件（scope=user 会写入宿主 `~/.zcode/agents/`） |
+| `list_sub_agents` | 列出子 Agent 定义（可按 scope 过滤） |
+| `delete_sub_agent` | 删除子 Agent 定义 |
 
 ### MCP Events
 
-本插件**不注册任何 MCP Event**，只提供上表的 7 个工具。
+本插件**不注册任何 MCP Event**，只提供上表的 10 个工具。
 
 > 1.0 版的 README 在这里列了 `on_plugin_call` / `on_user_feedback` 两个事件，
 > 但 1.0 的代码里从未调用过 `registerEvent`（实测：`legacy-ts/src/mcp/server.ts`
@@ -392,18 +404,19 @@ zcode plugin link .
 ```
 src/
   util/       路径、时间、wire 编解码、日志 —— 四个零依赖 Deep Module
-  types/      ADT 与 18 张 wire 表（词汇表的单一事实来源）
-  store/      唯一的持久化模块（JSONL / 提案索引 / 插件缓存 / 执行日志）
+  types/      ADT 与 19 张 wire 表（词汇表的单一事实来源）
+  store/      唯一的持久化模块（JSONL / 提案索引 / 插件缓存 / 执行日志 / 子 Agent 定义）
   scanner/    插件发现与信息提取（纯逻辑与 I/O 分离）
   monitor/    性能事件采集与信号检测
   engine/     进化提案生成（决策树 + 风险评估）
   executor/   提案执行（DAG 分层 + Sub-Agent 编排）
-  mcp/        自研 stdio JSON-RPC 2.0 + 7 工具 + 架构守卫测试
+  factory/    子 Agent 定义管理（校验/渲染/解析）
+  mcp/        自研 stdio JSON-RPC 2.0 + 10 工具 + 架构守卫测试
   harness_evolution/   可执行入口（装配与启动）
 ```
 
 依赖图是**严格分层**的（`util` → `types` → `store` → `scanner`/`monitor` →
-`engine`/`executor` → `mcp` → `harness_evolution`），由
+`engine`/`executor`/`factory` → `mcp` → `harness_evolution`），由
 `src/mcp/architecture_test.mbt` 的 11 条守卫机器化验证：任何新增的反向边、
 任何往 stdout 写日志的尝试、任何绕过 `store/` 的持久化写入，都会在
 `moon test` 里立刻变红。

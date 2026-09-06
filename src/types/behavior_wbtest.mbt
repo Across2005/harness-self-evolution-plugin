@@ -588,6 +588,31 @@ test "EngineConfig::from_json_checked reports out-of-domain values by name" {
 }
 
 ///|
+/// 非整数阈值过去被 `.to_int()` **静默截断**（`2.5` → 2，无任何提示），
+/// 检测灵敏度已变而写配置的人不知情 —— 与 H2 的越界取值同属「静默改行为」。
+/// 钉成「回落默认值 + 点名告警」，让失效可见。
+test "EngineConfig::from_json_checked reports non-integer thresholds and falls back" {
+  let raw =
+    #|{
+    #|  "signal_thresholds": {
+    #|    "consecutive_failures": 2.5,
+    #|    "loop_detection": 4.5
+    #|  }
+    #|}
+  let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
+  // 非整数不截断采纳，而是回落各自的默认值（3 与 5）
+  let td = EngineConfig::default().thresholds
+  assert_eq(cfg.thresholds.consecutive_failures, td.consecutive_failures)
+  assert_eq(cfg.thresholds.loop_detection, td.loop_detection)
+  assert_eq(warns.length(), 2)
+  let fields = warned_fields(warns)
+  assert_true(fields.contains("signal_thresholds.consecutive_failures"))
+  assert_true(fields.contains("signal_thresholds.loop_detection"))
+  // 告警消息里带上写错的那个值，人能一眼看出配置文件哪里错了
+  assert_true(warns[0].contains("2.5 is not an integer"))
+}
+
+///|
 /// H2：合法域**边界上**的值必须原样生效，且一条告警都不产生。
 ///
 /// 刻意取边界值（0 / 1 / 2 / 0.01 / 上界 87600）而不是中间值：
@@ -746,7 +771,8 @@ test "auto_approve: true is reported and falls back to false" {
 ///|
 /// 显式写 false（plugin.json 的出厂值）不该产生任何噪声。
 test "auto_approve: false is accepted silently" {
-  let raw = #|{"auto_approve":false}
+  let raw =
+    #|{"auto_approve":false}
   let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
   assert_eq(cfg.auto_approve, false)
   assert_eq(warns.length(), 0)
@@ -755,7 +781,8 @@ test "auto_approve: false is accepted silently" {
 ///|
 /// 缺省不写这一项时也不该告警 —— 否则每次启动都会为「用户没写的字段」刷屏。
 test "absent auto_approve produces no warning" {
-  let raw = #|{"intensity":"50%"}
+  let raw =
+    #|{"intensity":"50%"}
   let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
   assert_eq(cfg.auto_approve, false)
   assert_eq(warns.length(), 0)

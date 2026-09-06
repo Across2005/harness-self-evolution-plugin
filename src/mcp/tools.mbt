@@ -1,6 +1,10 @@
 ///|
-/// 7 个 MCP 工具的定义、派发与集中式错误处理。
+/// 10 个 MCP 工具的定义、派发与集中式错误处理。
 /// 取代 legacy-ts/src/mcp/server.ts L57-290。
+///
+/// 前 7 个与 legacy-ts/package.json 的 `mcp.tools` 逐项同序；
+/// 后 3 个（create / list / delete_sub_agent）是 v2.1 子 Agent 工厂新增，
+/// 无 legacy 对应物（见 docs/subagent-factory.md）。
 ///
 /// **CONTEXT.md 不变量④在此落地**：工具 handler 内部**一个 try/catch 都不写**，
 /// 错误统一由 `call_tool` 这一处包装器转成标准的 `isError` 响应。
@@ -20,6 +24,8 @@ pub struct ServerState {
   engine : @engine.EvolutionEngine
   executor : @executor.UpgradeExecutor
   proposals : @store.ProposalStore
+  /// 子 Agent 工厂（v2.1）：管理 plugin / user 两个作用域的定义文件
+  factory : @factory.AgentFactory
   /// 插件注册表（对应 server.ts L81 的 `pluginRegistry`）。
   /// 用 `Array` 作事实来源、`Map` 只作 id → 下标索引（决策 D10）：
   /// TS 靠 JS Map 的插入序保证 `Array.from(plugins.values())`（L137）的顺序稳定，
@@ -73,6 +79,7 @@ pub fn ServerState::with_scan_config(
       @store.ExecutionLog::at(paths),
     ),
     proposals,
+    factory: @factory.AgentFactory::at(paths),
     registry: [],
     registry_index: Map([]),
   }
@@ -220,12 +227,14 @@ pub async fn call_tool(state : ServerState, tool : Tool, args : Json) -> Json {
 }
 
 // ----------------------------------------------------------------------------
-// 7 个工具
+// 10 个工具（前 7 个与 legacy-ts/package.json mcp.tools 逐项同序，
+// 后 3 个为 2.1 子 Agent 工厂新增）
 // ----------------------------------------------------------------------------
 
 ///|
 /// 全部工具，顺序即 `tools/list` 的返回顺序。
-/// 名字与 legacy-ts/package.json L58-66 的 `mcp.tools` 列表逐项、同序一致。
+/// 名字与 legacy-ts/package.json L58-66 的 `mcp.tools` 列表逐项、同序一致
+/// （前 7 个）；后 3 个为 v2.1 新增，追加在 legacy 顺序之后。
 pub fn tools() -> Array[Tool] {
   [
     {
@@ -270,11 +279,29 @@ pub fn tools() -> Array[Tool] {
       schema: proposal_id_schema(),
       handler: handle_reject_proposal,
     },
+    {
+      name: "create_sub_agent",
+      description: "创建一个子 Agent 定义文件（Markdown + YAML frontmatter，含名称、职责描述与系统提示词）。scope=plugin 写入插件数据目录（默认）；scope=user 会写入宿主的 ~/.zcode/agents/——这跨出插件数据根，宿主会在后续会话中加载该定义，其内容将成为可被调用的 agent 系统提示词。注意：创建只是产出定义文件，不等于立即派发执行，宿主何时加载由宿主决定。插件自带的 5 个出厂角色模板随插件 agents/ 目录分发，不在本工具的两个可写目录内。",
+      schema: create_sub_agent_schema(),
+      handler: handle_create_sub_agent,
+    },
+    {
+      name: "list_sub_agents",
+      description: "列出子 Agent 定义。scope 缺省时同时列出插件数据目录与宿主用户目录（~/.zcode/agents/）两个作用域；每项含名称、描述、可选的 color/tools、作用域与路径。解析失败的文件会被跳过并在日志告警，不影响其余条目。",
+      schema: list_sub_agents_schema(),
+      handler: handle_list_sub_agents,
+    },
+    {
+      name: "delete_sub_agent",
+      description: "删除一个子 Agent 定义文件。只删除两个可写目录（插件数据目录的 agents/、宿主的 ~/.zcode/agents/）里的定义；插件自带的出厂模板不在这两个目录内，天然不受本工具影响。scope 缺省为 plugin。",
+      schema: delete_sub_agent_schema(),
+      handler: handle_delete_sub_agent,
+    },
   ]
 }
 
 ///|
-/// 按名字找工具。O(n) 但 n == 7，比维护一张 Map 更直白。
+/// 按名字找工具。O(n) 但 n == 10，比维护一张 Map 更直白。
 pub fn find_tool(name : String) -> Tool? {
   for t in tools() {
     if t.name == name {
@@ -285,7 +312,7 @@ pub fn find_tool(name : String) -> Tool? {
 }
 
 ///|
-/// `tools/list` 的响应体。不分页（省略 `nextCursor`）—— 7 个工具远小于任何客户端的页大小。
+/// `tools/list` 的响应体。不分页（省略 `nextCursor`）—— 10 个工具远小于任何客户端的页大小。
 pub fn tools_list_result() -> Json {
   let list : Array[Json] = []
   for t in tools() {
@@ -558,6 +585,88 @@ async fn handle_reject_proposal(state : ServerState, args : Json) -> Json {
 }
 
 // ----------------------------------------------------------------------------
+// v2.1 新增：子 Agent 工厂的 3 个 handler
+// （业务失败一律 raise Failure，由 call_tool 统一转 isError —— 不变量④）
+// ----------------------------------------------------------------------------
+
+///|
+/// `create_sub_agent`（v2.1）。
+///
+/// tools 传出的**空数组按未指定处理**（与 factory 的语义一致），
+/// scope 缺省 plugin，overwrite 缺省 false —— 已存在时 raise，
+/// 消息含 "already exists"，LLM 可据此决定是否带 overwrite=true 重试。
+async fn handle_create_sub_agent(state : ServerState, args : Json) -> Json {
+  let a : CreateSubAgentArgs = @json.from_json(args)
+  let def : @factory.AgentDefinition = {
+    name: a.name,
+    description: a.description,
+    system_prompt: a.system_prompt,
+    tools: a.tools.unwrap_or([]),
+    color: a.color,
+  }
+  let scope = a.scope.unwrap_or(default_sub_agent_scope)
+  let overwrite = a.overwrite.unwrap_or(default_sub_agent_overwrite)
+  let (path, overwritten) = state.factory.create(def, scope, overwrite~)
+  {
+    "success": true,
+    "path": Json::string(path),
+    "name": Json::string(a.name),
+    "scope": ToJson::to_json(scope),
+    "overwritten": Json::boolean(overwritten),
+  }
+}
+
+///|
+/// `list_sub_agents`（v2.1）。
+///
+/// scope 缺省 = 两个作用域都列。color / tools 是可选字段：
+/// 有才写键、无则省略 —— 复用 `with_key`（对齐 execute_evolution 的风格，
+/// None → 不写这个键而不是写 null）。
+async fn handle_list_sub_agents(state : ServerState, args : Json) -> Json {
+  let a : ListSubAgentsArgs = @json.from_json(args)
+  let found = state.factory.list(a.scope)
+  let items : Array[Json] = []
+  for entry in found {
+    let (scope, def, path) = entry
+    let base : Json = {
+      "name": Json::string(def.name),
+      "description": Json::string(def.description),
+    }
+    let with_color = match def.color {
+      Some(c) => with_key(base, "color", Json::string(c))
+      None => base
+    }
+    let with_tools = if def.tools.length() > 0 {
+      with_key(with_color, "tools", ToJson::to_json(def.tools))
+    } else {
+      with_color
+    }
+    let with_scope = with_key(with_tools, "scope", ToJson::to_json(scope))
+    items.push(with_key(with_scope, "path", Json::string(path)))
+  }
+  {
+    "success": true,
+    "count": Json::number(found.length().to_double()),
+    "agents": Json::array(items),
+  }
+}
+
+///|
+/// `delete_sub_agent`（v2.1）。scope 缺省 plugin；
+/// 名字不存在时 factory.delete raise（消息含 "not found"）→ isError。
+async fn handle_delete_sub_agent(state : ServerState, args : Json) -> Json {
+  let a : DeleteSubAgentArgs = @json.from_json(args)
+  let scope = a.scope.unwrap_or(default_sub_agent_scope)
+  let deleted = state.factory.delete(a.name, scope)
+  {
+    "success": true,
+    "name": Json::string(a.name),
+    "scope": ToJson::to_json(scope),
+    "deleted": Json::string(deleted),
+  }
+}
+
+// ----------------------------------------------------------------------------
 // 消息派发
 // ----------------------------------------------------------------------------
 
@@ -591,7 +700,7 @@ fn tool_call_target(params : Json) -> Result[(Tool, Json), String] {
 /// |---|---|
 /// | `initialize` | protocolVersion（回显）+ capabilities.tools + serverInfo |
 /// | `ping` | `{}` |
-/// | `tools/list` | 7 个工具 |
+/// | `tools/list` | 10 个工具 |
 /// | `tools/call` | 工具结果或 isError |
 /// | 其他 | `-32601 Method not found` |
 pub async fn handle_message(state : ServerState, req : RpcRequest) -> Json? {

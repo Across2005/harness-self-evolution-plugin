@@ -26,11 +26,12 @@ async fn read_raw(path : String) -> String {
 
 ///|
 /// 磁盘上的实际字节数 —— 裁剪的承诺是对**磁盘**做出的，按它断言。
+/// close 用 `defer` 挂在作用域出口，与 `trim_to` 的预检同一惯用法：
+/// `f.size()` 若 raise，句柄也能照常关闭。
 async fn disk_size(path : String) -> Int64 {
   let f = @fs.open(path, mode=ReadOnly)
-  let n = f.size()
-  f.close()
-  n
+  defer f.close()
+  f.size()
 }
 
 ///|

@@ -58,10 +58,10 @@ test "date_utc takes the calendar date prefix" {
 }
 
 ///|
-test "hours_to_ms and minutes_to_ms" {
+test "hours_to_ms converts hours to milliseconds" {
   assert_eq(@util.hours_to_ms(24), 86_400_000L)
   assert_eq(@util.hours_to_ms(0), 0L)
-  assert_eq(@util.minutes_to_ms(90), 5_400_000L)
+  assert_eq(@util.hours_to_ms(3), 10_800_000L)
 }
 
 ///|

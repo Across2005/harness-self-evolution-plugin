@@ -22,6 +22,7 @@
   },
   "main": "./bin/harness-evolution.exe",
   "skills": "./skills",
+  "agents": "./agents",
   "capabilities": [
     "plugin_scanning",
     "performance_monitoring",
@@ -39,7 +40,10 @@
       "execute_evolution",
       "list_proposals",
       "approve_proposal",
-      "reject_proposal"
+      "reject_proposal",
+      "create_sub_agent",
+      "list_sub_agents",
+      "delete_sub_agent"
     ]
   },
   "dependencies": {},

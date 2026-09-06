@@ -99,27 +99,8 @@ async fn ProposalStore::reload(self : ProposalStore) -> Unit {
   self.by_plugin.clear()
   self.by_signature.clear()
   for row in rows {
-    let index = match self.by_id.get(row.proposal_id) {
-      Some(i) => i // 已见过 → 原位覆盖，保持首次出现的顺序
-      None => {
-        let i = self.items.length()
-        self.items.push(row)
-        self.by_id.set(row.proposal_id, i)
-        let bucket = match self.by_plugin.get(row.plugin_id) {
-          Some(b) => b
-          None => {
-            let fresh : Array[Int] = []
-            self.by_plugin.set(row.plugin_id, fresh)
-            fresh
-          }
-        }
-        bucket.push(i)
-        i
-      }
-    }
-    self.items[index] = row
-    // 签名索引始终指向最近一条，供去重使用
-    self.by_signature.set(row.signature, index)
+    // 折叠逻辑与 absorb 共用 `fold_row`：同 id 原位覆盖、签名索引指向最近一条
+    self.fold_row(row)
   }
   self.loaded_mtime = self.jsonl.mtime()
 }
@@ -190,8 +171,11 @@ pub async fn ProposalStore::save(
 }
 
 ///|
-/// 把一条记录并入内存索引（append-only 折叠的内存侧）。
-fn ProposalStore::absorb(
+/// 把一条记录折叠进内存索引（append-only 折叠的内存侧）。
+/// reload 与 absorb 共用这一份逻辑，避免「两处手写同一折叠」悄悄走样：
+/// 同 proposal_id 的记录**原位覆盖**（保持首次出现的顺序），
+/// 签名索引始终指向最近一条，供去重使用。
+fn ProposalStore::fold_row(
   self : ProposalStore,
   row : @types.EvolutionProposal,
 ) -> Unit {
@@ -215,6 +199,16 @@ fn ProposalStore::absorb(
   }
   self.items[index] = row
   self.by_signature.set(row.signature, index)
+}
+
+///|
+/// 把一条记录并入内存索引（append-only 折叠的内存侧）。
+/// 与 reload 共用 `fold_row` 的折叠实现，本函数只是语义化的调用名。
+fn ProposalStore::absorb(
+  self : ProposalStore,
+  row : @types.EvolutionProposal,
+) -> Unit {
+  self.fold_row(row)
 }
 
 ///|
@@ -249,22 +243,10 @@ pub async fn ProposalStore::set_status(
       "Illegal proposal status transition: \{current.status.wire_name()} → \{status.wire_name()}",
     )
   }
-  // 只改 status，其余字段原样保留（对齐 TS L152 的 `{ ...p, status }`）
-  let updated : @types.EvolutionProposal = {
-    proposal_id: current.proposal_id,
-    plugin_id: current.plugin_id,
-    status,
-    created_at: current.created_at,
-    trigger_signals: current.trigger_signals,
-    evolution_type: current.evolution_type,
-    matt_pocock_principle: current.matt_pocock_principle,
-    proposed_changes: current.proposed_changes,
-    expected_benefits: current.expected_benefits,
-    validation_plan: current.validation_plan,
-    risk_assessment: current.risk_assessment,
-    signature: current.signature,
-    confidence: current.confidence,
-  }
+  // 只改 status，其余字段原样保留（对齐 TS L152 的 `{ ...p, status }`）：
+  // struct 函数式更新 `..current` 逐字段浅拷贝，等价于 TS 的展开语法，
+  // 且不会因 EvolutionProposal 增删字段而漏改这里。
+  let updated : @types.EvolutionProposal = { ..current, status, }
   self.jsonl.append(updated)
   self.absorb(updated)
   self.loaded_mtime = self.jsonl.mtime()
@@ -342,7 +324,7 @@ fn ProposalStore::plugin_indices(
 }
 
 ///|
-/// 内存中的提案总数（折叠后）。供 MCP 的 status 汇总与测试断言使用。
+/// 内存中的提案总数（折叠后）。暂无生产调用方，保留作诊断与测试断言之用。
 pub async fn ProposalStore::count(self : ProposalStore) -> Int {
   self.refresh()
   self.items.length()

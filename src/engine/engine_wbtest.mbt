@@ -70,6 +70,23 @@ fn make_engine(
   dir : String,
   intensity : @types.Intensity,
 ) -> (EvolutionEngine, @store.ProposalStore) {
+  let config : @types.EngineConfig = {
+    intensity,
+    cooldown_hours: 24,
+    auto_approve: false,
+    thresholds: @types.SignalThresholds::default(),
+    max_log_bytes: @types.default_max_log_bytes,
+  }
+  make_engine_with_config(dir, config)
+}
+
+///|
+/// 变体助手：完全自定义 `EngineConfig`。隔离注入与 `make_engine` 相同，
+/// 供需要非常规配置（如 `cooldown_hours: 0` 钉死闸门顺序）的用例使用。
+fn make_engine_with_config(
+  dir : String,
+  config : @types.EngineConfig,
+) -> (EvolutionEngine, @store.ProposalStore) {
   let proposals = @store.ProposalStore::new(
     @util.path_join(dir, "proposals.jsonl"),
   )
@@ -78,13 +95,6 @@ fn make_engine(
     @util.path_join(dir, "signals.jsonl"),
   )
   let signals = @store.Jsonl::new(@util.path_join(dir, "signals.jsonl"))
-  let config : @types.EngineConfig = {
-    intensity,
-    cooldown_hours: 24,
-    auto_approve: false,
-    thresholds: @types.SignalThresholds::default(),
-    max_log_bytes: @types.default_max_log_bytes,
-  }
   (EvolutionEngine::new(monitor, proposals, signals, config), proposals)
 }
 
@@ -223,6 +233,47 @@ async test "returns the existing pending proposal instead of duplicating" {
       assert_true(second is ProposalOutcome::AlreadyPending(_))
     }
     _ => abort("expected two proposals")
+  }
+}
+
+///|
+/// 第⑦道闸门：同签名的**非 rejected** 提案已存在 → 返回它（对齐 TS L121-126）。
+///
+/// 既有用例只命中过 ⑤（pending 去重）。这条构造「已审批」的前案：
+/// ⑤ 的 pending 检查放行、⑥ 的冷却检查因 `cooldown_hours: 0` 恒放行，
+/// 流程才第一次走到 ⑦。这正是生产里的真实路径——提案获批后同一信号
+/// 再次出现（monitor 的 struggle 信号无一次性抑制，见 CONTEXT.md
+/// 已知缺陷清单第 11 条），返回的必须是**同一份**提案而不是新建。
+async test "returns the existing proposal when a duplicate signature is regenerated" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  let config : @types.EngineConfig = {
+    intensity: @types.Intensity::Half,
+    cooldown_hours: 0,
+    auto_approve: false,
+    thresholds: @types.SignalThresholds::default(),
+    max_log_bytes: @types.default_max_log_bytes,
+  }
+  let (engine, proposals) = make_engine_with_config(dir, config)
+
+  // 强信号生成 p1 → 审批通过（不再是 pending，⑤ 放行）
+  let first = engine.generate_proposal(
+    mock_plugin(),
+    signals=Some([strong_correction()]),
+  )
+  let p1 = first.proposal().unwrap()
+  ignore(proposals.set_status(p1.proposal_id, @types.ProposalStatus::Approved))
+
+  // 同一信号再生成：签名相同 → ⑦ 命中，返回 p1 本尊
+  let second = engine.generate_proposal(
+    mock_plugin(),
+    signals=Some([strong_correction()]),
+  )
+  assert_true(second is ProposalOutcome::Duplicate(_))
+  match second {
+    ProposalOutcome::Duplicate(dup) =>
+      assert_eq(dup.proposal_id, p1.proposal_id)
+    _ => abort("expected Duplicate")
   }
 }
 

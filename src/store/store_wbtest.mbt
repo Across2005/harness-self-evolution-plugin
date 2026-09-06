@@ -569,3 +569,115 @@ async test "DataPaths::ensure_root creates the directory tree" {
   paths.ensure_root()
   assert_eq(@fs.exists(paths.root()), true)
 }
+
+// ============================================================================
+// AgentDefStore（v2.1 子 Agent 工厂的持久层）
+// ============================================================================
+
+///|
+async test "AgentDefStore writes, reads, lists and removes definitions" {
+  let dir = @fs.tmpdir(prefix="evo-agent-defs-")
+  defer @fs.rmdir(dir, recursive=true)
+  let store = AgentDefStore::at("\{dir}/agents")
+  assert_eq(@fs.exists(store.path_of("alpha")), false)
+  assert_eq(store.exists("alpha"), false)
+  // 目录尚不存在也能直接写（ensure_dir 惰性建目录）
+  assert_eq(store.write("alpha", "alpha-content", overwrite=false), false)
+  assert_eq(store.exists("alpha"), true)
+  assert_eq(store.read("alpha"), "alpha-content")
+  // 只列 *.md；其余扩展名被排除；字典序（决策 D10）
+  let _ = store.write("beta", "beta-content", overwrite=false)
+  @fs.write_file(
+    "\{dir}/agents/notes.txt",
+    "not an agent definition",
+    create_mode=CreateOrTruncate,
+  )
+  assert_eq(store.list(), ["alpha", "beta"])
+  // 覆盖：overwrite=true 时整体替换并报告发生了覆盖
+  assert_eq(store.write("alpha", "alpha-v2", overwrite=true), true)
+  assert_eq(store.read("alpha"), "alpha-v2")
+  // 删除后 exists / read 同步失效
+  store.remove("beta")
+  assert_eq(store.exists("beta"), false)
+}
+
+///|
+/// 「已存在且未显式 overwrite」必须报错而非静默覆盖 ——
+/// 与 ProposalStore 状态机的显式性原则一致：破坏性动作必须显式声明。
+async test "AgentDefStore refuses to overwrite without overwrite=true" {
+  let dir = @fs.tmpdir(prefix="evo-agent-defs-")
+  defer @fs.rmdir(dir, recursive=true)
+  let store = AgentDefStore::at(dir)
+  assert_eq(store.write("dup", "first", overwrite=false), false)
+  let msg = try {
+    let _ = store.write("dup", "second", overwrite=false)
+    ""
+  } catch {
+    e => e.to_string()
+  }
+  assert_true(msg.contains("already exists"))
+  // 报错后旧内容原样保留（报错不能有副作用）
+  assert_eq(store.read("dup"), "first")
+}
+
+///|
+/// 路径穿越防御：store 层是最后一道防线，`/`、`\`、`..` 与空名全部拦下，
+/// 且 read / remove 与 write 同样设防。
+async test "AgentDefStore rejects path traversal and empty names" {
+  let dir = @fs.tmpdir(prefix="evo-agent-defs-")
+  defer @fs.rmdir(dir, recursive=true)
+  let store = AgentDefStore::at(dir)
+  let bad_names : Array[String] = ["../evil", "a/b", "a\b", "..", "a..b", ""]
+  for bad in bad_names {
+    let msg = try {
+      let _ = store.write(bad, "x", overwrite=false)
+      ""
+    } catch {
+      e => e.to_string()
+    }
+    assert_true(msg.length() > 0)
+    let msg_read = try {
+      let _ = store.read(bad)
+      ""
+    } catch {
+      e => e.to_string()
+    }
+    assert_true(msg_read.length() > 0)
+  }
+  // 报错不能留下半成品：目录里没有任何 .md
+  assert_eq(store.list(), [])
+}
+
+///|
+/// read / remove 对缺失的定义必须显式报错（与 Jsonl::load 的「缺失返回空」
+/// 刻意不同：定义是单文件，缺失几乎总是调用方拼错了名字）。
+async test "AgentDefStore read and remove raise on missing definitions" {
+  let dir = @fs.tmpdir(prefix="evo-agent-defs-")
+  defer @fs.rmdir(dir, recursive=true)
+  let store = AgentDefStore::at(dir)
+  let msg_read = try {
+    let _ = store.read("absent")
+    ""
+  } catch {
+    e => e.to_string()
+  }
+  assert_true(msg_read.contains("not found"))
+  let msg_remove = try {
+    store.remove("absent")
+    ""
+  } catch {
+    e => e.to_string()
+  }
+  assert_true(msg_remove.contains("not found"))
+}
+
+///|
+/// 目录不存在时 list 返回空（首次使用前 agents/ 尚未建立是正常状态），
+/// 且不做任何写入（list 是纯读操作）。
+async test "AgentDefStore lists nothing when the directory does not exist" {
+  let dir = @fs.tmpdir(prefix="evo-agent-defs-")
+  defer @fs.rmdir(dir, recursive=true)
+  let store = AgentDefStore::at("\{dir}/absent")
+  assert_eq(store.list(), [])
+  assert_eq(@fs.exists("\{dir}/absent"), false)
+}

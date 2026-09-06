@@ -10,7 +10,7 @@
 /// 对 enum 生成的 tagged-array（`["InterfaceSimplification"]`）。
 /// 这条断言一旦失败，说明有人图省事把某个枚举改回了 derive。
 ///
-/// 用白盒测试（`_wbtest.mbt`）：一是可以直接引用包内的 18 张表，
+/// 用白盒测试（`_wbtest.mbt`）：一是可以直接引用包内的 19 张表，
 /// 二是这些 impl 在本包编译单元内被真实使用，
 /// 不会触发 unused_value 警告。
 
@@ -185,6 +185,7 @@ test "every string enum round-trips through its wire table" {
     AgentType::Validator,
   ])
   round_trip("Intensity", [Intensity::Full, Intensity::Half, Intensity::Off])
+  round_trip("AgentScope", [AgentScope::Plugin, AgentScope::User])
 }
 
 ///|
@@ -207,6 +208,7 @@ test "every wire table is complete and has no duplicate names" {
   check_table("usage_frequency_wire", usage_frequency_wire, 4)
   check_table("agent_type_wire", agent_type_wire, 5)
   check_table("intensity_wire", intensity_wire, 3)
+  check_table("agent_scope_wire", agent_scope_wire, 2)
 }
 
 ///|
@@ -301,4 +303,23 @@ test "decoding an unknown wire name fails with the legal value list" {
   assert_true(msg.contains("nonsense"))
   assert_true(msg.contains("interface_simplification"))
   assert_true(msg.contains("error_handling_improvement"))
+}
+
+///|
+/// `agent_scope` 同理 —— v2.1 的新表也要走同一条「非法值报错并列出合法值」
+/// 的路径，因为这条消息会经 create/list/delete_sub_agent 的 isError 响应
+/// 回到 LLM 面前。
+test "agent_scope decoding fails with the legal value list" {
+  let msg = try {
+    let _v : AgentScope = @json.from_json(Json::string("global"))
+    ignore(_v)
+    ""
+  } catch {
+    e => e.to_string()
+  }
+  assert_true(msg.contains("global"))
+  assert_true(msg.contains("plugin"))
+  assert_true(msg.contains("user"))
+  // schema 的 enum 取自同一张表（不变量⑦），词汇必须逐字一致
+  json_inspect(agent_scope_wire.names(), content=["plugin", "user"])
 }

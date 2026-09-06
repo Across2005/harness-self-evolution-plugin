@@ -19,9 +19,6 @@
 let ms_per_second : Int64 = 1_000L
 
 ///|
-let ms_per_minute : Int64 = 60_000L
-
-///|
 let ms_per_hour : Int64 = 3_600_000L
 
 ///|
@@ -44,12 +41,6 @@ pub fn elapsed_ms(from : Int64) -> Int64 {
 /// 小时 → 毫秒。供 engine 的 cooldown 配置使用。
 pub fn hours_to_ms(h : Int) -> Int64 {
   h.to_int64() * ms_per_hour
-}
-
-///|
-/// 分钟 → 毫秒。
-pub fn minutes_to_ms(m : Int) -> Int64 {
-  m.to_int64() * ms_per_minute
 }
 
 ///|

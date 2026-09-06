@@ -163,9 +163,11 @@ pub async fn Jsonl::trim_to(self : Jsonl, max_bytes : Int) -> Bool {
   }
   // 廉价预检：开只读句柄查一次大小，没超上限就整体不动。
   // `@fs` 没有路径级 stat 的 size（只有句级 `File::size`），这样已是最廉价的查法。
+  // close 用 `defer` 挂在作用域出口：`f.size()` 若 raise，手动 close 会被跳过，
+  // 句柄就此泄漏 —— defer 保证两条路径都会关闭。
   let f = @fs.open(self.path, mode=ReadOnly)
+  defer f.close()
   let size = f.size()
-  f.close()
   if size <= max_bytes.to_int64() {
     return false
   }

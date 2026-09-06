@@ -118,7 +118,7 @@ fn isolated_state(tmp : String) -> ServerState {
 /// 按计划约束「明确不修、保持 TS 原语义」，行为原样保留（避免顺手优化造成
 /// 静默回归），但必须被**看见**：下面那条专门用例把它钉死，
 /// 并写入 CONTEXT.md 的已知缺陷清单。
-/// 主链路测试的目的是「7 个工具共享同一份状态」，与强度闸门无关，
+/// 主链路测试的目的是「10 个工具共享同一份状态」，与强度闸门无关，
 /// 故用 Full 把这道门打开，让链路真的跑到提案创建。
 fn full_intensity_state(tmp : String) -> ServerState {
   let paths = @store.DataPaths::at(tmp)
@@ -317,7 +317,7 @@ async test "initialize and ping over the wire" {
 }
 
 ///|
-/// 决策 D15：不做初始化门禁。`tools/list` 在 `initialize` 之前一样能拿到全部 7 个工具。
+/// 决策 D15：不做初始化门禁。`tools/list` 在 `initialize` 之前一样能拿到全部 10 个工具。
 async test "tools/list works before any initialize handshake" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
@@ -329,7 +329,7 @@ async test "tools/list works before any initialize handshake" {
     Some(Array(a)) => a
     _ => abort("tools must be an array")
   }
-  assert_eq(list.length(), 7)
+  assert_eq(list.length(), 10)
 }
 
 // ============================================================================
@@ -578,7 +578,7 @@ async fn seed_plugin(root : String) -> Unit {
 
 ///|
 /// ★ 全链路端到端。这是整个 mcp 包最重要的一条测试：
-/// 它证明 7 个工具不只是各自能跑，而是**共享同一份状态**
+/// 它证明 10 个工具不只是各自能跑，而是**共享同一份状态**
 /// （CONTEXT.md 不变量②：ProposalStore 单一事实来源）。
 ///
 /// 具体钉住的四件事：
@@ -1148,6 +1148,7 @@ async test "repeated tool failures each still produce a well-formed response" {
     ignore(@json.parse(resp.stringify()))
   }
 }
+
 ///|
 /// 数一个 JSONL 文件里的行数（按换行符计）。
 ///
@@ -1251,4 +1252,185 @@ async test "ServerState threads evolution_config.signal_thresholds into the moni
     jsonl_line_count(paths.signals()) >= 1,
     msg="阈值 1 时一次失败就该落信号（未接线则沿用默认 3，一条都不会有）",
   )
+}
+
+// ============================================================================
+// v2.1：子 Agent 工厂的 3 个工具
+// ============================================================================
+
+///|
+/// tools/list 必须列出 3 个新工具，且**追加在 legacy 顺序之后**
+/// （前 7 个与 legacy-ts/package.json 的 mcp.tools 逐项同序，不动）。
+async test "tools/list advertises the three sub-agent factory tools after the legacy ones" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  let resp = send(
+    state, "{\"jsonrpc\":\"2.0\",\"id\":\"sa\",\"method\":\"tools/list\",\"params\":{}}",
+  )
+  let list = match obj(result_of(resp)).get("tools") {
+    Some(Array(a)) => a
+    _ => abort("tools must be an array")
+  }
+  assert_eq(list.length(), 10)
+  let names : Array[String] = []
+  for t in list {
+    match obj(t).get("name") {
+      Some(String(n)) => names.push(n)
+      _ => abort("each tool must have a string name")
+    }
+  }
+  assert_eq(names[6], "reject_proposal")
+  assert_eq(names[7], "create_sub_agent")
+  assert_eq(names[8], "list_sub_agents")
+  assert_eq(names[9], "delete_sub_agent")
+}
+
+///|
+/// 子 Agent 工具全链路：create → list → delete。
+///
+/// ★ 隔离说明：`ServerState::with_scan_config` 构造的 factory 里 user 作用域
+/// 指向**真实的** `~/.zcode/agents`，scope 缺省的 list 会把它也列进来 ——
+/// 测试里把 factory 重指向临时目录，保证 scope 无关的路径也可断言确定的结果。
+/// （user 作用域本身的读写行为由 factory_wbtest 用临时目录覆盖，这里不重复。）
+async test "create, list and delete a sub-agent definition over MCP" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  // struct 字段不可变，用函数式更新换掉 factory（instruction 认可的 { ..s, f: v }）
+  let state = {
+    ..state,
+    factory: @factory.AgentFactory::with_dirs(
+      @util.path_join(tmp, "agents"),
+      @util.path_join(tmp, "user-agents"),
+    ),
+  }
+
+  // --- 1. create（含 color 与 tools） ---------------------------------
+  let create = send(
+    state,
+    call_line(1, "create_sub_agent", {
+      "name": "code-generator",
+      "description": "按提案实现代码",
+      "system_prompt": "You are a code generator.",
+      "tools": ["Read", "Write", "Edit", "Bash"],
+      "color": "blue",
+    }),
+  )
+  assert_false(is_tool_error(create))
+  let created = obj(tool_payload(create))
+  assert_eq(created.get("success"), Some(Json::boolean(true)))
+  assert_eq(created.get("name"), Some(Json::string("code-generator")))
+  assert_eq(created.get("scope"), Some(Json::string("plugin")))
+  assert_eq(created.get("overwritten"), Some(Json::boolean(false)))
+  guard created.get("path") is Some(String(path)) else {
+    abort("path is required in the create response")
+  }
+  assert_true(path.has_suffix("/agents/code-generator.md"))
+  // 落盘的确实是 frontmatter 格式
+  assert_true(
+    @fs.read_file(path).text().has_prefix("---\nname: code-generator\n"),
+  )
+
+  // --- 2. create 第二个（color / tools 都缺省） ------------------------
+  let create2 = send(
+    state,
+    call_line(2, "create_sub_agent", {
+      "name": "validator",
+      "description": "只读验证",
+      "system_prompt": "Validate.",
+    }),
+  )
+  assert_false(is_tool_error(create2))
+
+  // --- 3. list（scope 缺省 = 两个作用域，但 user 目录已指向临时目录）----
+  let list = send(state, call_line(3, "list_sub_agents", {}))
+  assert_false(is_tool_error(list))
+  let listed = obj(tool_payload(list))
+  assert_eq(listed.get("success"), Some(Json::boolean(true)))
+  assert_eq(listed.get("count"), Some(Json::number(2.0)))
+  guard listed.get("agents") is Some(Array(agents)) else {
+    abort("agents must be an array")
+  }
+  assert_eq(agents.length(), 2)
+  let first = obj(agents[0])
+  assert_eq(first.get("name"), Some(Json::string("code-generator")))
+  assert_eq(
+    first.get("description"),
+    Some(Json::string("按提案实现代码")),
+  )
+  assert_eq(first.get("scope"), Some(Json::string("plugin")))
+  assert_eq(first.get("color"), Some(Json::string("blue")))
+  guard first.get("tools") is Some(Array(tools)) else {
+    abort("tools must be present when specified")
+  }
+  assert_eq(tools.length(), 4)
+  // 「有则写、无则省」：没指定的 color / tools 不写键（而非写 null）
+  let second = obj(agents[1])
+  assert_eq(second.get("name"), Some(Json::string("validator")))
+  assert_false(second.contains("color"))
+  assert_false(second.contains("tools"))
+
+  // --- 4. delete -------------------------------------------------------
+  let del = send(
+    state,
+    call_line(4, "delete_sub_agent", {
+      "name": "code-generator",
+      "scope": "plugin",
+    }),
+  )
+  assert_false(is_tool_error(del))
+  let deleted = obj(tool_payload(del))
+  assert_eq(deleted.get("success"), Some(Json::boolean(true)))
+  assert_eq(deleted.get("name"), Some(Json::string("code-generator")))
+  assert_eq(deleted.get("scope"), Some(Json::string("plugin")))
+  assert_eq(deleted.get("deleted"), Some(Json::string(path)))
+  // 删完再列：只剩 validator
+  let after = send(state, call_line(5, "list_sub_agents", {}))
+  assert_eq(obj(tool_payload(after)).get("count"), Some(Json::number(1.0)))
+}
+
+///|
+/// 重名且未显式 overwrite → 业务失败 raise → call_tool 转 isError，
+/// 错误消息含 "already exists"（LLM 可据此决定带 overwrite=true 重试）。
+async test "a duplicate create_sub_agent becomes isError mentioning already exists" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  let args : Json = {
+    "name": "doc-writer",
+    "description": "更新文档",
+    "system_prompt": "Write docs.",
+  }
+  let first = send(state, call_line(1, "create_sub_agent", args))
+  assert_false(is_tool_error(first))
+  let second = send(state, call_line(2, "create_sub_agent", args))
+  assert_true(is_tool_error(second))
+  let body = obj(tool_payload(second))
+  match body.get("error") {
+    Some(String(m)) => assert_true(m.contains("already exists"))
+    _ => abort("expected an error message in the isError payload")
+  }
+}
+
+///|
+/// 非法 name → factory 校验 raise → isError（与重名同一条失败通道）。
+async test "an invalid sub-agent name becomes isError explaining the rule" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  let resp = send(
+    state,
+    call_line(1, "create_sub_agent", {
+      "name": "Bad_Name",
+      "description": "非法名称",
+      "system_prompt": "x",
+    }),
+  )
+  assert_true(is_tool_error(resp))
+  let body = obj(tool_payload(resp))
+  match body.get("error") {
+    Some(String(m)) => assert_true(m.contains("invalid sub-agent name"))
+    _ => abort("expected an error message in the isError payload")
+  }
 }

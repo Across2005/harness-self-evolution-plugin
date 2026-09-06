@@ -155,14 +155,34 @@ fn threshold_field(
 }
 
 ///|
+/// 整数阈值：读出的是 Double，但消费方（`int_floor` 与检测判定）都要 Int。
+/// 非整数（如 `2.5`）在 `.to_int()` 下会**静默截断**，写配置的人得不到任何
+/// 反馈、检测灵敏度却已改变 —— 与 `int_domain` / `int_floor` 同一原则：
+/// 回落 `fallback` 并产出点名告警，让失效可见。
 fn threshold_int(
   st : Map[String, Json],
   flat_key : String,
   legacy_group : String,
   legacy_key : String,
   fallback : Int,
-) -> Int {
-  threshold_field(st, flat_key, legacy_group, legacy_key, fallback.to_double()).to_int()
+) -> (Int, String?) {
+  let d = threshold_field(
+    st,
+    flat_key,
+    legacy_group,
+    legacy_key,
+    fallback.to_double(),
+  )
+  if d == d.floor() {
+    (d.to_int(), None)
+  } else {
+    (
+      fallback,
+      Some(
+        "signal_thresholds.\{flat_key}: \{d} is not an integer and fell back to the default \{fallback}",
+      ),
+    )
+  }
 }
 
 ///|
@@ -270,8 +290,9 @@ fn ratio_domain(
 /// 引擎会拿着这些垃圾信号去改真实插件，比崩掉更糟。所以这里把这些取值挑出来
 /// **回落默认值 + 点名字段告警**，由 `main.mbt` 在启动时打到 stderr。
 ///
-/// 只对「取值域越界」告警：缺失与类型不符继续静默回落（太常见，
-/// 为它们告警会淹没要紧的那几条）。
+/// 只对「取值域越界」与「非整数阈值」告警（后者会经 `.to_int()` 静默截断，
+/// 同样是静默改行为，见 `threshold_int`）：
+/// 缺失与类型不符继续静默回落（太常见，为它们告警会淹没要紧的那几条）。
 pub fn EngineConfig::from_json_checked(
   json : Json,
 ) -> (EngineConfig, Array[String]) {
@@ -314,32 +335,48 @@ pub fn EngineConfig::from_json_checked(
   }
 
   let td = defaults.thresholds
-  let raw_thresholds = match obj_field(cfg, "signal_thresholds") {
-    None => td
-    Some(st) =>
-      {
-        consecutive_failures: threshold_int(
-          st,
-          "consecutive_failures",
-          "strong",
-          "consecutive_failures",
-          td.consecutive_failures,
-        ),
-        loop_detection: threshold_int(
-          st,
-          "loop_detection",
-          "medium",
-          "loop_detection",
-          td.loop_detection,
-        ),
-        latency_regression: threshold_field(
-          st,
-          "latency_regression",
-          "strong",
-          "performance_drop",
-          td.latency_regression,
-        ),
+  let no_warn : Array[String] = []
+  // 原始阈值 + 非整数告警（在 int_floor 的取值域校验之前产生）
+  let (cf_raw, loop_raw, latency_raw, w_threshold) = match
+    obj_field(cfg, "signal_thresholds") {
+    None =>
+      (
+        td.consecutive_failures,
+        td.loop_detection,
+        td.latency_regression,
+        no_warn,
+      )
+    Some(st) => {
+      let (cf_raw, w_cf_int) = threshold_int(
+        st,
+        "consecutive_failures",
+        "strong",
+        "consecutive_failures",
+        td.consecutive_failures,
+      )
+      let (loop_raw, w_loop_int) = threshold_int(
+        st,
+        "loop_detection",
+        "medium",
+        "loop_detection",
+        td.loop_detection,
+      )
+      let latency_raw = threshold_field(
+        st,
+        "latency_regression",
+        "strong",
+        "performance_drop",
+        td.latency_regression,
+      )
+      let ws : Array[String] = []
+      for w in [w_cf_int, w_loop_int] {
+        match w {
+          Some(msg) => ws.push(msg)
+          None => ()
+        }
       }
+      (cf_raw, loop_raw, latency_raw, ws)
+    }
   }
 
   let (cooldown, w_cooldown) = int_domain(
@@ -351,19 +388,19 @@ pub fn EngineConfig::from_json_checked(
   )
   let (cf, w_cf) = int_floor(
     "signal_thresholds.consecutive_failures",
-    raw_thresholds.consecutive_failures,
+    cf_raw,
     1,
     td.consecutive_failures,
   )
   let (loop_n, w_loop) = int_floor(
     "signal_thresholds.loop_detection",
-    raw_thresholds.loop_detection,
+    loop_raw,
     2,
     td.loop_detection,
   )
   let (latency, w_latency) = ratio_domain(
     "signal_thresholds.latency_regression",
-    raw_thresholds.latency_regression,
+    latency_raw,
     td.latency_regression,
   )
   let (max_log, w_max_log) = int_domain(
@@ -373,6 +410,10 @@ pub fn EngineConfig::from_json_checked(
     max_max_log_bytes,
     defaults.max_log_bytes,
   )
+  // 非整数阈值告警先入列（对应原始解析阶段），随后是取值域越界告警
+  for msg in w_threshold {
+    warn.push(msg)
+  }
   for w in [w_cooldown, w_cf, w_loop, w_latency, w_max_log] {
     match w {
       Some(msg) => warn.push(msg)

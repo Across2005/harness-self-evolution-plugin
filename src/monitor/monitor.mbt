@@ -239,8 +239,8 @@ pub fn PerformanceMonitor::record_user_feedback(
   context? : String? = None,
 ) -> Unit {
   // ① 回填：待落盘缓冲（后写覆盖）与会话环形副本都要更新
-  ignore(patch_last_feedback(self.event_buffer, plugin_id, feedback))
-  ignore(self.patch_last_session_feedback(plugin_id, feedback))
+  patch_last_feedback(self.event_buffer, plugin_id, feedback)
+  self.patch_last_session_feedback(plugin_id, feedback)
 
   // ② 负面反馈 → strong/correction 信号（对齐 TS L134-138）
   if feedback == @types.UserFeedback::Negative {
@@ -263,39 +263,38 @@ pub fn PerformanceMonitor::record_user_feedback(
 }
 
 ///|
-/// 在数组里找到该插件的**最后一条**事件并回填反馈。返回是否改到了。
-/// 写成自由函数而非方法：它不读任何实例状态，
-/// 带着 `self` 参数只会让工具链报 unused_value。
+/// 在数组里找到该插件的**最后一条**事件并回填反馈；找不到则静默返回。
+/// 写成自由函数而非方法：它不读任何实例状态。
+/// 返回 `Unit` 而不是「是否改到了」的 `Bool`：唯一调用点对结果只 `ignore`，
+/// 回填本是尽力而为的内存操作，布尔返回值只会逼出一个多余的 ignore。
 fn patch_last_feedback(
   events : Array[@types.PerformanceEvent],
   plugin_id : String,
   feedback : @types.UserFeedback,
-) -> Bool {
+) -> Unit {
   for i = events.length() - 1; i >= 0; i = i - 1 {
     if events[i].plugin_id == plugin_id {
       events[i] = with_feedback(events[i], feedback)
-      return true
+      return
     }
   }
-  false
 }
 
 ///|
-/// 同上，但作用于 `Deque` 环形副本。
+/// 同上，但作用于 `Deque` 环形副本。返回 `Unit` 的理由同 `patch_last_feedback`。
 fn PerformanceMonitor::patch_last_session_feedback(
   self : PerformanceMonitor,
   plugin_id : String,
   feedback : @types.UserFeedback,
-) -> Bool {
+) -> Unit {
   let n = self.session_events.length()
   for i = n - 1; i >= 0; i = i - 1 {
     let event = self.session_events.at(i)
     if event.plugin_id == plugin_id {
       self.session_events.set(i, with_feedback(event, feedback))
-      return true
+      return
     }
   }
-  false
 }
 
 ///|

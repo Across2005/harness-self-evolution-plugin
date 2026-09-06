@@ -220,9 +220,15 @@ fn declared_edges() -> Array[(String, Array[String])] {
     ("monitor", ["store", "types", "util"]),
     ("engine", ["monitor", "store", "types", "util"]),
     ("executor", ["store", "types", "util"]),
+    // v2.1 新增：子 Agent 工厂。与 engine/executor 同层 —— 只向下依赖
+    // store/types/util（fs 写全在 store，G3），被 mcp 依赖。
+    ("factory", ["store", "types", "util"]),
     (
       "mcp",
-      ["engine", "executor", "monitor", "scanner", "store", "types", "util"],
+      [
+        "engine", "executor", "factory", "monitor", "scanner", "store", "types",
+        "util",
+      ],
     ),
     ("harness_evolution", ["mcp", "store", "types", "util"]),
   ]
@@ -241,9 +247,10 @@ fn layer_of(pkg : String) -> Int {
     // scanner 与 monitor 同层：两者互不依赖，都只向下看
     "scanner" => 3
     "monitor" => 3
-    // engine 要读 monitor 的统计，executor 不读，但两者同层（互不依赖）
+    // engine 要读 monitor 的统计，executor / factory（v2.1）不读，但同层（互不依赖）
     "engine" => 4
     "executor" => 4
+    "factory" => 4
     "mcp" => 5
     "harness_evolution" => 6
     _ => abort("undeclared package: \{pkg}")
@@ -405,9 +412,65 @@ async test "G2b: log.mbt exposes exactly three sinks and all of them are stderr"
 /// `@fs` 的写操作清单。读操作（`read_file` / `readdir` / `opendir` / `exists` /
 /// `mtime` / `kind`）**不在**此列：scanner 当然要读文件系统，
 /// 不变量①管的是「谁有权改变磁盘上的持久状态」。
+/// `@fs.create` 能创建/截断文件拿到句柄写，`@fs.chmod` 改持久元数据，
+/// 两者与 rename/mkdir 同属写路径，与 write_file 一并封在 store 内。
 let fs_write_ops : Array[String] = [
-  "@fs.write_file", "@fs.mkdir", "@fs.rename", "@fs.remove", "@fs.rmdir",
+  "@fs.write_file", "@fs.mkdir", "@fs.rename", "@fs.remove", "@fs.rmdir", "@fs.create",
+  "@fs.chmod",
 ]
+
+///|
+/// G3 的**行级判定**：一行代码是否触犯「store 外不得写盘」。
+/// 命中时返回 offender 描述（命中的操作名），干净行返回 `None`。
+///
+/// 两条判定：
+/// · 行内出现 `fs_write_ops` 清单中的任一写操作；
+/// · 行内出现 `@fs.open(` 却**不含** `ReadOnly` —— 非只读模式拿到的
+///   句柄同样能写文件，等于绕过了上面的写操作清单（目前 store 外
+///   没有任何 `@fs.open` 调用，此规则是防退化的哨兵）。
+/// 守卫的粒度是行级包含判断，做不了精确的模式匹配 —— 宁可误报不可漏报。
+///
+/// 注释行（`//` 开头）不算违例：文档注释必须能提到这些 API 来解释约束本身，
+/// 与 G2/G4 对注释的豁免一致。
+fn g3_line_offense(line : String) -> String? {
+  if line.has_prefix("///") || line.has_prefix("//") {
+    return None
+  }
+  for op in fs_write_ops {
+    if line.contains(op) {
+      return Some(op)
+    }
+  }
+  if line.contains("@fs.open(") && !line.contains("ReadOnly") {
+    return Some("@fs.open (non-ReadOnly)")
+  }
+  None
+}
+
+///|
+/// 行级判定的单测：守卫自身也是代码，误报一次就会冤枉合法调用方。
+/// 四条覆盖：只读 open 放行、非只读 open 拦下、清单内操作拦下、注释行豁免。
+test "g3_line_offense allows a read-only open" {
+  assert_eq(g3_line_offense("@fs.open(path, mode=ReadOnly)"), None)
+}
+
+///|
+test "g3_line_offense flags a non-ReadOnly open as a write path" {
+  assert_eq(
+    g3_line_offense("@fs.open(path, mode=CreateOrTruncate)"),
+    Some("@fs.open (non-ReadOnly)"),
+  )
+}
+
+///|
+test "g3_line_offense flags fs.create as a write op" {
+  assert_eq(g3_line_offense("@fs.create(path)"), Some("@fs.create"))
+}
+
+///|
+test "g3_line_offense exempts comment lines" {
+  assert_eq(g3_line_offense("// @fs.create(path) 仅作文档说明"), None)
+}
 
 ///|
 async test "G3: no package outside store performs filesystem writes" {
@@ -423,13 +486,10 @@ async test "G3: no package outside store performs filesystem writes" {
     }
     let text = read_text(@util.path_join(src, rel))
     for line in lines_of(text) {
-      if line.has_prefix("///") || line.has_prefix("//") {
-        continue
-      }
-      for op in fs_write_ops {
-        if line.contains(op) {
-          offenders.push("\{rel}: \{line}")
-        }
+      // 注释行的豁免在 g3_line_offense 内部处理（注释必须能提到这些 API
+      // 来解释约束），这里不再重复跳过。
+      if g3_line_offense(line) is Some(_) {
+        offenders.push("\{rel}: \{line}")
       }
     }
   }

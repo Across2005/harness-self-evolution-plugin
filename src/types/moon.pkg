@@ -12,6 +12,6 @@ import {
 //
 // 关闭范围仅限本包，且本包内几乎不存在「包内私有的 impl」，
 // 因此不会掩盖真正的死代码。impl 的**正确性**由 types_wbtest.mbt 的
-// 18 表 × 80 变体往返测试保证，而非依赖 lint。
+// 19 表 × 79 变体往返测试保证，而非依赖 lint。
 
 warnings = "-unused_value"

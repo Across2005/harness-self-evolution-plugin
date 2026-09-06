@@ -29,6 +29,9 @@
 | **Trailing State（尾计数状态）** | 每插件的 O(1) 增量计数器（连续失败数、同一工具连击数） | `monitor/trailing.mbt` |
 | **Retention（保留上限）** | 观测日志（metrics / signals 两个 JSONL）按字节自动**窗口裁剪**的上限：保留最新的完整行、至少保住最新一条，崩溃残行一并清除 | `store/jsonl.mbt` 的 `Jsonl::trim_to`、`types/config.mbt` 的 `max_log_bytes` |
 | **DAG Layer（DAG 层）** | Sub-Agent 任务按依赖拓扑排序后的分层，同层可并行 | `executor/dag.mbt` 的 `topo_layers` |
+| **Agent Definition（子 Agent 定义）** | Markdown + YAML frontmatter 的 agent 载体文件（name / description / 可选 color / tools，正文为系统提示词），工厂只产出定义文件——**创建 ≠ 派发** | `factory/factory.mbt` 的 `AgentDefinition` |
+| **Sub-Agent Factory（子 Agent 工厂）** | 校验、渲染、解析定义文件并管理两个作用域的工厂（v2.1 新增，`docs/subagent-factory.md`） | `factory/`、`store/agent_defs.mbt` |
+| **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主 `~/.zcode/agents/`，跨出数据根，宿主在后续会话加载） | `types/agent_scope.mbt`、wire 表 `agent_scope_wire` |
 
 ## 提案状态机
 
@@ -116,7 +119,7 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 7. **一个字符串枚举只有一张 wire 表** — 取值域不得在别处重写第二遍。
    schema 的 `enum` 数组直接取自 `names()`。　*守卫见 mcp/schema_wbtest*
 8. **包依赖图严格分层，每条边只向下** —
-   `util → types → store → {scanner, monitor} → {engine, executor} → mcp → harness_evolution`。
+   `util → types → store → {scanner, monitor} → {engine, executor, factory} → mcp → harness_evolution`。
    分层是**构造性**无环证明：比跑 DFS 更强，任何新增反向边立刻变红。
    *守卫 G1 / G1b*
 9. **默认数据目录只有一处定义** — `.harness-evolution` 字面量只允许出现在
@@ -130,7 +133,9 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 ├── metrics.jsonl       # 性能事件（monitor）※ 受 max_log_bytes 窗口裁剪
 ├── signals.jsonl       # 进化信号（monitor 写 / engine 读）※ 同上
 ├── proposals.jsonl     # 进化提案（ProposalStore 唯一读写口）
-└── execution.log       # 执行日志（executor）
+├── execution.log       # 执行日志（executor）
+└── agents/             # 子 Agent 定义（factory 写，scope=plugin）
+                        # scope=user 写宿主的 ~/.zcode/agents/（跨出数据根）
 ```
 
 **窗口裁剪（Retention）**：metrics / signals 两个 JSONL 是 append-only 的
@@ -197,6 +202,9 @@ R 组（观测日志窗口裁剪）落地后为 `253, passed: 253, failed: 0.`�
 | **W** | **解析出来的 `evolution_config` 没接到 monitor：改阈值与日志上限在运行时是空操作** | H2 只把「配置读不读」修到 `EngineConfig` 为止。生产路径上 monitor 有且只有一个构造点（`mcp/tools.mbt` 的 `ServerState::with_scan_config` → `PerformanceMonitor::at`），而它的签名里根本没有 config，转手走 `new()` → `with_thresholds(..., SignalThresholds::default())`。于是 `types/signal.mbt` 承诺的「可由 plugin.json 覆盖」与 R 组新加的 `max_log_bytes` **只有解析方、没有消费方** —— 配置孤岛换了个位置继续存在。1.0 不存在这条路径（阈值本就是 monitor 里的硬编码常量，没人声称它可配），故算 2.0 自己引入 | `ServerState threads evolution_config.max_log_bytes into the monitor`：磁盘上 9 条事件全在，配置的 600 字节上限没触发裁剪（monitor 仍在用默认 32 MiB）；`ServerState threads evolution_config.signal_thresholds into the monitor`：先断言 `config.thresholds.consecutive_failures == 1` **通过**，随后 signals.jsonl 是 0 行 —— 红点精确落在**构造侧而非解析侧**，排除了「JSON 没解析对」这种假因。`Total tests: 255, passed: 253, failed: 2.` | `PerformanceMonitor::at` 增可选参数 `config?`（默认 `EngineConfig::default()`，`at(paths)` 的老调用点行为逐字节不变），把 `config.thresholds` 与 `config.max_log_bytes` 交给 `with_thresholds`；构造点改为 `at(paths, config~)`。修复后 `Total tests: 255, passed: 255, failed: 0.`，且日志里出现 `[Store] Trimmed .../evo-wire-cap-*/metrics.jsonl: kept 414 of 1863 bytes` —— 配置值真的驱动了裁剪，而非仅测试通过 |
 | **P1** | **`trim_to` 把「整个文件只有一行且超上限」的日志裁成空文件** | R 组（窗口裁剪）的按字节算法本身是对的，但兜底分支拿 `last_start > 0` 当「存在候选行起点」的判据 —— 而**整个文件只有一行时，该行的起点恰好是 0**，永远不满足 `> 0`，于是落到「裁空」分支，直接违反 `jsonl.mbt` 自己写在文档里的「**至少保留最新的一个完整行**，哪怕它自己就超过上限」。上轮复核 R 时我按 6 个用例手工推演过，**没有一个覆盖单行超限**，所以这条边界躲过了复核 | 新增 `trim_to keeps the newest line when it is also the first line`（断言文件仍是 `bbbbbbbbbb\n`，实得空串）与 `trim_to leaves a single oversized record loadable`（断言磁盘 5 字节、`load()` 仍有 1 条，实得 0 字节 / 0 条）。既有 7 条裁剪用例全部从**第二行**开始构造，正好绕开这个分支 | 兜底判据从 `last_start > 0` 改成「有完整行即可用 `last_start`」（走到该分支时 `eff_end > 0` 必然成立，真·无完整行在上面的「放得下」就提前返回了），单行超限整条保留；同时改掉 `trim_to` 里那句「此分支不可达」的注释 —— 修复后它反而是单行场景的正常出口 |
 | **P3** | **执行账本写不进去时异常逃出 `execute`；完成记账失败还会把成功的执行改判成失败** | 1.0 的 `execute` 把一切圈在一个 `try` 里；2.0 重写时，进入执行的 `set_status(Executing)` 与首条 `Start` 日志落在了「兜住一切意外」的 catch **之前**（`executor.mbt`），而 `set_status` / `ExecutionLog::append` 最终都走 `Jsonl::append`，I/O 错误按设计直接 raise（H1 的决策），`ignore()` 拦不住。后果两层：未捕获异常打到 stdout = MCP 协议通道；以及完成记账（`Completed` + `Complete` 日志）写不进时，异常被外层 catch 接住 → **已改好并验过**的执行被报成 `Unexpected error`，提案退回 `pending`，于是可以被再批一次、把同一份改动二次套用 | `an unwritable execution log does not abort a successful execution` 与 `a validation failure is still reported when the log is unwritable` 当场抛 `OSError("@fs.File::write(): Incorrect function.")`（夹具与 H1 同款：把日志路径做成目录）。夹具自检：这两条在改前必须是红的，且红的就是这个 OSError | 新增 `mark_status` / `note_event` 两个收口函数，与 monitor 的 `trim_quietly` 同构（`Ok(expr) catch { err => Err(...) }` + `log_warn`），7 处记账全部改走它们：账本没写成会留下 `Cannot record proposal status ...` / `Cannot append execution log ... 告警，但既不逸出、也**不改变执行结论** |
+| **S1** | **G3 守卫的写操作清单不完备，store 外的写盘可绕过守卫** | 守卫 G3 把「store 外不得写盘」机器化，但清单只列了 `write_file` / `mkdir` / `rename` / `remove` / `rmdir` 五个符号：`@fs.create`（可创建/截断文件拿句柄写）与 `@fs.chmod` 不在清单内，`@fs.open` 的非只读模式更是完全不可见 —— 守卫在自己的盲区里恒绿。属 2.0 写守卫时的覆盖缺口（第三轮自审，2026-09-06） | 无红测：这是**守卫自身**的缺陷，现有全绿恰是它失守的证明 —— 守卫对清单外/句柄级的写路径永远不报 | 清单补入 `@fs.create` / `@fs.chmod`；行级判定提取为纯函数 `g3_line_offense`，新增规则「store 外出现 `@fs.open(` 且行内不含 `ReadOnly` 即记为 offender」（当前 store 外无任何 `@fs.open` 调用，规则是防退化哨兵），并附 4 条单测钉住判定本身：只读放行 / 非只读拦下 / `@fs.create` 拦下 / 注释行豁免 |
+| **S2** | **`trim_to` 廉价预检的句柄在 `f.size()` raise 时泄漏** | `trim_to` 的预检是 `open → size() → close()` 的手动序列，而 H1 之后 Jsonl 的 I/O 错误按设计直接 raise —— `size()` 一旦 raise，`close()` 被跳过。属 2.0 自己写出的资源管理缺口（R 组引入该路径） | 无红测可构造：句柄泄漏不改变任何可断言的行为，属「测试钉不住、只能靠结构防御」的一类 | open 之后立刻 `defer f.close()`，删除手动 close（同 `scanner/discover.mbt` 的既有惯用法）；`retention_wbtest.mbt` 的 `disk_size` 助手同款改造 |
+| **S3** | **阈值写成非整数被静默截断后生效** | H2 只校验了「取值域」，没校验「值形」：`signal_thresholds.consecutive_failures: 2.5` 经 `.to_int()` 截成 2 直接生效、无任何告警 —— 配置人的意图与引擎行为静默分叉，与 H2 要消灭的失效同源 | `EngineConfig::from_json_checked reports non-integer thresholds and falls back` 先写后跑：断言 `2 != 3` 失败（`2.5` 被截断采纳，未回落默认 3），types 包 `Total tests: 34, passed: 33, failed: 1.` | `threshold_int` 比照 `int_domain` / `int_floor` 改为 `(Int, String?)` 返回：`d != d.floor()` 即回落 `fallback` 并点名告警（消息带原值，如 `signal_thresholds.consecutive_failures: 2.5 is not an integer and fell back to the default 3`），告警并入 `from_json_checked` 的收集。实现后 types 包 34 全绿 |
 
 H1 的失败面是**每一轮 flush 都可能踩到**（磁盘满、临时目录被回收、杀毒软件占用），
 H2 的失败面是**配置里写错一个数就永久生效**，W 的失败面最隐蔽：**配置里写对了数，
@@ -207,6 +215,14 @@ P1 / P3 是**再下一轮**（对 `c46943f…HEAD` 整个 v2 重写面做两轴�
 P1 加完测试未实现时 `Total tests: 257, passed: 255, failed: 2.`，实现后 `257, passed: 257, failed: 0.`；
 P3 与 P2 的用例一起把总数推到 262，未实现时 `262, passed: 260, failed: 2.`，实现后
 `262, passed: 262, failed: 0.`。
+
+S1-S3 是**第三轮自审**（2026-09-06）的产出，S3 的红绿数字见表内；落地后全量
+`Total tests: 268, passed: 268, failed: 0.`，`moon check --deny-warn` 通过。
+同轮还改正了两处**注释失实**（不改变行为，故不单独立行）：
+`monitor/statistics.mbt` 的 `error_types_object` 自称「键序确定」，实际键序由
+Map 哈希序决定（需要确定顺序的消费者应读 `error_types` 数组字段）；
+`types/change.mbt` 声称「字段声明顺序决定 Json 输出顺序」，实际输出顺序与声明
+顺序无关，对拍逐字节一致靠的是固定键集的确定性哈希。
 
 > **给下一位改动者的通则**：新增一个 `EngineConfig` 字段时，必须同时回答
 > 「谁解析它」（`types/config.mbt` 的 `from_json_checked`）与「**谁消费它**」
@@ -299,6 +315,12 @@ P3 与 P2 的用例一起把总数推到 262，未实现时 `262, passed: 260, f
    属于功能决策而非缺陷修复，故记录在此不动代码。
 10. **`target_paths` 生效后带来的两处覆盖**（见「有意的语义修正」第二条）。
     一次带 `target_paths` 的扫描会冲掉默认根的插件缓存、并把注册表替换成这批临时档案。
+11. **struggle 信号没有一次性抑制**（1.0 继承，忠实 TS 的不对称）。
+    loop 信号有 `loop_reported` 去重、每个工具只报一次；struggle 没有对应的去重标记 ——
+    判定是 `consecutive_failures >= 3` 就发（`monitor.mbt` 的 `check_for_signals`），
+    于是连续失败 N 次会发出 N-2 条同信号，且之后每一轮只要仍达到阈值就会再发。
+    将来若接通生产数据源（第 9 条），需评估是否给 struggle 也加去重；
+    现在改它会改变 `signals.jsonl` 的产出形状，超出移植范围。
 
 ## 与移植计划的已知偏差
 

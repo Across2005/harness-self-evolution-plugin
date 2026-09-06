@@ -22,6 +22,8 @@ pub(all) struct Statistics {
   /// 用**按 wire 名字典序排列的数组**而不是 `Map`：
   /// MoonBit 的 Map 是哈希表、迭代序不定，直接序列化会让 MCP 每次
   /// 返回给 LLM 的字段顺序都可能不同（决策 D10 / 修 R5）。
+  /// 需要确定键序的消费者应读本数组字段；
+  /// `error_types_object` 渲染出的 JSON 对象键序不保证字典序（见该函数注释）。
   error_types : Array[(String, Int)]
   loop_detected : Bool
 } derive(Eq, Debug)
@@ -44,9 +46,14 @@ pub fn Statistics::empty() -> Statistics {
 }
 
 ///|
-/// 把错误直方图渲染为 JSON 对象（键序确定）。
+/// 把错误直方图渲染为 JSON 对象。
 /// 供 MCP 的 `get_plugin_metrics` 响应使用 —— TS 版返回的是
 /// `Record<string, number>`，即 JSON 对象，故此处也渲染成对象而不是数组。
+///
+/// **键序说明**：排序好的数组在此被重新塞进 `Map[String, Json]`，
+/// `Json::object` 序列化对象时按 Map 的哈希序输出键 —— 固定键集在
+/// 确定性 String 哈希下跨运行稳定，但**既非字典序也非插入序**。
+/// 需要确定顺序的消费者应读 `error_types` 数组字段（按 wire 名字典序）。
 pub fn Statistics::error_types_object(self : Statistics) -> Json {
   let obj : Map[String, Json] = Map([])
   for pair in self.error_types {

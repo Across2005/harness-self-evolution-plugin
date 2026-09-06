@@ -206,7 +206,7 @@ async fn UpgradeExecutor::run_pipeline(
   // T1/T2 时间也花掉，是负优化。
   let validation : Array[@types.SubAgentResult] = []
   for spec in proposal.validation_plan.validation_levels {
-    let result = self.run_validation_level(validator, spec, proposal)
+    let result = run_validation_level(validator, spec, proposal)
     validation.push(result)
     if !result.success {
       let detail = result.error.unwrap_or("unknown error")
@@ -249,8 +249,10 @@ async fn UpgradeExecutor::run_pipeline(
 /// TS 那 75 行是三段近似重复的 `if (level === 'T0') {...}`，
 /// 且 `setTimeout(50/100/150)` 只是**假装**在验证。
 /// 新版把「验什么」交给可注入的 `validator`，本函数只负责计时、超时与结果归一化。
-async fn UpgradeExecutor::run_validation_level(
-  self : UpgradeExecutor,
+///
+/// 是自由函数而不是方法：它不读 `self` 的任何字段（validator 由调用点选定），
+/// 与 `run_with_timeout` 同一风格。
+async fn run_validation_level(
   validator : async (@types.ValidationLevelTag, @types.EvolutionProposal) -> (
     Bool,
     String,
@@ -258,7 +260,6 @@ async fn UpgradeExecutor::run_validation_level(
   spec : @types.ValidationLevel,
   proposal : @types.EvolutionProposal,
 ) -> @types.SubAgentResult {
-  ignore(self)
   let timeout = spec.timeout_ms.unwrap_or(default_validation_timeout_ms)
   let started = @util.now_ms()
   let outcome : Result[(Bool, String)?, String] = Ok(
@@ -426,10 +427,11 @@ async fn UpgradeExecutor::mark_status(
   }
   match outcome {
     Ok(_) => ()
-    Err(msg) => @util.log_warn(
-      "Executor",
-      "Cannot record proposal status \{status.wire_name()}: \{msg}",
-    )
+    Err(msg) =>
+      @util.log_warn(
+        "Executor",
+        "Cannot record proposal status \{status.wire_name()}: \{msg}",
+      )
   }
 }
 
@@ -448,10 +450,8 @@ async fn UpgradeExecutor::note_event(
   }
   match outcome {
     Ok(_) => ()
-    Err(msg) => @util.log_warn(
-      "Executor",
-      "Cannot append execution log: \{msg}",
-    )
+    Err(msg) =>
+      @util.log_warn("Executor", "Cannot append execution log: \{msg}")
   }
 }
 

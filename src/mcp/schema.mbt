@@ -1,6 +1,10 @@
 ///|
-/// 7 个 MCP 工具的 JSON Schema 与参数解码。
+/// 10 个 MCP 工具的 JSON Schema 与参数解码。
 /// 取代 legacy-ts/src/mcp/server.ts L27-55 的 6 个 Zod raw shape。
+///
+/// 前 7 个工具与 legacy-ts/package.json 的 `mcp.tools` 逐项同序，
+/// 后 3 个（create/list/delete_sub_agent）是 v2.1 子 Agent 工厂新增，
+/// 无 legacy 对应物（见 docs/subagent-factory.md）。
 ///
 /// MoonBit 没有 zod，Schema 手写。这看起来是退步，实则消除了一处重复：
 /// TS 版把「取值域」写在 zod 里（`z.enum([...])`），
@@ -33,6 +37,16 @@ pub let default_dry_run : Bool = false
 ///|
 /// `list_proposals.limit` 的默认值（TS L50 `.default(10)`）。
 pub let default_limit : Int = 10
+
+///|
+/// `create_sub_agent.scope` / `delete_sub_agent.scope` 的默认值（v2.1）。
+/// 默认写**插件数据目录**而非用户目录：跨出数据根的动作必须显式选择。
+pub let default_sub_agent_scope : @types.AgentScope = @types.AgentScope::Plugin
+
+///|
+/// `create_sub_agent.overwrite` 的默认值（v2.1）：同名已存在时报错而非覆盖，
+/// 破坏性动作必须显式声明（与 ProposalStore 状态机的显式性原则一致）。
+pub let default_sub_agent_overwrite : Bool = false
 
 // ----------------------------------------------------------------------------
 // Schema 构造
@@ -179,6 +193,82 @@ pub fn proposal_id_schema() -> Json {
 }
 
 // ----------------------------------------------------------------------------
+// v2.1 新增：子 Agent 工厂（无 legacy 对应物，描述文案取自 docs/subagent-factory.md）
+// ----------------------------------------------------------------------------
+
+///|
+/// scope 属性的公共形状：enum 直接取 wire 表（不变量⑦）。
+fn agent_scope_prop(description : String) -> Json {
+  {
+    "type": "string",
+    "description": Json::string(description),
+    "enum": ToJson::to_json(@types.agent_scope_wire.names()),
+  }
+}
+
+///|
+/// `create_sub_agent`（v2.1）。name / description / system_prompt 必填。
+pub fn create_sub_agent_schema() -> Json {
+  object_schema(
+    {
+      "name": str_prop(
+        "子 Agent 名称，即文件名（不含 .md）：kebab-case，小写字母/数字/连字符，1-64 字符，不以 - 开头或结尾，无连续 --",
+      ),
+      "description": str_prop(
+        "一句话职责描述（1-1024 字符，单行，写入 frontmatter）",
+      ),
+      "system_prompt": str_prop(
+        "系统提示词，作为 .md 正文（1-65536 字符）",
+      ),
+      "tools": string_array_prop(
+        "允许的工具名列表（可选；每项 1-64 字符且不含空白/逗号/方括号；空数组视为未指定）",
+      ),
+      "color": str_prop(
+        "标识色（可选，仅小写字母 a-z，1-20 字符）",
+      ),
+      "scope": {
+        "type": "string",
+        "description": "写入位置：plugin 写入插件数据目录（默认）；user 会写入宿主的 ~/.zcode/agents/（跨出插件数据根，宿主会在后续会话加载该定义）",
+        "enum": ToJson::to_json(@types.agent_scope_wire.names()),
+        "default": Json::string(default_sub_agent_scope.wire_name()),
+      },
+      "overwrite": bool_prop(
+        "同名定义已存在时是否覆盖（默认 false：报错而不是覆盖）",
+        default_sub_agent_overwrite,
+      ),
+    },
+    ["name", "description", "system_prompt"],
+  )
+}
+
+///|
+/// `list_sub_agents`（v2.1）。scope 非必填：缺省列出两个作用域。
+pub fn list_sub_agents_schema() -> Json {
+  object_schema(
+    {
+      "scope": agent_scope_prop(
+        "过滤范围：plugin 只列插件数据目录，user 只列宿主用户目录；缺省两个作用域都列",
+      ),
+    },
+    [],
+  )
+}
+
+///|
+/// `delete_sub_agent`（v2.1）。name 必填；scope 缺省 plugin。
+pub fn delete_sub_agent_schema() -> Json {
+  object_schema(
+    {
+      "name": str_prop("要删除的子 Agent 名称（不含 .md 后缀）"),
+      "scope": agent_scope_prop(
+        "在哪个作用域里删除：plugin（默认，插件数据目录）或 user（宿主的 ~/.zcode/agents/）",
+      ),
+    },
+    ["name"],
+  )
+}
+
+// ----------------------------------------------------------------------------
 // 参数结构体
 // ----------------------------------------------------------------------------
 //
@@ -228,4 +318,30 @@ pub(all) struct ListProposalsArgs {
 /// `approve_proposal` / `reject_proposal` 的参数。
 pub(all) struct ProposalIdArgs {
   proposal_id : String
+} derive(Debug, @json.FromJson)
+
+///|
+/// `create_sub_agent` 的参数（v2.1）。
+/// `tools` 传出的空数组在 handler 里按「未指定」处理（与 factory 的语义一致）。
+pub(all) struct CreateSubAgentArgs {
+  name : String
+  description : String
+  system_prompt : String
+  tools : Array[String]?
+  color : String?
+  scope : @types.AgentScope?
+  overwrite : Bool?
+} derive(Debug, @json.FromJson)
+
+///|
+/// `list_sub_agents` 的参数（v2.1）。scope 缺省为 None = 两个作用域都列。
+pub(all) struct ListSubAgentsArgs {
+  scope : @types.AgentScope?
+} derive(Debug, @json.FromJson)
+
+///|
+/// `delete_sub_agent` 的参数（v2.1）。scope 缺省为 plugin。
+pub(all) struct DeleteSubAgentArgs {
+  name : String
+  scope : @types.AgentScope?
 } derive(Debug, @json.FromJson)

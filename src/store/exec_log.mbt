@@ -61,12 +61,6 @@ pub fn ExecutionLog::at(paths : DataPaths) -> ExecutionLog {
 }
 
 ///|
-/// 文件路径。测试用它直接读回落盘内容做断言。
-pub fn ExecutionLog::path(self : ExecutionLog) -> String {
-  self.path
-}
-
-///|
 /// 追加一行。父目录不存在时自动创建。
 ///
 /// 与 legacy-ts 的差异：TS 每条日志都 `ensureDir` + `appendFile`

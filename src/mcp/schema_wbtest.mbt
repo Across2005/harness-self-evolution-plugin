@@ -1,5 +1,5 @@
 ///|
-/// 7 个工具的 JSON Schema 不变量测试。
+/// 10 个工具的 JSON Schema 不变量测试。
 ///
 /// 核心目的不是「断言每个键都写对了」（那是把实现抄一遍，改一处要改两处），
 /// 而是钉住**三条会静默漂移的约束**：
@@ -10,8 +10,9 @@
 /// 2. Schema 里声明的 `default` 必须与 handler 实际用的 `unwrap_or` 值一致。
 ///    手写 Schema 的 `default` 只是**声明给 LLM 看**，真正的补齐在 handler 里，
 ///    两者不一致会让 LLM 依 schema 推理出错误行为。
-/// 3. 7 个工具的名字与顺序必须与 legacy-ts/package.json 的 `mcp.tools` 一致 ——
-///    这是对外契约，客户端可能按名字硬编码。
+/// 3. 工具的名字与顺序必须与 legacy-ts/package.json 的 `mcp.tools` 对齐 ——
+///    前 7 个逐项同序（对外契约，客户端可能按名字硬编码），
+///    后 3 个（v2.1 子 Agent 工厂）追加在 legacy 顺序之后。
 
 ///|
 /// 从 Schema 里取出某个属性的 `enum` 数组。
@@ -101,6 +102,19 @@ test "every enum value the schema advertises is decodable" {
     let decoded : @types.TimeRange = @json.from_json(j)
     assert_eq(ToJson::to_json(decoded), j)
   }
+  // v2.1：三个子 Agent 工具的 scope 都取自同一张 agent_scope wire 表
+  for
+    schema in [
+      create_sub_agent_schema(),
+      list_sub_agents_schema(),
+      delete_sub_agent_schema(),
+    ] {
+    for name in enum_of(schema, "scope") {
+      let j = Json::string(name)
+      let decoded : @types.AgentScope = @json.from_json(j)
+      assert_eq(ToJson::to_json(decoded), j)
+    }
+  }
 }
 
 ///|
@@ -154,6 +168,21 @@ test "list_proposals declares default_limit" {
 }
 
 ///|
+test "create_sub_agent declares its scope and overwrite defaults" {
+  assert_eq(
+    default_of(create_sub_agent_schema(), "scope"),
+    Json::string(default_sub_agent_scope.wire_name()),
+  )
+  assert_eq(
+    default_of(create_sub_agent_schema(), "overwrite"),
+    Json::boolean(default_sub_agent_overwrite),
+  )
+  // 与 handler 的 unwrap_or 默认值一致：scope 缺省写插件目录而非用户目录
+  assert_eq(default_sub_agent_scope, @types.AgentScope::Plugin)
+  assert_false(default_sub_agent_overwrite)
+}
+
+///|
 /// 这四个默认值必须与 legacy-ts/src/mcp/server.ts L27-51 的 zod `.default(x)`
 /// 逐一对应。把 TS 的字面量写在这里（而不是引用常量）是**刻意的**：
 /// 常量改名不会让这条测试失效，于是它真的在守「移植有没有走样」。
@@ -178,19 +207,28 @@ test "required fields match the legacy zod shapes" {
   assert_eq(required_of(execute_evolution_schema()), ["proposal_id"])
   assert_eq(required_of(list_proposals_schema()), []) // 三个参数都可选
   assert_eq(required_of(proposal_id_schema()), ["proposal_id"])
+  // v2.1：create 三个必填；list 全可选；delete 只有 name 必填
+  assert_eq(required_of(create_sub_agent_schema()), [
+    "name", "description", "system_prompt",
+  ])
+  assert_eq(required_of(list_sub_agents_schema()), [])
+  assert_eq(required_of(delete_sub_agent_schema()), ["name"])
 }
 
 ///|
-/// 7 个工具的名字与**顺序**。顺序即 `tools/list` 的返回顺序，
-/// 与 legacy-ts/package.json L58-66 的 `mcp.tools` 逐项、同序一致。
-test "the seven tool names appear in the legacy order" {
+/// 全部 10 个工具的名字与**顺序**。顺序即 `tools/list` 的返回顺序：
+/// 前 7 个与 legacy-ts/package.json L58-66 的 `mcp.tools` 逐项、同序一致，
+/// 后 3 个是 v2.1 子 Agent 工厂新增（create / list / delete_sub_agent），
+/// 追加在 legacy 顺序之后，绝不打乱前 7 个的相对顺序。
+test "the ten tool names keep the legacy order with the v2.1 ones appended" {
   let names : Array[String] = []
   for t in tools() {
     names.push(t.name)
   }
   assert_eq(names, [
     "scan_plugins", "get_plugin_metrics", "propose_evolution", "execute_evolution",
-    "list_proposals", "approve_proposal", "reject_proposal",
+    "list_proposals", "approve_proposal", "reject_proposal", "create_sub_agent",
+    "list_sub_agents", "delete_sub_agent",
   ])
 }
 
@@ -210,7 +248,7 @@ test "every tool has a non-empty description and an object schema" {
 }
 
 ///|
-/// `find_tool` 对全部 7 个名字都能命中，对不存在的名字返回 None。
+/// `find_tool` 对全部 10 个名字都能命中，对不存在的名字返回 None。
 /// 后者是 -32602 的触发条件，见 tools_wbtest。
 ///
 /// 这里用 `is None` 而不是 `assert_eq(.., None)`：`Tool` 持一个**函数字段**
@@ -231,14 +269,14 @@ test "find_tool resolves every declared name and nothing else" {
 
 ///|
 /// `tools/list` 的响应体形状：`{tools:[{name,description,inputSchema}]}`，
-/// 不含 `nextCursor`（7 个工具远小于任何客户端的页大小，不分页）。
+/// 不含 `nextCursor`（10 个工具远小于任何客户端的页大小，不分页）。
 test "tools_list_result has the MCP tool-list shape" {
   let resp = tools_list_result()
   guard resp is Object(o) else { abort("expected an object") }
   assert_false(o.contains("nextCursor"))
   let list = o.get("tools")
   guard list is Some(Array(a)) else { abort("tools must be an array") }
-  assert_eq(a.length(), 7)
+  assert_eq(a.length(), 10)
   for entry in a {
     guard entry is Object(t) else { abort("each tool must be an object") }
     assert_true(t.contains("name"))

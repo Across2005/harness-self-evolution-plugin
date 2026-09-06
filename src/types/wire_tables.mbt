@@ -516,3 +516,32 @@ pub impl @json.FromJson for Intensity with fn from_json(json, path) {
 pub fn Intensity::wire_name(self : Intensity) -> String {
   intensity_wire.name_of(self)
 }
+
+// ============================================================================
+// 子 Agent 工厂（v2.1，无 legacy 源 —— docs/subagent-factory.md）
+// ============================================================================
+
+///|
+/// 子 Agent 定义文件的作用域（枚举声明见 agent_scope.mbt）。
+/// 本仓的第 19 张 wire 表：取值域不在 legacy-ts 里，wire 名按本仓
+/// snake_case 风格新造（`plugin` / `user`），schema 的 `enum` 直接取
+/// `names()`（不变量⑦），解码失败的消息同样列出全部合法值。
+pub let agent_scope_wire : @util.WireEnum[AgentScope] = @util.WireEnum::of([
+  ("plugin", AgentScope::Plugin),
+  ("user", AgentScope::User),
+])
+
+///|
+pub impl ToJson for AgentScope with fn to_json(self) {
+  agent_scope_wire.encode(self)
+}
+
+///|
+pub impl @json.FromJson for AgentScope with fn from_json(json, path) {
+  agent_scope_wire.decode(json, path)
+}
+
+///|
+pub fn AgentScope::wire_name(self : AgentScope) -> String {
+  agent_scope_wire.name_of(self)
+}
