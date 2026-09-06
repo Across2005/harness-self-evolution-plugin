@@ -190,6 +190,32 @@ async test "marks the proposal completed after a successful run" {
 }
 
 ///|
+/// ★ WEAK 3（engine 评审）的回归网：**空变更集**的提案走「仅验证」路径，
+/// 必须仍然正常完成（不允许卡死、不允许误报失败）。
+/// 旧行为没有针对它的测试 —— 零任务、零层，然后直接进三级验证并标记
+/// Completed（TS L69-119 的同一条路径）。本用例把这条路径钉死：
+/// ① 结果里有 Validator 结果；② 没有任何代码生成类结果；③ 状态 Completed。
+async test "an empty-change proposal completes through the validation-only path" {
+  let dir = @fs.tmpdir(prefix="evo-exec-")
+  defer @fs.rmdir(dir, recursive=true)
+  let (executor, proposals, _) = make_executor(dir)
+  proposals.save(make_proposal(changes=[]))
+
+  let result = executor.execute("evo-test-1", dry_run=true)
+  assert_eq(result.success, true)
+  assert_eq(result.error, None)
+  // 只有验证器结果 —— 零任务不产生任何 Sub-Agent 执行结果
+  assert_eq(result.results.length(), 3)
+  for r in result.results {
+    assert_eq(r.agent, @types.AgentType::Validator)
+  }
+  match proposals.find("evo-test-1") {
+    Some(p) => assert_eq(p.status, @types.ProposalStatus::Completed)
+    None => abort("proposal vanished")
+  }
+}
+
+///|
 /// 移植并**改写**：executor.test.ts L121-142
 /// "should reset the proposal to pending when dry run is not requested and a task fails"
 ///
@@ -337,6 +363,37 @@ test "an empty change set decomposes to no tasks" {
 }
 
 ///|
+/// ★ WEAK 4（engine 评审）的回归网：`SimplifyParams` 变更必须分解出
+/// 代码生成任务。旧实现 `items_of` 认 7 种 Change 种类、`push_task` 却
+/// 只为 6 种派发 —— 参数简化被接受却不产生任务，仅含它的提案会
+/// 分解出 0 个代码生成任务、直接滑到 Completed。
+/// `plan_changes` 目前还发不出这种类（planning.mbt 的 TODO），
+/// 但 decompose_tasks 的契约是「每种非空变更都有对应任务」。
+test "SimplifyParams changes decompose into a code-generator task" {
+  let params : Array[@types.ParamSimplification] = [
+    {
+      tool: "smart_fill",
+      remove_params: ["text"],
+      defaults: Json::empty_object(),
+      reason: "redundant",
+    },
+  ]
+  let tasks = decompose_tasks(
+    make_proposal(changes=[@types.Change::SimplifyParams(params)]),
+  )
+  // cg-params 是新增任务；tw 因存在代码生成任务而出现；integ 因任务数 > 1 出现
+  json_inspect(tasks.map(fn(t) { t.id }), content=["cg-params", "tw", "integ"])
+  assert_eq(tasks[0].agent, @types.AgentType::CodeGenerator)
+  assert_eq(tasks[0].timeout_ms, 60_000)
+  // 分层正常：cg-params 在第 0 层，tw 依赖它，integ 依赖两者
+  let layers = topo_layers(tasks)
+  assert_eq(critical_path_len(layers), 3)
+  json_inspect(layers[0], content=[0])
+  json_inspect(layers[1], content=[1])
+  json_inspect(layers[2], content=[2])
+}
+
+///|
 /// 环检测：自环与互环都必须被拒绝，并带上具体任务 id。
 test "topo_layers rejects cyclic dependencies" {
   // 自环
@@ -410,6 +467,78 @@ test "topo_layers rejects unknown dependencies" {
   }
   assert_true(msg.contains("unknown task"))
   assert_true(msg.contains("ghost"))
+}
+
+///|
+/// ★ WEAK 9（engine 评审）的回归网：**重复任务 id** 必须被拒绝。
+/// 旧实现 `index_of` 用 `set` 静默覆盖先出现的 id —— 依赖引用被遮蔽的 id
+/// 时解析到**后一个**同名任务，分层结果悄悄错误（甚至可能把环误判成合法）。
+/// 现在入口直接 raise，消息里带上重复的 id 与两个下标。
+test "topo_layers rejects duplicate task ids" {
+  let tasks : Array[@types.SubAgentTask] = [
+    {
+      id: "dup",
+      agent: @types.AgentType::CodeGenerator,
+      task: "t",
+      input: Json::null(),
+      deps: [],
+      timeout_ms: 1000,
+    },
+    {
+      id: "dup",
+      agent: @types.AgentType::TestWriter,
+      task: "t",
+      input: Json::null(),
+      deps: ["dup"], // 引用被遮蔽的 id → 旧实现会解析到下标 1（自身）
+      timeout_ms: 1000,
+    },
+  ]
+  let msg = try {
+    ignore(topo_layers(tasks))
+    ""
+  } catch {
+    e => e.to_string()
+  }
+  assert_true(msg.contains("Duplicate sub-agent task id"))
+  assert_true(msg.contains("dup"))
+}
+
+///|
+/// ★ 评审 WEAK 9 的配套正例：**真正的双父钻石依赖**（两个上层任务依赖
+/// 同一个下层任务）必须被正确分层 —— 旧实现把依赖建模成单父，双父会
+/// 让下层的入度算错（这里 a、b 都依赖 c，c 入度 2；第一层 [a,b]，第二层 [c]）。
+test "topo_layers handles a true two-parent diamond" {
+  let tasks : Array[@types.SubAgentTask] = [
+    {
+      id: "a",
+      agent: @types.AgentType::CodeGenerator,
+      task: "t",
+      input: Json::null(),
+      deps: ["c"],
+      timeout_ms: 1000,
+    },
+    {
+      id: "b",
+      agent: @types.AgentType::DocWriter,
+      task: "t",
+      input: Json::null(),
+      deps: ["c"],
+      timeout_ms: 1000,
+    },
+    {
+      id: "c",
+      agent: @types.AgentType::TestWriter,
+      task: "t",
+      input: Json::null(),
+      deps: [],
+      timeout_ms: 1000,
+    },
+  ]
+  let layers = topo_layers(tasks)
+  // c 无依赖 → 第 0 层；a、b 都依赖 c → 第 1 层（双父正确共享同一个子任务）
+  json_inspect(layers[0], content=[2])
+  json_inspect(layers[1], content=[0, 1])
+  assert_eq(critical_path_len(layers), 2)
 }
 
 ///|

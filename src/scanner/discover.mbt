@@ -229,18 +229,31 @@ pub async fn read_manifest_meta(
 /// 一次实现同时取代 TS 的 `findSkillFiles`（L160-184）与 `findFiles`（L268-292）——
 /// 那两个函数是同一棵树上跑两遍的近似重复代码（P12），
 /// 且剪枝行为还不一致（P14）。
+///
+/// ★ W10（scanner 评审）修复：`walk_into` 增加**深度上限** `max_files_depth`。
+/// 旧实现没有深度边界 —— Windows 的目录 junction 可以构成环
+/// （`a/junction → a`），递归会无限下钻直到栈溢出崩溃。剪枝只挡
+/// `node_modules` / 点目录这类已知名字，挡不住任意环。
+/// 深度的合理上界：插件目录的真实布局（`skills/<名>/SKILL.md` 等）都在
+/// 几层以内，32 层足够容纳任何合法布局，又保证 junction 环在 32 次
+/// readdir 后停止。与 `discover_plugins` 的 `max_discovery_depth` 分工：
+/// 那个管「找插件根」，这个管「插件根内部的文件列举」。
+pub let max_files_depth : Int = 32
+
+///|
 pub async fn list_files_recursive(
   dir : String,
   accept : (String) -> Bool,
 ) -> Array[String] {
   let out : Array[String] = []
-  walk_into(dir, accept, out)
+  walk_into(dir, 1, accept, out)
   out
 }
 
 ///|
 async fn walk_into(
   dir : String,
+  depth : Int,
   accept : (String) -> Bool,
   out : Array[String],
 ) -> Unit {
@@ -251,7 +264,15 @@ async fn walk_into(
       if is_pruned(name) {
         continue
       }
-      walk_into(full, accept, out)
+      if depth >= max_files_depth {
+        // 到达深度上限：junction 环或病态深树 —— 停止下钻但不算错误
+        @util.log_warn(
+          "Scanner",
+          "Stopping descent at depth \{depth} in \{full}: possible directory cycle or pathological tree",
+        )
+        continue
+      }
+      walk_into(full, depth + 1, accept, out)
     } else if accept(name) {
       out.push(full)
     }

@@ -613,6 +613,43 @@ test "EngineConfig::from_json_checked reports non-integer thresholds and falls b
 }
 
 ///|
+/// ★ B1（mcp 评审）修复的回归网：`cooldown_hours` 与 `max_log_bytes`
+/// 过去直接 `n.to_int()`，非整数被静默截断采纳 —— `0.5` → 0（域内值，
+/// 冷却被静默关掉）、`2097152.9` → 2097152。与 signal_thresholds 的
+/// 守卫对齐：回落默认值 + 点名告警。
+test "EngineConfig::from_json_checked reports non-integer cooldown/max_log_bytes" {
+  let raw =
+    #|{
+    #|  "cooldown_hours": 0.5,
+    #|  "max_log_bytes": 2097152.9
+    #|}
+  let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
+  // 非整数不截断采纳：0.5 不得变成 0（那会静默关掉冷却），回落默认 24
+  assert_eq(cfg.cooldown_hours, EngineConfig::default().cooldown_hours)
+  assert_eq(cfg.max_log_bytes, EngineConfig::default().max_log_bytes)
+  assert_eq(warns.length(), 2)
+  let fields = warned_fields(warns)
+  assert_true(fields.contains("cooldown_hours"))
+  assert_true(fields.contains("max_log_bytes"))
+  assert_true(warns[0].contains("0.5 is not an integer"))
+}
+
+///|
+/// ★ B1 的配套正例：整数（含域内边界）原样生效，且不产生整数告警。
+test "EngineConfig::from_json_checked keeps integer cooldown/max_log_bytes" {
+  let raw =
+    #|{
+    #|  "cooldown_hours": 0,
+    #|  "max_log_bytes": 1048576
+    #|}
+  let (cfg, warns) = EngineConfig::from_json_checked(@json.parse(raw))
+  assert_eq(cfg.cooldown_hours, 0)
+  assert_eq(cfg.max_log_bytes, 1_048_576)
+  // 一条告警都不该有（域内整数）
+  assert_eq(warns.length(), 0)
+}
+
+///|
 /// H2：合法域**边界上**的值必须原样生效，且一条告警都不产生。
 ///
 /// 刻意取边界值（0 / 1 / 2 / 0.01 / 上界 87600）而不是中间值：

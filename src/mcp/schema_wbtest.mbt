@@ -168,6 +168,22 @@ test "list_proposals declares default_limit" {
 }
 
 ///|
+/// ★ 评审 W3 的回归网：`list_proposals.limit` 必须声明 `minimum: 1`。
+/// 0 或负数会让 store 的 `list` 静默返回空（`out.length() >= limit` 恒真），
+/// 把「参数写错」伪装成「没有提案」。schema 的 `minimum` 是给 LLM 的
+/// 声明式约束（解析侧宽容不强制），本用例钉住它存在且正确。
+test "list_proposals declares a minimum of 1 for limit" {
+  guard list_proposals_schema() is Object(s) else {
+    abort("schema must be an object")
+  }
+  let props = s.get("properties")
+  guard props is Some(Object(p)) else { abort("properties must be an object") }
+  let one = p.get("limit")
+  guard one is Some(Object(f)) else { abort("limit must exist") }
+  assert_eq(f.get("minimum"), Some(Json::number(1.0)))
+}
+
+///|
 test "create_sub_agent declares its scope and overwrite defaults" {
   assert_eq(
     default_of(create_sub_agent_schema(), "scope"),

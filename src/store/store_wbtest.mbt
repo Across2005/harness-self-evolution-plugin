@@ -445,6 +445,40 @@ async test "PluginCache round-trips and validates against the real directory" {
 }
 
 ///|
+/// ★ W3/W5（store 评审）的回归网：**同一目录结构内的就地改写**必须让指纹变化。
+/// 旧实现的 `child_mtime_sec` 只有秒精度 —— 同一秒内覆写 `SKILL.md` 的内容
+/// 不会改目录 mtime，若子项 mtime 也落在同一秒，指纹就察觉不到 → 缓存陈旧。
+/// 新实现记录子项 mtime 的**纳秒**计数（`child_mtime_ns`），覆写前后指纹必须不同。
+async test "PluginCache fingerprint detects in-place content rewrites" {
+  let dir = @fs.tmpdir(prefix="evo-cache-")
+  defer @fs.rmdir(dir, recursive=true)
+  let plugin_dir = "\{dir}/plugins/cached-plugin"
+  @fs.mkdir(plugin_dir, recursive=true)
+  @fs.write_file(
+    "\{plugin_dir}/SKILL.md",
+    "# Cached v1",
+    create_mode=CreateOrTruncate,
+  )
+  let fp_before = fingerprint_of(plugin_dir).unwrap()
+
+  // 同一目录结构（不增删文件），只覆写 SKILL.md 的内容
+  @fs.write_file(
+    "\{plugin_dir}/SKILL.md",
+    "# Cached v2 rewritten in place",
+    create_mode=CreateOrTruncate,
+  )
+  let fp_after = fingerprint_of(plugin_dir).unwrap()
+
+  // 目录自身 mtime 与 entry_count 可能不变，但子项纳秒级 mtime 必须变
+  assert_eq(fp_before.entry_count, fp_after.entry_count)
+  assert_true(fp_before != fp_after, msg="in-place rewrite must change the fingerprint")
+  assert_true(
+    fp_after.child_mtime_ns >= fp_before.child_mtime_ns,
+    msg="rewrite must not move the child mtime backwards",
+  )
+}
+
+///|
 /// **缺陷 F2 的回归测试**。
 /// legacy-ts 的 `scanAll`（L36-42）命中缓存的条件仅是 `cached.size > 0`，
 /// 实测本机 `~/.harness-evolution/plugin-cache.json` 的唯一条目指向一个
@@ -462,7 +496,7 @@ async test "PluginCache rejects entries whose directory no longer exists (F2)" {
       mtime_sec: 1_757_000_000L,
       mtime_nsec: 0,
       entry_count: 3,
-      child_mtime_sec: 1_757_000_000L,
+      child_mtime_ns: 1_757_000_000_000_000_000L,
     },
   }
   assert_eq(fingerprint_of(ghost_dir), None)

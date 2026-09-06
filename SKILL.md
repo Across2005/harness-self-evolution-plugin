@@ -31,7 +31,9 @@
 - code-generator: 生成新工具代码
 - test-writer: 编写测试用例
 - doc-writer: 更新文档
+- integration: 集成变更、处理依赖与兼容性
 - validator: 执行验证测试
+- 同名定义文件随插件 `agents/` 目录分发（出厂模板），也可经 `create_sub_agent` 在数据根新建/覆盖
 
 ## Matt Pocock 六大原则
 
@@ -107,7 +109,7 @@
 
 ```json
 {
-  "proposal_id": "evo-2026-09-04-browser-use-interface-simplification",
+  "proposal_id": "evo-2026-09-04-browser-use-0.4.1-interface-simplification",
   "dry_run": false
 }
 ```
@@ -129,6 +131,22 @@
 ```json
 {
   "proposal_id": "evo-2026-09-04-..."
+}
+```
+
+### create_sub_agent / list_sub_agents / delete_sub_agent（v2.1 子 Agent 工厂）
+管理子 Agent 定义文件（Markdown + YAML frontmatter，ZCode 的 agent 载体格式）。
+
+- `create_sub_agent`：写入一个定义文件。`scope=plugin` 写入插件数据目录（默认）；`scope=user` 写入宿主的 `~/.zcode/agents/` —— 后者跨出插件数据根，宿主会在后续会话中加载该定义。创建只是产出定义文件，不等于立即派发执行。
+- `list_sub_agents`：列出定义，缺省同时列出两个作用域；解析失败的文件被跳过并告警。
+- `delete_sub_agent`：删除定义文件，只作用于上述两个可写目录；插件自带的 5 个出厂角色模板不在这两个目录内，天然不受影响。
+
+```json
+{
+  "name": "my-helper",
+  "description": "负责表单填写的助手",
+  "system_prompt": "你是表单填写专家……",
+  "scope": "plugin"
 }
 ```
 
@@ -243,14 +261,21 @@ cd harness-self-evolution-plugin
 
 ## 文件结构
 
+数据根默认是 `~/.harness-evolution/v2/`（可用 `$HARNESS_EVOLUTION_HOME` 覆盖）：
+
 ```
-~/.harness-evolution/
-├── config.json           # 配置文件
-├── plugin-cache.json     # 插件缓存
+~/.harness-evolution/v2/
+├── plugin-cache.json     # 插件扫描缓存（指纹校验，cache_version 3）
 ├── proposals.jsonl       # 提案记录
 ├── signals.jsonl         # 信号记录
-└── metrics.jsonl         # 性能指标
+├── metrics.jsonl         # 性能指标
+├── execution.log         # 执行日志
+└── agents/               # 子 Agent 定义文件（v2.1 工厂的写入目录）
 ```
+
+> `metrics.jsonl` / `signals.jsonl` 按 `max_log_bytes`（默认 32 MiB）裁剪；
+> `config.json` **不存在**于数据根 —— 配置只来自 `.zcode-plugin/plugin.json`
+> 的 `evolution_config` 段（见上文「配置」）。
 
 ## 许可证
 

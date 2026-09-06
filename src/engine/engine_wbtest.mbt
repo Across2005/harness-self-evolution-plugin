@@ -278,6 +278,57 @@ async test "returns the existing proposal when a duplicate signature is regenera
 }
 
 ///|
+/// ★ 评审 B1 的端到端回归网：**同名不同版本**的插件（F1 修复后可以并存，
+/// 见 scanner_wbtest.mbt:217-221）必须各自得到**自己的**提案——
+/// 0.4.1 的提案不得被当成 0.3.1 的重复，且两份提案的 proposal_id 不得碰撞
+/// （旧实现剥掉版本段，同一天生成的 id 前缀 `evo-<date>-<signature>` 相同，
+/// 重载时按 id 折叠会折掉一份）。
+async test "two versions of the same plugin name get separate proposals" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  // 冷却期为 0，排除⑥的干扰，让⑦成为唯一可能的拦截点
+  let config : @types.EngineConfig = {
+    intensity: @types.Intensity::Half,
+    cooldown_hours: 0,
+    auto_approve: false,
+    thresholds: @types.SignalThresholds::default(),
+    max_log_bytes: @types.default_max_log_bytes,
+  }
+  let (engine, _) = make_engine_with_config(dir, config)
+
+  // 0.4.1 的信号与插件
+  let v41 = engine.generate_proposal(
+    { ..mock_plugin(), plugin_id: "browser-use-0.4.1", },
+    signals=Some([signal(
+      @types.SignalStrength::Strong,
+      @types.SignalCategory::Correction,
+      "d",
+    )]),
+  )
+  // 0.3.1 的信号与插件（信号必须属于它自己：⑤/⑥/⑦ 都按 plugin_id 或签名走）
+  let v31 = engine.generate_proposal(
+    { ..mock_plugin(), plugin_id: "browser-use-0.3.1", },
+    signals=Some([signal(
+      @types.SignalStrength::Strong,
+      @types.SignalCategory::Correction,
+      "d",
+    )]),
+  )
+
+  // 两个版本都必须 Created，而不是 0.4.1 把 0.3.1 挡成 Duplicate
+  assert_true(v41 is ProposalOutcome::Created(_))
+  assert_true(v31 is ProposalOutcome::Created(_))
+  let (a, b) = match (v41, v31) {
+    (ProposalOutcome::Created(x), ProposalOutcome::Created(y)) => (x, y)
+    _ => abort("both versions should be Created")
+  }
+  // proposal_id 含签名，签名含版本 → id 不同，重载不会互相折叠
+  assert_true(a.proposal_id != b.proposal_id)
+  assert_true(a.plugin_id == "browser-use-0.4.1")
+  assert_true(b.plugin_id == "browser-use-0.3.1")
+}
+
+///|
 /// 移植：engine.test.ts L140-177
 /// "should stay silent during cooldown after a recent proposal"
 ///

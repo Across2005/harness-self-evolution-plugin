@@ -26,50 +26,67 @@ fn strength_signal(strength : @types.SignalStrength) -> @types.EvolutionSignal {
 // ============================================================================
 
 ///|
-/// 签名 = `<plugin_id 去掉最后一段>` + `-` + `<进化类型 wire 名，_ 换成 ->`。
+/// 签名 = `<plugin_id 整体>` + `-` + `<进化类型 wire 名，_ 换成 ->`。
 ///
-/// `plugin_id` 本身含多个 `-` 时（如 `my-cool-plugin-1.0.0`），
-/// TS 的 `split('-').slice(0,-1).join('-')` 只去掉**最后一段**（version），
-/// 故结果是 `my-cool-plugin`。这是最容易在移植中写错的一处
-/// （很容易写成「取第一段」或「去掉所有数字段」），而 legacy 的 12 个用例
-/// 全都用 `test-plugin-1.0.0` 这种单破折号名，覆盖不到它 —— 故此处专门补齐。
-test "generate_signature drops only the trailing version segment" {
+/// ★ 与 TS 的差异（评审 B1 修复）：TS 用 `split('-').slice(0,-1).join('-')`
+/// 剥掉最后一段（version），得到 `<插件名>-<进化类型>`。1.0 里同一插件名
+/// 永远只有一个版本（F1 缺陷），剥版本无碰撞；2.0 修好 F1 后两个版本会
+/// 同时在注册表里，剥版本会让 `browser-use-0.4.1` 与 `browser-use-0.3.1`
+/// 共享同一签名，第⑦道去重闸门会把一个版本的提案当成另一个版本的重复，
+/// `proposal_id` 同一天也会碰撞（详见 risk.mbt 的 generate_signature 注释）。
+/// 故此处**保留完整 plugin_id**（含版本）。
+test "generate_signature keeps the full plugin_id including version" {
   assert_eq(
     generate_signature(
       "browser-use-0.4.1",
       @types.EvolutionType::InterfaceSimplification,
     ),
-    "browser-use-interface-simplification",
+    "browser-use-0.4.1-interface-simplification",
   )
-  // 多破折号名：只去掉最后的 version 段
+  // 多破折号名：plugin_id 整体保留，不切分
   assert_eq(
     generate_signature(
       "my-cool-plugin-1.0.0",
       @types.EvolutionType::DocumentationEnhancement,
     ),
-    "my-cool-plugin-documentation-enhancement",
+    "my-cool-plugin-1.0.0-documentation-enhancement",
   )
   assert_eq(
     generate_signature("a-b-c-d-2", @types.EvolutionType::BehaviorOptimization),
-    // split('-') = [a,b,c,d,2] → slice(0,-1) = [a,b,c,d] → "a-b-c-d"
-    "a-b-c-d-behavior-optimization",
+    "a-b-c-d-2-behavior-optimization",
   )
-  // 单段名：slice(0,-1) 得到空数组 → 签名以 "-" 开头。
-  // 这是 TS 的既有行为，逐字保留（它决定了去重的分桶）。
+  // 单段名（无版本）：不再产生 TS 那种 `-<type>` 空名前缀
   assert_eq(
     generate_signature("foo", @types.EvolutionType::PerformanceTuning),
-    "-performance-tuning",
+    "foo-performance-tuning",
   )
   // 两段名
   assert_eq(
     generate_signature("foo-1.0", @types.EvolutionType::CapabilityExtension),
-    "foo-capability-extension",
+    "foo-1.0-capability-extension",
   )
   // 全部 6 种类型的 `_` → `-` 归一化
   assert_eq(
     generate_signature("p-1", @types.EvolutionType::ErrorHandlingImprovement),
-    "-error-handling-improvement".replace_all(old="-error", new="p-error"),
+    "p-1-error-handling-improvement",
   )
+}
+
+///|
+/// ★ 评审 B1 的回归网：两个**不同版本**的同名插件必须得到**不同**签名，
+/// 这是 F1 修复（多版本并存）后去重正确性的前提。
+test "generate_signature distinguishes plugin versions" {
+  let a = generate_signature(
+    "browser-use-0.4.1",
+    @types.EvolutionType::InterfaceSimplification,
+  )
+  let b = generate_signature(
+    "browser-use-0.3.1",
+    @types.EvolutionType::InterfaceSimplification,
+  )
+  assert_true(a != b)
+  assert_true(a.has_suffix("browser-use-0.4.1-interface-simplification"))
+  assert_true(b.has_suffix("browser-use-0.3.1-interface-simplification"))
 }
 
 // ============================================================================

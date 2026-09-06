@@ -1,7 +1,7 @@
 ---
 name: harness-evolution
-description: DeepSeek Harness 全盘自进化升级插件。启动时扫描所有插件，实时监控性能，基于 Matt Pocock 原则自动生成进化提案，通过子 Agent 协同完成升级。当用户需要优化插件性能、简化接口、改进文档或扩展能力时使用。
-version: 1.0.0
+description: DeepSeek Harness 全盘自进化升级插件。扫描所有插件，监控性能，基于 Matt Pocock 原则生成进化提案，通过子 Agent 协同完成升级。当用户需要优化插件性能、简化接口、改进文档或扩展能力时使用。
+version: 2.0.0
 ---
 
 # Harness Self-Evolution
@@ -14,16 +14,20 @@ version: 1.0.0
 
 ## 触发时机
 
-### 自动触发
-- **启动时**：自动扫描所有 harness 插件，建立初始档案
-- **运行中**：实时监控插件性能，累积进化信号
-- **信号触发**：检测到强信号或累积中信号时，自动生成提案
+### 触发方式
+- **工具调用**：宿主客户端通过 MCP 调用 `scan_plugins` / `propose_evolution` / `execute_evolution` 等 10 个工具（见下文「MCP 工具」）—— 这是唯一的入口
+- **运行中**：调用 `record_tool_call` / `record_user_feedback` 监控插件性能，累积进化信号（监控由宿主在工具调用链上埋点）
+- **信号触发**：检测到强信号或累积中信号时，经 `propose_evolution` 生成提案（信号强度门槛由 `intensity` 配置决定）
+
+> ⚠️ **启动时并不会自动扫描**。本插件是 stdio MCP 服务器，只在被调用时工作：
+> 扫描靠 `scan_plugins` 工具（客户端启动时调一次即可建立档案），
+> 不存在「启动即扫描全部插件」的自动行为。
 
 ### 手动触发
-- 用户请求查看插件状态：`/harness-evolution status`
-- 用户请求性能分析：`/harness-evolution analyze <plugin>`
-- 用户请求进化提案：`/harness-evolution propose <plugin>`
-- 用户请求执行升级：`/harness-evolution execute <proposal-id>`
+- 用户请求查看插件状态：调用 `scan_plugins`
+- 用户请求性能分析：调用 `get_plugin_metrics`
+- 用户请求进化提案：调用 `propose_evolution`
+- 用户请求执行升级：调用 `execute_evolution`（先 `list_proposals` 找 id）
 
 ## 工作流程
 
@@ -235,6 +239,25 @@ version: 1.0.0
   - Token: 350 → 245 (-30%)
 ```
 
+## MCP 工具
+
+本插件以 stdio NDJSON（JSON-RPC 2.0）暴露 **10 个工具**：
+
+| 工具 | 用途 |
+|------|------|
+| `scan_plugins` | 扫描插件目录、建立档案（`force_rescan` 强制重扫，`target_paths` 覆盖扫描根） |
+| `get_plugin_metrics` | 某插件的时间窗性能统计（`last_hour` / `last_day` / `last_week` / `all`） |
+| `propose_evolution` | 为插件生成进化提案（`signals` 传手动信号；受 `intensity` 门槛约束） |
+| `execute_evolution` | 执行已审批提案（`dry_run` 试运行；错误经 payload 的 `isError` 返回） |
+| `list_proposals` | 按状态/插件过滤列提案（`limit` 上限） |
+| `approve_proposal` | 批准提案（pending → approved） |
+| `reject_proposal` | 拒绝提案 |
+| `create_sub_agent` | 写子 Agent 定义文件（`scope=plugin` 数据根 / `scope=user` 宿主 `~/.zcode/agents/`） |
+| `list_sub_agents` | 列出子 Agent 定义（缺省列出两个作用域） |
+| `delete_sub_agent` | 删除子 Agent 定义（只删两个可写目录，出厂模板不受影响） |
+
+工具错误不抛异常：以 `isError: true` 的 MCP 结果返回，LLM 可自我纠正后重试。
+
 ## 使用示例
 
 ### 查看插件状态
@@ -372,19 +395,31 @@ browser-use-0.4.1 进化分析：
 
 ## 进化强度配置
 
-在 `AGENTS.md` 中配置进化强度：
+配置来自 `.zcode-plugin/plugin.json` 的 `evolution_config` 段
+（查找顺序：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.zcode-plugin/plugin.json` → 内置默认值；
+配置缺失绝不会导致启动失败）。**AGENTS.md 不参与任何配置解析。**
 
-```markdown
-## Self-Evolution
+```json
+{
+  "evolution_config": {
+    "intensity": "50%",
+    "auto_approve": false,
+    "cooldown_hours": 24,
+    "signal_thresholds": {
+      "consecutive_failures": 3,
+      "loop_detection": 5,
+      "latency_regression": 0.2
+    }
+  }
+}
+```
 
-- **强度**: 50% (审慎)
+- **强度**: 50% (审慎，默认)
   - 100% (积极): 强信号或两个中信号均可触发
   - 50% (审慎): 仅强信号触发
   - 0% (关闭): 不做任何进化检查
-
-- **冷却期**: 24 小时
-- **每会话最大提案数**: 3
-```
+- **冷却期**: 24 小时（`cooldown_hours`，同一插件两次提案的最短间隔）
+- `max_proposals_per_session` 是已删除的历史配置 —— 当前版本没有「每会话最大提案数」限制
 
 ## 质量标准
 

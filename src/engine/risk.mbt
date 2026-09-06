@@ -173,32 +173,30 @@ pub fn assess_risks(
 ///|
 /// 生成去重签名。取代 TS L625-638。
 ///
-/// 形式是 `<插件名>-<进化类型>`，其中：
-/// · 插件名 = `plugin_id` 按 `-` 切分后**去掉最后一段**（那是 version）再拼回。
-///   于是 `browser-use-0.4.1` → `browser-use`，`my-cool-plugin-1.0.0` → `my-cool-plugin`。
-///   注意 `plugin_id` 本身不含 `-` 时（如 `foo`），TS 的 `slice(0,-1)` 得到空数组，
-///   签名会变成 `-<type>`；此处逐字保留该行为，因为它决定了去重的分桶。
-/// · 进化类型的 wire 名把 `_` 换成 `-`（TS L634 的 `replace(/_/g,'-')`）。
+/// 形式是 `<plugin_id>-<进化类型>`，其中：
+/// · `plugin_id` **整体保留**（含版本段），进化类型的 wire 名把 `_` 换成 `-`
+///   （TS L634 的 `replace(/_/g,'-')`）。
 ///
-/// 签名是 CONTEXT.md L17 定义的「归一化串」，用于 `findDuplicate` 去重，
-/// 因此它的构造规则一旦改动，历史 `proposals.jsonl` 里的签名就全部失配。
+/// ★ 修掉一处由 F1 修复**激活**的缺陷（评审 B1）：TS 版用 `split('-').slice(0,-1)`
+/// 剥掉最后一段（version），得到的是 `<插件名>-<进化类型>`。1.0 的 scanner 受
+/// F1 所限，同一插件名**永远只有一个版本**在注册表里，剥版本不产生碰撞；而
+/// 2.0 修好 F1 后（scanner 发现 `browser-use-0.4.1` 与 `browser-use-0.3.1` 并存，
+/// 见 scanner_wbtest.mbt:217-221），剥版本会让两个版本的签名相同：
+/// · 第⑦道闸门 `find_duplicate(signature)` 把 0.4.1 的提案当成 0.3.1 的重复，
+///   `propose_evolution` 甚至会把**另一个插件**的提案回显给调用方；
+/// · `by_signature` 索引只留「最近一条」，旧版本的非 rejected 行从去重视野消失；
+/// · `proposal_id` 前缀 `evo-<date>-<signature>` 同一天两个版本也相同，
+///   重载时按 id 折叠会把两份提案折成一份。
+/// 修法：签名保留完整 `plugin_id`。历史 `proposals.jsonl` 里的旧签名（剥版本）
+/// 不会再被新的去重查到 —— 这恰是正确方向：旧签名本来就不区分版本。
+/// 注意 `plugin_id` 本身不含 `-` 时（如 `foo`），TS 的 `slice(0,-1)` 得到空数组，
+/// 签名会变成 `-<type>`；保留版本后变为 `foo-<type>`，语义更清晰。
 pub fn generate_signature(
   plugin_id : String,
   etype : @types.EvolutionType,
 ) -> String {
-  let parts : Array[String] = []
-  for seg in plugin_id.split("-") {
-    parts.push(seg.to_owned())
-  }
-  let kept : Array[String] = []
-  let n = parts.length()
-  // slice(0, -1)：去掉最后一段。n == 1 时范围为空 → kept 为空。
-  // `..<` 与 `-` 的优先级有歧义，必须加括号（工具链会报 ambiguous_precedence）。
-  for i in 0..<(n - 1) {
-    kept.push(parts[i])
-  }
   let normalized_type = etype.wire_name().replace_all(old="_", new="-")
-  "\{kept.join("-")}-\{normalized_type}"
+  "\{plugin_id}-\{normalized_type}"
 }
 
 ///|

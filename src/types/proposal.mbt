@@ -182,7 +182,8 @@ pub(all) enum Confidence {
 /// 字段顺序与 TS interface 一致 —— 这是 `proposals.jsonl` 与 MCP 输出
 /// 能与 TS 版对拍的前提。
 pub(all) struct EvolutionProposal {
-  /// 形如 `evo-2026-09-04-browser-use-interface-simplification`
+  /// 形如 `evo-2026-09-04-browser-use-0.4.1-interface-simplification`
+  /// （签名含完整 plugin_id，见 engine/risk.mbt 的 generate_signature）
   proposal_id : String
   plugin_id : String
   status : ProposalStatus
@@ -197,7 +198,7 @@ pub(all) struct EvolutionProposal {
   expected_benefits : ExpectedBenefits
   validation_plan : ValidationPlan
   risk_assessment : RiskAssessment
-  /// 去重签名，形如 `<plugin-name>-<evolution-type>`
+  /// 去重签名，形如 `<plugin-id>-<evolution-type>`（含版本段）
   signature : String
   confidence : Confidence
 } derive(Eq, Debug, ToJson, @json.FromJson)

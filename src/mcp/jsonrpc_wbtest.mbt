@@ -237,6 +237,27 @@ test "parse_message is stateless: no initialize gating" {
   assert_true(parse_message(before_init) is Some(_))
 }
 
+///|
+/// ★ 评审 W1/W2 的回归网：`jsonrpc` 版本字段**有意不校验**（宽容策略）。
+/// 合法形状只有 `"jsonrpc":"2.0"`，但 `parse_message` 从不读它：
+/// · 声明 `"1.0"`（JSON-RPC 1.0 时代的客户端）
+/// · 整个缺省（部分手写客户端不发）
+/// 两者都与 2.0 请求同样处理。这是刻意行为（见 jsonrpc.mbt 文件头的
+/// 「宽进」策略）—— 本用例把它**钉死**，防止将来有人「顺手」加上
+/// 版本检查，把一个能用的客户端组合弄挂。
+test "parse_message tolerates a jsonrpc 1.0 or absent version field" {
+  let cases : Array[Json] = [
+    { "jsonrpc": "1.0", "id": 1, "method": "ping" },
+    { "id": 1, "method": "ping" }, // 无版本字段
+    { "jsonrpc": Json::number(2.0), "id": 1, "method": "ping" }, // 非字符串
+  ]
+  for msg in cases {
+    let req = parse_message(msg).unwrap()
+    assert_eq(req.method_name, "ping")
+    assert_eq(req.id, Some(Json::number(1.0)))
+  }
+}
+
 // ============================================================================
 // -32600 的 best_effort_id：形状非法时仍尽力对上号
 // ============================================================================

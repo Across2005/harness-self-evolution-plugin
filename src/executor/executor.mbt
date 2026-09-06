@@ -505,7 +505,7 @@ fn push_task(
 /// 把提案分解为 Sub-Agent 任务。取代 TS L137-223。
 ///
 /// 任务的**追加顺序**与 TS 一致：
-/// 代码生成（merge → middleware → flow → capability → error-handling）
+/// 代码生成（merge → **params** → middleware → flow → capability → error-handling）
 /// → 测试编写（仅当存在代码生成任务）→ 文档更新 → 集成（仅当任务数 > 1）。
 ///
 /// 与 TS 的三处差异，都是修正而非改变行为：
@@ -515,6 +515,10 @@ fn push_task(
 ///   于是能与 `cg-*` 同层并行
 /// · `integ` 依赖全部 `cg-*` 与 `tw`（TS 写的是含糊的
 ///   `['code-generator','test-writer']`）
+///
+/// 第四处差异（WEAK 4 修复）：`cg-params`（`SimplifyParams`）是 2.0 新增的
+/// Change 种类，TS 没有对应任务 —— `items_of` 认它却无人消费，参数简化
+/// 提案会分解出 0 个代码生成任务直接滑到 Completed。现在补上派发。
 pub fn decompose_tasks(
   proposal : @types.EvolutionProposal,
 ) -> Array[@types.SubAgentTask] {
@@ -530,6 +534,21 @@ pub fn decompose_tasks(
     @types.AgentType::CodeGenerator,
     "实现工具合并：创建新工具并保留向后兼容性",
     120_000,
+  )
+  // ★ WEAK 4（engine 评审）修复：`items_of` 认 7 种 Change 种类，但这里
+  // 之前只为 6 种派发任务 —— `SimplifyParams` 被 `items_of` 接受却没有任何
+  // `push_task` 消费它，于是「仅参数简化」的提案分解出 0 个代码生成任务，
+  // 直接滑到 Completed（验证路径唯一，executor 仍照常标记完成）。
+  // `plan_changes` 目前还发不出该种类（planning.mbt 的 TODO(param-simplification)），
+  // 但调用方迟早会接上 —— 现在把缺口补上，避免届时静默滑过。
+  push_task(
+    tasks,
+    changes,
+    @types.ChangeKind::SimplifyParams,
+    "cg-params",
+    @types.AgentType::CodeGenerator,
+    "简化工具参数：收敛参数列表并保持向后兼容",
+    60_000,
   )
   push_task(
     tasks,

@@ -173,13 +173,31 @@ fn threshold_int(
     legacy_key,
     fallback.to_double(),
   )
+  integer_field("signal_thresholds.\{flat_key}", d, fallback)
+}
+
+///|
+/// 整数配置字段：读出的是 Double，消费方要 Int。
+/// 非整数（如 `0.5`）在 `.to_int()` 下会**静默截断**，写配置的人得不到任何
+/// 反馈、引擎行为却已改变 —— 与 `threshold_int` 同一原则：
+/// 回落 `fallback` 并产出点名告警，让失效可见。
+///
+/// ★ B1（mcp 评审）修复：`cooldown_hours` 与 `max_log_bytes` 过去直接
+/// `n.to_int()`，`"cooldown_hours": 0.5` 会截断成 0（域内值，静默关掉冷却），
+/// `"max_log_bytes": 2097152.9` 会截断成 2097152 —— 与 signal_thresholds
+/// 的守卫不一致。现在统一走这里。
+fn integer_field(
+  name : String,
+  d : Double,
+  fallback : Int,
+) -> (Int, String?) {
   if d == d.floor() {
     (d.to_int(), None)
   } else {
     (
       fallback,
       Some(
-        "signal_thresholds.\{flat_key}: \{d} is not an integer and fell back to the default \{fallback}",
+        "\{name}: \{d} is not an integer and fell back to the default \{fallback}",
       ),
     )
   }
@@ -312,9 +330,9 @@ pub fn EngineConfig::from_json_checked(
     Some(s) => intensity_wire.find_by_name(s).unwrap_or(defaults.intensity)
     None => defaults.intensity
   }
-  let cooldown_raw = match num_field(cfg, "cooldown_hours") {
-    Some(n) => n.to_int()
-    None => defaults.cooldown_hours
+  let (cooldown_raw, w_cooldown_int) = match num_field(cfg, "cooldown_hours") {
+    Some(n) => integer_field("cooldown_hours", n, defaults.cooldown_hours)
+    None => (defaults.cooldown_hours, None)
   }
   // 与 H2 同一套原则：非法/做不到的取值不能静默采纳。`auto_approve` 的
   // 「非法」不在于格式，而在于**没有消费方** —— 写 true 的人会以为绕过了审批，
@@ -329,9 +347,9 @@ pub fn EngineConfig::from_json_checked(
     Some(false) => defaults.auto_approve
     None => defaults.auto_approve
   }
-  let max_log_raw = match num_field(cfg, "max_log_bytes") {
-    Some(n) => n.to_int()
-    None => defaults.max_log_bytes
+  let (max_log_raw, w_max_log_int) = match num_field(cfg, "max_log_bytes") {
+    Some(n) => integer_field("max_log_bytes", n, defaults.max_log_bytes)
+    None => (defaults.max_log_bytes, None)
   }
 
   let td = defaults.thresholds
@@ -414,7 +432,7 @@ pub fn EngineConfig::from_json_checked(
   for msg in w_threshold {
     warn.push(msg)
   }
-  for w in [w_cooldown, w_cf, w_loop, w_latency, w_max_log] {
+  for w in [w_cooldown_int, w_max_log_int, w_cooldown, w_cf, w_loop, w_latency, w_max_log] {
     match w {
       Some(msg) => warn.push(msg)
       None => ()

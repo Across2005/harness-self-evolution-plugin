@@ -74,7 +74,10 @@ fn validate_name(name : String) -> Unit raise Failure {
 }
 
 ///|
-/// 校验 description：长度 1..1024；不含换行（frontmatter 的值是单行的）。
+/// 校验 description：长度 1..1024；不含换行（frontmatter 的值是单行的）；
+/// 首尾不得有空白（★ 评审 B2：parse 对 frontmatter 值无条件 `trim()`，
+/// 若放行首尾空白，`render → parse` 往返不恒等，list 会回显与磁盘
+/// 不同的内容，list→create(overwrite=true) 还会静默改写用户输入）。
 fn validate_description(description : String) -> Unit raise Failure {
   if description.length() == 0 || description.length() > 1024 {
     raise Failure(
@@ -86,14 +89,36 @@ fn validate_description(description : String) -> Unit raise Failure {
       "invalid sub-agent description: must be a single line without newline characters",
     )
   }
+  if description != description.trim().to_owned() {
+    raise Failure(
+      "invalid sub-agent description: must not have leading or trailing whitespace (render→parse would not round-trip)",
+    )
+  }
 }
 
 ///|
-/// 校验 system_prompt：长度 1..65536（.md 正文，允许任意换行与中文）。
+/// 校验 system_prompt：长度 1..65536（.md 正文，允许任意换行与中文）；
+/// 首行与末行不得是空行（★ 评审 B2：parse 会剥掉正文首尾的空行，
+/// 若放行首尾空行，`render → parse` 往返不恒等 —— 首行空行会在渲染后
+/// 被吞掉，末行空行与 render 的收尾换行叠加后边界含糊）。
 fn validate_system_prompt(prompt : String) -> Unit raise Failure {
   if prompt.length() == 0 || prompt.length() > 65536 {
     raise Failure(
       "invalid sub-agent system_prompt: length must be between 1 and 65536 characters, got \{prompt.length()}",
+    )
+  }
+  let lines : Array[String] = []
+  for raw in prompt.split("\n") {
+    lines.push(raw.to_owned())
+  }
+  if lines.length() > 0 && lines[0].trim().length() == 0 {
+    raise Failure(
+      "invalid sub-agent system_prompt: first line must not be blank (render→parse would not round-trip)",
+    )
+  }
+  if lines.length() > 0 && lines[lines.length() - 1].trim().length() == 0 {
+    raise Failure(
+      "invalid sub-agent system_prompt: last line must not be blank (render→parse would not round-trip)",
     )
   }
 }

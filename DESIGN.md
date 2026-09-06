@@ -362,19 +362,28 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 {
   "name": "harness-self-evolution",
   "version": "2.0.0",
-  "description": "DeepSeek Harness 全盘自进化升级插件",
+  "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",
     "email": "Across2005@users.noreply.github.com"
   },
   "license": "MIT",
-  "keywords": ["harness", "evolution", "self-improvement", "matt-pocock"],
+  "keywords": [
+    "harness",
+    "evolution",
+    "self-improvement",
+    "matt-pocock",
+    "hermes",
+    "plugin-optimization",
+    "moonbit"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Across2005/harness-self-evolution-plugin.git"
   },
   "main": "./bin/harness-evolution.exe",
   "skills": "./skills",
+  "agents": "./agents",
   "capabilities": [
     "plugin_scanning",
     "performance_monitoring",
@@ -382,7 +391,24 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
     "upgrade_execution",
     "sub_agent_orchestration"
   ],
+  "mcp": {
+    "transport": "stdio",
+    "protocolVersion": "2024-11-05",
+    "tools": [
+      "scan_plugins",
+      "get_plugin_metrics",
+      "propose_evolution",
+      "execute_evolution",
+      "list_proposals",
+      "approve_proposal",
+      "reject_proposal",
+      "create_sub_agent",
+      "list_sub_agents",
+      "delete_sub_agent"
+    ]
+  },
   "dependencies": {},
+  "devDependencies": {},
   "engines": {
     "zcode": ">=0.5.0"
   },
@@ -390,23 +416,57 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
     "intensity": "50%",
     "auto_approve": false,
     "cooldown_hours": 24,
+    "max_log_bytes": 33554432,
     "signal_thresholds": {
       "consecutive_failures": 3,
       "loop_detection": 5,
       "latency_regression": 0.2
     }
+  },
+  "scan_targets": [
+    "~/.deepseek/harness/plugins/",
+    "~/.deepseek/harness/extensions/",
+    "~/.zcode/cli/plugins/",
+    "~/.zcode/skills/",
+    "~/.agents/skills/",
+    "~/.openclaw-autoclaw/skills/"
+  ],
+  "monitoring": {
+    "enabled": true,
+    "sample_rate": 1.0,
+    "metrics": [
+      "latency",
+      "success_rate",
+      "token_usage",
+      "retry_count",
+      "user_feedback"
+    ]
   }
 }
 ```
 
 三处与草图不同的要点：
 
-- **运行时零依赖**：`dependencies` 是空对象，`engines` 里没有 `node`。
+- **运行时零依赖**：`dependencies` 是空对象（`devDependencies` 同样为空 ——
+  构建依赖是 MoonBit 工具链，不在这里声明），`engines` 里没有 `node`。
   产物是独立的 native 可执行文件，构建期才需要 MoonBit + MSVC。
 - **`max_proposals_per_session` 已删除**：1.0 里它被赋值后从未参与任何判定。
 - **`evolution_config` 在 2.0 真的会被读取**（1.0 是一处配置孤岛：写了但
   没有任何代码读）。`signal_thresholds` 同时接受扁平形状（2.0 规范，键名与
   `SignalThresholds` 字段逐字相同）与 1.0 的 `strong`/`medium` 嵌套形状（回退）。
+- **`agents` 指向出厂子 Agent 模板目录**（5 个 `.md`，随插件分发；
+  经 `create_sub_agent` 在数据根/宿主目录新建或覆盖的是**另一批**文件）。
+- **`mcp` 段声明了 10 个工具**（前 7 个为 1.0 的 legacy 顺序，后 3 个为
+  v2.1 子 Agent 工厂新增）；实现侧的真实清单见 `src/mcp/tools.mbt`。
+- **`scan_targets` 是配置孤岛**（有意保留，见 `CONTEXT.md`）：扫描根在
+  `scan_plugins` 调用时由 `ServerState` 提供，`plugin.json` 的该段不被
+  `src/scanner/` 读取。
+- **`monitoring` 段目前不参与行为**：监控事件由宿主经 MCP 工具调用链埋点
+  （`record_tool_call` / `record_user_feedback` 的注入缝），
+  `enabled` / `sample_rate` 尚无消费方 —— 与 `scan_targets` 一样属于
+  「声明了但当前不生效」的配置项。
+- **`max_log_bytes`（32 MiB）会真的被读取**：`metrics.jsonl` / `signals.jsonl`
+  的裁剪上限（`flush_buffers` → `trim_to`）。
 
 ### 4.2 MCP Server 接口
 

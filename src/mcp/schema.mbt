@@ -80,11 +80,19 @@ fn bool_prop(description : String, default : Bool) -> Json {
 }
 
 ///|
-fn number_prop(description : String, default : Int) -> Json {
+/// 带下界的整数属性。★ 评审 W3：`list_proposals.limit` 的合法域是 `>= 1` ——
+/// 0 或负数会让 store 的 `list` 因 `out.length() >= limit` 恒真而**静默返回空**
+/// （proposals.mbt L131），把「参数写错」伪装成「没有提案」。schema 里声明
+/// `minimum` 是给 LLM 看的声明式约束；解析侧按「宽容」惯例不强制
+/// （与 `object_schema` 的 `additionalProperties` 同一条注释）。
+///
+/// 只有这一个使用方，故不再保留无下界的 `number_prop`（避免 unused 警告）。
+fn bounded_number_prop(description : String, default : Int, minimum : Int) -> Json {
   {
     "type": "number",
     "description": Json::string(description),
     "default": Json::number(default.to_double()),
+    "minimum": Json::number(minimum.to_double()),
   }
 }
 
@@ -172,6 +180,7 @@ pub fn execute_evolution_schema() -> Json {
 
 ///|
 /// `list_proposals`（TS L47-51）。三个参数都非必填。
+/// `limit` 带 `minimum: 1`（评审 W3，见 `bounded_number_prop`）。
 pub fn list_proposals_schema() -> Json {
   object_schema(
     {
@@ -180,7 +189,7 @@ pub fn list_proposals_schema() -> Json {
         @types.proposal_status_wire.names(),
       ),
       "plugin_id": str_prop("按插件 ID 过滤"),
-      "limit": number_prop("返回数量限制", default_limit),
+      "limit": bounded_number_prop("返回数量限制", default_limit, 1),
     },
     [],
   )

@@ -26,10 +26,14 @@
 ///|
 /// 把任务集切成拓扑层。返回的每个内层数组是「可以并行执行的任务下标」。
 ///
-/// 两种失败都用 `Failure` 上抛，消息里带上具体任务 id，
-/// 因为这两种情况都属于**提案分解逻辑自身的 bug**（不是用户输入问题）：
+/// 三种失败都用 `Failure` 上抛，消息里带上具体任务 id，
+/// 因为这种情况都属于**提案分解逻辑自身的 bug**（不是用户输入问题）：
 /// · 依赖了不存在的任务 id
 /// · 依赖成环
+/// · **任务 id 重复**（★ WEAK 9 修复：旧实现 `index_of` 用 `set` 静默覆盖，
+///   依赖引用被遮蔽的 id 时会解析到**后一个**同名任务 —— 分层结果悄悄错误。
+///   现在重复 id 在入口就被拒绝，两个任务共享一个 id 意味着分解逻辑
+///   拼错了 id，宁可失败回滚也不要静默跑错）
 ///
 /// 调用方（`UpgradeExecutor::execute`）会把它当作执行失败处理并回滚到 pending。
 pub fn topo_layers(
@@ -42,7 +46,13 @@ pub fn topo_layers(
 
   let index_of : Map[String, Int] = Map([])
   for i in 0..<n {
-    index_of.set(tasks[i].id, i)
+    let id = tasks[i].id
+    if index_of.contains(id) {
+      raise Failure(
+        "Duplicate sub-agent task id \"\{id}\" (at index \{i} and \{index_of.get(id).unwrap()})",
+      )
+    }
+    index_of.set(id, i)
   }
 
   let indegree : Array[Int] = Array::make(n, 0)

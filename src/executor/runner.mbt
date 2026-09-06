@@ -28,8 +28,11 @@
 ///|
 /// 模拟执行一个 Sub-Agent 任务。对应 TS L274-290 的 `simulateSubAgent`。
 ///
-/// 保留 TS 的 100 ms 模拟耗时：它让 `duration_ms` 有一个非零的、
-/// 与真实执行同量级的值，也让日志里的时序看起来合理。
+/// 保留 TS 的 100 ms 模拟耗时：它让 `duration_ms` 有一个非零值，
+/// 也让日志里的时序看起来合理。⚠️ 但这**不是**与真实执行同量级 ——
+/// 参照实现（defending-code-reference-harness）里每个任务是 CLI 子进程 +
+/// 沙箱 + 流式回传，耗时是秒到分钟级（见 docs/subagent-factory.md §1.2）。
+/// 100 ms 只是「模拟的代价」，不是「真实任务的预算」。
 pub async fn simulated_task(task : @types.SubAgentTask) -> Json {
   @async.sleep(100)
   {

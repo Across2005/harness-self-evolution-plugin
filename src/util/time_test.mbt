@@ -14,8 +14,26 @@ test "iso_utc matches Date.prototype.toISOString byte for byte" {
   assert_eq(@util.iso_utc(1_757_000_000_700L), "2025-09-04T15:33:20.700Z")
   // 毫秒恰为 0：@time 在此会**完全省略**小数段（其 to_string 有 nanosecond > 0 守卫）
   assert_eq(@util.iso_utc(1_757_000_000_000L), "2025-09-04T15:33:20.000Z")
-  // 1970 之前的负毫秒：验证 tdiv 的向零截断与「借一天」修正
+  // 1970 之前的负毫秒（**整点**，`rem == 0`，不经过「借一天」分支；
+  // 非整点的负毫秒见下面的专门用例）
   assert_eq(@util.iso_utc(-2_208_988_800_000L), "1900-01-01T00:00:00.000Z")
+}
+
+///|
+/// 负毫秒的**非整点**用例：`tdiv` 的向零截断 + `iso_utc` 的借一天分支
+/// 在这里才真正被踩到（整点用例 `rem == 0`，两分支都不进）。
+/// 期望值由 `node -e` 的真实输出抄录：
+/// ```text
+/// new Date(-1).toISOString()                 → "1969-12-31T23:59:59.999Z"
+/// new Date(-86_400_001).toISOString()        → "1969-12-30T23:59:59.999Z"
+/// new Date(-2_208_988_800_001).toISOString() → "1899-12-31T23:59:59.999Z"
+/// ```
+test "iso_utc handles negative milliseconds with nonzero remainder" {
+  assert_eq(@util.iso_utc(-1L), "1969-12-31T23:59:59.999Z")
+  assert_eq(@util.iso_utc(-86_400_001L), "1969-12-30T23:59:59.999Z")
+  assert_eq(@util.iso_utc(-2_208_988_800_001L), "1899-12-31T23:59:59.999Z")
+  // 三个串都是 24 字符（回归网：B1 修复前 -1L 会输出 28 字符的垃圾串）
+  assert_eq(@util.iso_utc(-1L).length(), 24)
 }
 
 ///|

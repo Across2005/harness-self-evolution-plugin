@@ -199,6 +199,14 @@ pub async fn Jsonl::trim_to(self : Jsonl, max_bytes : Int) -> Bool {
 /// · 否则取**最小的**、使保留区 ≤ 上限的行起点（保留尽量多）；
 /// · 都放不下 → 最新一行的起点（至少保住一行；整个文件只有一行时该起点就是 0）；
 /// · 没有任何完整行（`eff_end == 0`）在上面「放得下」那条已提前返回，不会走到兜底分支。
+///
+/// ★ 修掉一处实测缺陷（评审 W2）：**空行不算候选行起点**。
+/// JSONL 里一行 = 一条记录，空行要么是收尾换行的残留、要么是损坏痕迹。
+/// 旧实现把空行也当候选：文件 `"aaa\nbbb\n\n"`、上限 4 字节时，
+/// 空行起点（1 字节，放得下）会压过 `"bbb"` 行的起点（5 字节，放不下），
+/// 于是裁完只剩一个 `"\n"` —— **最新的真实记录反而被丢了**。
+/// 现在 `raw[start] == b'\n'` 的空行起点被跳过，`best_fit` / `last_start`
+/// 都只跟踪非空行，保底语义不变（单行超限文件的起点仍是 0）。
 fn trim_window(raw : Bytes, max_bytes : Int) -> (Int, Int) {
   let total = raw.length()
   let mut eff_end = total
@@ -218,9 +226,12 @@ fn trim_window(raw : Bytes, max_bytes : Int) -> (Int, Int) {
   while p < eff_end {
     if raw[p] == b'\n' && p + 1 < eff_end {
       let start = p + 1
-      last_start = start
-      if best_fit < 0 && eff_end - start <= max_bytes {
-        best_fit = start
+      // 空行（下一个字符就是换行）不是记录，跳过 —— 见函数头注释
+      if raw[start] != b'\n' {
+        last_start = start
+        if best_fit < 0 && eff_end - start <= max_bytes {
+          best_fit = start
+        }
       }
     }
     p += 1

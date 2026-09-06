@@ -224,6 +224,47 @@ Map 哈希序决定（需要确定顺序的消费者应读 `error_types` 数组�
 `types/change.mbt` 声称「字段声明顺序决定 Json 输出顺序」，实际输出顺序与声明
 顺序无关，对拍逐字节一致靠的是固定键集的确定性哈希。
 
+## 第四轮修复（2026-09-06 会话，两轴评审 + 四子 Agent 评审）
+
+本轮对 `moonbit-port` 分支做了**全仓两轴评审**（正确性轴 + 工程轴），再派 4 个子
+Agent 分片复核（store/util、engine/executor/factory、scanner/monitor、
+mcp/harness_evolution/types）。修复分三类：**4 个真 bug**（有回归测试）、
+**评审发现的加固点**（测试补网 / 结构加固）、**文档失实**（不改行为）。
+全量测试从 268 → **313**，`moon check --deny-warn` 通过。
+
+| ID | 类型 | 问题 | 修复 |
+|----|------|------|------|
+| **B1** | 真 bug | `util/time.mbt` 的 `tdiv` 用了「floor 除法」语义（`q = a/b; 符号相异且余数非零则 q+1`），而 MoonBit 的 `Int64::op_div` 本身**向零截断** —— `iso_utc(-1)` 打出 `1970-01-01T00:00:01.-1001Z` 这种垃圾 | `tdiv = a / b`（向零截断，与 `@time`/JS 的 `Date` 对拍一致）；新增 3 个负值向量用例（node 验证过基准值） |
+| **BUG 1** | 真 bug | `engine/risk.mbt` 的 `generate_signature` 剥掉 plugin_id 的尾部版本段，F1（多版本并存）之后两个版本签名相同 → `proposal_id` 撞车、by_signature 索引互相遮蔽 | 保留完整 plugin_id（含版本）；签名格式 `<plugin-id>-<evolution-type>` 写进文档；新增「两版本同名插件各得独立提案」端到端回归 |
+| **BUG 2** | 真 bug | `factory` 的 `validate_description` / `validate_system_prompt` 不拒首尾空白，而 `parse()` 无条件 trim —— render→parse 往返不恒等（`" a "` 渲染出来再解析就不一样了） | 描述拒首尾空白、系统提示词拒首/末空行；新增边界用例组 |
+| **B1(mcp)** | 真 bug | `types/config.mbt` 的 `cooldown_hours` / `max_log_bytes` 走裸 `n.to_int()`，`0.5` / `2097152.9` 被**静默截断后生效**（S3 只修了阈值，漏了这两个字段） | 新增 `integer_field` 助手（非整数 → 回落默认 + 点名告警），`threshold_int` 委托它；新增非整数/整数两组用例 |
+| **W2** | 加固 | `store/jsonl.mbt` 的 `trim_window` 会把**末尾空行**当成候选起点 —— `"aaa\nbbb\n\n"` 在上限 4 字节时保留空行而丢掉真实记录 | 候选起点必须 `raw[start] != b'\n'`；新增两条用例（单空行 / 多空行） |
+| **W3/W5** | 加固 | `store/cache.mbt` 的 `DirFingerprint.child_mtime_sec` 只有秒精度 —— 同一秒内原地改写文件可骗过指纹；`cache_version` 未随指纹结构变化升级 | 改 `child_mtime_ns`（纳秒）；`cache_version` 2 → **3**（旧缓存自动整份作废重扫）；`fingerprint_of` 用 `Int64?` 累积（无哨兵值）；新增「同秒内原地重写内容 → 指纹必变」用例 |
+| **W10** | 加固 | `scanner/discover.mbt` 的 `walk_into` **无深度上限** —— Windows 目录 junction 可成环（`a/junction → a`），递归无限下钻直到栈溢出 | 新增 `max_files_depth = 32` 上限，越界告警后停止（与 `discover_plugins` 的 `max_discovery_depth` 分工）；junction 无法在 MoonBit 测试里创建，用 40 层深链等价踩同一条代码路径 |
+| **W4** | 加固 | `store/agent_defs.mbt` 的 `write(overwrite=true)` 用 `CreateOrTruncate` **原地截断** —— 写中途崩溃留下半截文件；且 exists 检查与写入间有竞态窗口 | 统一走 **tmp + rename 原子替换**（与 `Jsonl::write_json_atomic` 同配方），返回覆盖与否由写入前的 exists 判定 |
+| **W2/W3** | 加固 | monitor 两条路径**零测试覆盖**：延迟回归信号（TS L255-277 的深度检查）与「signals 写失败不拖累 metrics」（H1 只测了反向） | 新增 3 条用例：周基线低延迟 + 今日高延迟 → strong/struggle 信号（证据 `Metrics`、描述 `Latency increased by X%`）；负例（涨幅为 0 不触发）；signals 路径被目录占住时 metrics 照常落盘、信号回填后补写不重复 |
+| **W6** | 加固 | `scanner_wbtest.mbt` 的 F3 用例只覆盖 3/6 种清单形态 —— `.claude-plugin/plugin.json`、`.mcp.json`、`.zcode-plugin-seed.json` 从未在测试里出现过 | F3 用例扩到 6 种形态（断言含优先级与回退） |
+| **WEAK 4** | 加固 | `executor` 的 `items_of` 认 7 种 Change 种类，`push_task` 只派发 6 种 —— `SimplifyParams` 被接受却不产生任务，仅含它的提案分解出 0 个代码生成任务直接滑到 Completed | 补 `cg-params` 任务（`plan_changes` 目前还发不出该类，属预埋缺口）；新增「参数简化提案分解出 cg-params + tw + integ」用例 |
+| **WEAK 9** | 加固 | `dag.mbt` 的 `topo_layers` 用 `Map.set` 建索引，**重复任务 id 被静默覆盖** —— 依赖引用被遮蔽的 id 会解析到后一个同名任务 | 入口直接拒绝重复 id（消息带 id 与两个下标）；新增拒绝用例 + 「真·双父钻石」正例（`[c] → [a,b]` 两层） |
+| **WEAK 3** | 加固 | 空变更集提案的「仅验证」完成路径无测试（零任务 → 直接三级验证 → Completed） | 新增端到端用例：结果恰为 3 条 Validator、状态 Completed |
+| **jsonrpc** | 加固 | `parse_message` 从不校验 `jsonrpc` 版本字段（1.0 / 缺省 / 非字符串都收）—— 刻意宽容，但没被测试钉死 | 新增「宽容」用例组 + 文件头注释显式声明该行为；响应总是回 `"2.0"` |
+
+文档失实（改文档不改代码）：根 `SKILL.md`（文件结构还是 v1 布局、MCP 工具只列 7 个缺
+3 个工厂工具、`execute_evolution` 的 proposal_id 示例缺版本段、Sub-Agent 列表缺
+integration）；`skills/harness-evolution/SKILL.md`（frontmatter version 1.0.0、
+「启动时扫描」的失实声明、「每会话最大提案数: 3」指向已删除特性、进化强度写在
+AGENTS.md 而实际配置在 plugin.json、缺 MCP 工具清单）；`DESIGN.md` §4.1 的
+plugin.json 块缺 `agents`/`mcp`/`max_log_bytes`/`scan_targets`/`monitoring`/
+`devDependencies`（且后两者是「声明了但当前不生效」的配置孤岛，已如实注明）；
+`README.md`（「启动时扫描」×3 处、principle 映射核对位置 `behavior_wbtest` →
+`types_wbtest`、AGENTS.md 配置段落、v1 目录提示、工具表）；
+`executor/runner.mbt` 的「100 ms 与真实执行同量级」失实（真实是秒级，见
+`docs/subagent-factory.md` §1.2）。
+
+**本轮通则**：任何「枚举 → 消费」的映射（Change 种类 → 任务、清单形态 → 档案）
+都必须双向有测试；任何「宽松兼容」行为必须有一条测试把它钉死，否则没人知道
+它是刻意的。
+
 > **给下一位改动者的通则**：新增一个 `EngineConfig` 字段时，必须同时回答
 > 「谁解析它」（`types/config.mbt` 的 `from_json_checked`）与「**谁消费它**」
 > （engine 消费 `intensity` / `cooldown_hours`；monitor 经

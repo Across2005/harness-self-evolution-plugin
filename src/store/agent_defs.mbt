@@ -62,8 +62,14 @@ pub async fn AgentDefStore::exists(self : AgentDefStore, name : String) -> Bool 
 ///
 /// · 已存在且 `overwrite=false` → raise（消息含 "already exists"，
 ///   经 mcp 的 `call_tool` 变成 LLM 可自我纠正的 isError 响应）；
-/// · 已存在且 `overwrite=true` → `CreateOrTruncate` 整体覆盖，返回 `true`；
+/// · 已存在且 `overwrite=true` → 覆盖，返回 `true`；
 /// · 不存在 → 创建，返回 `false`。
+///
+/// ★ W4（store 评审）修复：覆盖改为 **tmp + rename 原子替换**，
+/// 与 `Jsonl::write_json_atomic` 同一配方。旧实现是 `CreateOrTruncate`
+/// **原地截断** —— 写中途崩溃会留下一个半截的 `<name>.md`，且
+/// `exists()` 检查与写入之间存在竞态窗口。rename 在同一文件系统内
+/// 是原子的：读者要么看到旧版全文，要么看到新版全文，永远不会看到半截。
 pub async fn AgentDefStore::write(
   self : AgentDefStore,
   name : String,
@@ -72,17 +78,20 @@ pub async fn AgentDefStore::write(
 ) -> Bool {
   let path = self.path_of(name)
   self.ensure_dir()
-  if @fs.exists(path) {
+  let existed = @fs.exists(path)
+  if existed {
     if !overwrite {
       raise Failure(
         "agent definition \"\{name}\" already exists at \{path}; pass overwrite=true to replace it",
       )
     }
-    @fs.write_file(path, content, create_mode=CreateOrTruncate)
-    return true
   }
-  @fs.write_file(path, content, create_mode=CreateOrTruncate)
-  false
+  // 统一走 tmp + rename：新文件与覆盖都是「写临时文件 → 原子改名」。
+  // 不存在时 rename 同等于创建；存在时原子替换。绝不原地截断目标。
+  let tmp = "\{path}.tmp"
+  @fs.write_file(tmp, content, create_mode=CreateOrTruncate)
+  @fs.rename(tmp, path)
+  existed
 }
 
 ///|

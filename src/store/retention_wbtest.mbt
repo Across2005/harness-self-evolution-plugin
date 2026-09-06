@@ -136,6 +136,43 @@ async test "trim_to keeps the newest records loadable" {
 }
 
 ///|
+/// ★ 评审 W2 的回归网：**文件以空行结尾**时，旧实现把「空行起点」
+/// 也算进候选窗口 —— 空行（1 字节）放得下、紧挨着它的真实记录
+/// （`"bb"` 行 = 5 字节）放不下，于是裁完只剩一个 `"\n"`，最新记录反而被丢。
+/// 这钉住的是「保留**最新的真实记录**」而非「保留最小的可行窗口」。
+async test "trim_to does not keep a trailing empty line over the newest record" {
+  let dir = @fs.tmpdir(prefix="evo-trim-10-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = @util.path_join(dir, "log.jsonl")
+  // 内容 = `"a"` 行（4 字节）+ `"bb"` 行（5 字节）+ 一个多余的收尾空行。
+  // 上限 4：空行（1 字节）放得下，而 `"bb"` 行（5 字节）放不下。
+  write_raw(path, "\"a\"\n\"bb\"\n\n")
+  let store = Jsonl::new(path)
+  assert_true(store.trim_to(4))
+  // 正确结果必须保住 `"bb"` 那行（`"bb"\n\n`，哪怕超出上限），而不是只留 "\n"。
+  // 裁后的收尾空行无害：load 跳过空行。
+  assert_eq(read_raw(path), "\"bb\"\n\n")
+  let loaded : Array[Json] = store.load()
+  assert_eq(loaded.length(), 1)
+  assert_eq(loaded[0], Json::string("bb"))
+}
+
+///|
+/// ★ W2 的第二个形状：文件末尾是**多个**空行时同样不得污染窗口选择。
+async test "trim_to skips multiple trailing blank lines" {
+  let dir = @fs.tmpdir(prefix="evo-trim-11-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = @util.path_join(dir, "log.jsonl")
+  write_raw(path, "\"a\"\n\"bb\"\n\n\n")
+  let store = Jsonl::new(path)
+  assert_true(store.trim_to(4))
+  assert_eq(read_raw(path), "\"bb\"\n\n\n")
+  let loaded : Array[Json] = store.load()
+  assert_eq(loaded.length(), 1)
+  assert_eq(loaded[0], Json::string("bb"))
+}
+
+///|
 /// 单行文件、且这一行自己就超过上限。`last_start` 只记「某个换行之后的起点」，
 /// 对单行文件它永远取不到值（唯一那行的起点是 0），旧实现于是落到「裁空」分支，
 /// 把仅存的一条证据抹掉。这钉的是 `trim_to` 文档里

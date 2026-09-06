@@ -883,6 +883,120 @@ async test "flush_buffers trims signals.jsonl down to the configured cap" {
 }
 
 ///|
+/// ★ 评审 W2 的回归网：**延迟回归信号**（legacy-ts L255-277）此前零测试覆盖。
+///
+/// 语义：日平均延迟相对周基线上涨超过 `latency_regression` 阈值 → strong/struggle
+/// 信号，证据来源标为 `Metrics(plugin_id)`。节流 30 秒（`deep_check_interval_ms`），
+/// 首次调用必触发，故 `record_tool_call` 会顺带跑一次深度检查。
+///
+/// 构造数据的要点：历史低延迟事件必须落在**周窗口内、日窗口外**
+/// （`now - 3 天`，日窗口是 1 天、周窗口是 7 天），否则日平均也会被拉低。
+async test "emits a latency-regression signal when the daily average exceeds the weekly baseline" {
+  let dir = @fs.tmpdir(prefix="evo-mon-w2-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  // 周基线：3 天前的低延迟事件（在周窗口内、日窗口外）
+  let baseline : Array[@types.PerformanceEvent] = []
+  let three_days_ago = @util.now_ms() - @types.TimeRange::LastDay.span_ms() * 3L
+  for i in 0..<5 {
+    baseline.push(event_at("p-1", "navigate", three_days_ago + i.to_int64()))
+  }
+  // 直接把基线写进 metrics.jsonl（模拟「历史观测」）
+  @store.Jsonl::new(metrics_path(dir)).append_many(baseline)
+
+  // 今天一次高延迟调用：首次调用触发深度检查 → 日平均 1000ms vs 周基线 ~175ms
+  mon.record_tool_call("p-1", "navigate", Json::empty_object(), 1000, true)
+  mon.shutdown()
+
+  let signals = load_signals(dir)
+  let regress = find_by_category(signals, @types.SignalCategory::Struggle)
+  assert_true(regress is Some(_), msg="延迟回归必须产出 struggle 信号")
+  match regress {
+    Some(s) => {
+      assert_eq(s.strength, @types.SignalStrength::Strong)
+      // 证据来源必须标成 Metrics，而不是会话内信号
+      assert_eq(s.evidence, @types.Evidence::Metrics("p-1"))
+      // 描述按 TS L270 的格式："Latency increased by X%"
+      assert_true(
+        s.description.has_prefix("Latency increased by"),
+        msg="got: \{s.description}",
+      )
+    }
+    None => ()
+  }
+}
+
+///|
+/// ★ W2 的负例：延迟**没有**超过阈值时不得产出回归信号。
+/// 今天一次与基线同量级的调用（10ms vs 基线 10ms）→ 涨幅为 0，不触发。
+async test "does not emit a latency-regression signal within the threshold" {
+  let dir = @fs.tmpdir(prefix="evo-mon-w2b-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  let three_days_ago = @util.now_ms() - @types.TimeRange::LastDay.span_ms() * 3L
+  let baseline : Array[@types.PerformanceEvent] = []
+  for i in 0..<5 {
+    // 基线 10ms：event_at 的默认 latency_ms 是 1，这里手动改成 10 的夹具
+    baseline.push(
+      {
+        ..event_at("p-1", "navigate", three_days_ago + i.to_int64()),
+        payload: @types.EventPayload::ToolCall({
+          ..tool_call("navigate"),
+          latency_ms: 10,
+        }),
+      },
+    )
+  }
+  @store.Jsonl::new(metrics_path(dir)).append_many(baseline)
+
+  // 今天一次同样 10ms 的调用：日平均与周基线持平，涨幅 ≈ 0
+  mon.record_tool_call("p-1", "navigate", Json::empty_object(), 10, true)
+  mon.shutdown()
+
+  let signals = load_signals(dir)
+  let mut regression_count = 0
+  for s in signals {
+    if s.category == @types.SignalCategory::Struggle {
+      regression_count += 1
+    }
+  }
+  assert_eq(regression_count, 0)
+}
+
+///|
+/// ★ 评审 W3 的回归网：H1 的**另一半** —— metrics 写失败不拖累 signals
+/// 已有用例（见上），反过来 **signals 写失败也不得拖累 metrics** 此前零覆盖。
+async test "a signals write failure does not block events from being stored" {
+  let dir = @fs.tmpdir(prefix="evo-mon-h1d-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+  // 占住 signals.jsonl 的位置：任何写文件的尝试都失败
+  @fs.mkdir(signals_path(dir), recursive=true)
+
+  mon.record_tool_call("p-1", "navigate", Json::empty_object(), 100, true)
+  // 负面反馈会产出一条 correction 信号 —— 它的落盘路径是坏的
+  mon.record_user_feedback("p-1", @types.UserFeedback::Negative)
+  mon.flush_buffers()
+
+  // metrics 正常落盘（它的路径没坏）
+  let events = load_events(dir)
+  assert_eq(events.length(), 1)
+  assert_eq(events[0].payload.tool_name(), Some("navigate"))
+  // 信号留在缓冲里，没有被连带丢掉，也没有把 flush 变成抛错
+  assert_eq(mon.signal_buffer.length(), 1)
+
+  // 故障解除后，同一批信号补落盘且不重复
+  @fs.rmdir(signals_path(dir), recursive=true)
+  mon.flush_buffers()
+  assert_eq(mon.signal_buffer.length(), 0)
+  let signals = load_signals(dir)
+  assert_eq(signals.length(), 1)
+  assert_eq(signals[0].category, @types.SignalCategory::Correction)
+}
+
+///|
 /// R：裁剪的失败必须被**独立兜住** —— 不得让 flush_buffers 重新开始抛错
 /// （H1 的承诺），也不得牵连 append 的成败判定（append 成功后若因裁剪
 /// 抛错而被判失败，事件会回填重试，造成重复落盘）。

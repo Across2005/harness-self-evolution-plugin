@@ -70,6 +70,9 @@ test "description validation requires a single line in 1..1024 characters" {
       "d".repeat(1025), // 1025 字符
       "line1\nline2", // \n
       "line1\r\nline2", // \r\n
+      " leading space", // 前导空白（★ B2：parse 会 trim，往返不恒等）
+      "trailing space ", // 尾随空白
+      " both ", // 两侧空白
     ] {
     let msg = try {
       make_def(description=bad).validate()
@@ -103,6 +106,36 @@ test "system_prompt validation requires 1..65536 characters" {
   // 65536 恰好合法；system_prompt 允许换行
   make_def(system_prompt="x".repeat(65536)).validate()
   make_def(system_prompt="第一行\n第二行").validate()
+}
+
+///|
+/// ★ 评审 B2 的回归网：system_prompt 的首/末行不得是空行。
+/// parse 会剥掉正文首尾空行（这是「剥 render 收尾换行」的既有逻辑），
+/// 若放行首尾空行，`render → parse` 往返不恒等 —— create 写入磁盘的
+/// 内容与 list 回显的内容不一致。校验在入口拒绝，而不是让调用方
+/// 在「磁盘内容」与「回显内容」之间二选一。
+test "system_prompt validation rejects leading/trailing blank lines" {
+  for
+    bad in [
+      "\n正文", // 首行为空行
+      "  \n正文", // 首行为空白行
+      "正文\n", // 末行为空行
+      "正文\n  ", // 末行为空白行
+      "\n正文\n", // 两侧空行
+    ] {
+    let msg = try {
+      make_def(system_prompt=bad).validate()
+      ""
+    } catch {
+      e => e.to_string()
+    }
+    assert_true(
+      msg.contains("invalid sub-agent system_prompt"),
+      msg="expected system_prompt blank-line rule failure, got: \{msg}",
+    )
+  }
+  // 正：内部空行合法，往返恒等（见 render/parse round-trip 用例）
+  make_def(system_prompt="第一行\n\n第二行").validate()
 }
 
 ///|

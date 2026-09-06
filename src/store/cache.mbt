@@ -30,11 +30,18 @@
 /// 三个分量各有分工：
 /// · `mtime_sec` / `mtime_nsec` —— 目录自身的修改时间，捕捉子项的**增删改名**
 /// · `entry_count` —— 直接子项数，与 mtime 互补（某些文件系统上 mtime 粒度很粗）
-/// · `child_mtime_sec` —— 直接子项中**最新**的 mtime，捕捉「文件被就地改写
-///   但目录结构未变」的情形。没这一项的话，作者改了 `SKILL.md` 内容
-///   而没增删文件，缓存就会陈旧 —— 对一个以「察觉插件变化」为职责的
-///   工具而言是不可接受的。成本是每个直接子项一次 stat（典型 < 20 次），
-///   远低于重扫所需的递归遍历 + 全文正则。
+/// · `child_mtime_ns` —— 直接子项中**最新**的 mtime（纳秒精度），捕捉
+///   「文件被就地改写但目录结构未变」的情形。没这一项的话，作者改了
+///   `SKILL.md` 内容而没增删文件，缓存就会陈旧 —— 对一个以「察觉插件变化」
+///   为职责的工具而言是不可接受的。成本是每个直接子项一次 stat
+///   （典型 < 20 次），远低于重扫所需的递归遍历 + 全文正则。
+///
+/// ★ W3/W5（store 评审）修复：旧字段 `child_mtime_sec` 只有秒精度。
+/// 同一秒内对子项内容的**就地改写**（`write_file` 覆写）不会改变目录 mtime，
+/// 若子项 mtime 也恰好落回同一秒，指纹就察觉不到变化 → 缓存陈旧。
+/// 纳秒精度把「内容重写」与「无变化」彻底区分开（现代文件系统 ns 分辨率）。
+/// 代价是缓存文件格式变化，故 `cache_version` 升至 3 —— 旧 v2 缓存被
+/// 版本校验丢弃后触发一次重扫（缓存是派生数据，丢弃只损失一次扫描）。
 ///
 /// 已知局限（已记录）：**嵌套**文件的就地改写（如 `skills/foo/SKILL.md`）
 /// 仍不会被察觉，因为它们不是插件根的直接子项。逃生门是
@@ -43,7 +50,7 @@ pub(all) struct DirFingerprint {
   mtime_sec : Int64
   mtime_nsec : Int
   entry_count : Int
-  child_mtime_sec : Int64
+  child_mtime_ns : Int64
 } derive(Eq, Debug, ToJson, @json.FromJson)
 
 ///|
@@ -61,7 +68,7 @@ struct CacheFile {
 } derive(Eq, Debug, ToJson, @json.FromJson)
 
 ///|
-let cache_version : Int = 2
+let cache_version : Int = 3
 
 ///|
 /// 扫描缓存。
@@ -97,13 +104,23 @@ pub async fn fingerprint_of(dir : String) -> DirFingerprint? {
   let names : Array[String] = @fs.readdir(dir, include_hidden=true, sort=true) catch {
     _ => return None
   }
-  // 直接子项中最新的 mtime（见 DirFingerprint 的文档：捕捉就地改写）
-  let mut newest : Int64 = 0L
+  // 直接子项中最新 mtime 的纳秒计数（见 DirFingerprint 的文档：
+  // 秒精度抓不到「同一秒内的就地改写」，故必须带 nsec）。
+  // `@fs.mtime` 返回 `(Int64, Int)` 的 (秒, 纳秒)；
+  // 统一换算成 Int64 纳秒计数再比较，负 mtime（1970 前）也正确。
+  // 用 Option 而非哨兵初值：任何子项 mtime 都可能为负，哨兵无法覆盖全部。
+  let mut newest : Int64? = None
   for name in names {
     let child = @util.path_join(dir, name)
     let stamp : (Int64, Int)? = Some(@fs.mtime(child)) catch { _ => None }
     match stamp {
-      Some((csec, _)) => if csec > newest { newest = csec }
+      Some((csec, cnsec)) => {
+        let ns = csec * 1_000_000_000L + cnsec.to_int64()
+        match newest {
+          Some(prev) => if ns > prev { newest = Some(ns) }
+          None => newest = Some(ns)
+        }
+      }
       None => ()
     }
   }
@@ -111,7 +128,7 @@ pub async fn fingerprint_of(dir : String) -> DirFingerprint? {
     mtime_sec: sec,
     mtime_nsec: nsec,
     entry_count: names.length(),
-    child_mtime_sec: newest,
+    child_mtime_ns: newest.unwrap_or(0L),
   })
 }
 

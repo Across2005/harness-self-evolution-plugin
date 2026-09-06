@@ -6,7 +6,7 @@
 
 Harness Self-Evolution Plugin 是一个为 DeepSeek Harness 框架设计的自进化插件，它能够：
 
-- **启动时扫描**：自动发现并分析所有 harness 插件
+- **插件扫描**：发现并分析 harness 插件（经 `scan_plugins` 工具触发）
 - **实时监控**：跟踪插件性能，检测异常模式
 - **智能分析**：基于 Matt Pocock 工程原则生成进化提案
 - **协同执行**：通过 Sub-Agent 协调完成升级
@@ -22,7 +22,7 @@ Harness Self-Evolution Plugin 是一个为 DeepSeek Harness 框架设计的自�
 │                    Harness Evolution Plugin                  │
 ├──────────────┬──────────────┬──────────────┬───────────────┤
 │   Scanner    │   Monitor    │    Engine    │    Executor   │
-│  (启动扫描)   │  (实时监控)  │  (进化分析)  │   (升级执行)  │
+│  (插件扫描)   │  (实时监控)  │  (进化分析)  │   (升级执行)  │
 └──────────────┴──────────────┴──────────────┴───────────────┘
                               │
                               ▼
@@ -33,11 +33,16 @@ Harness Self-Evolution Plugin 是一个为 DeepSeek Harness 框架设计的自�
                     └─────────────────┘
 ```
 
+> ⚠️ **没有「启动时自动扫描」**。本插件是 stdio MCP 服务器，只在被调用时工作：
+> 扫描靠 `scan_plugins` 工具（客户端启动时调一次即可建立档案）；
+> 监控事件由宿主在工具调用链上经 `record_tool_call` / `record_user_feedback`
+> 注入。进程自身启动只装配依赖、不碰磁盘扫描。
+
 ### 四大核心组件
 
 #### 1. Scanner - 插件扫描器
 
-启动时扫描所有 harness 插件，建立初始档案：
+扫描 harness 插件，建立初始档案（`scan_plugins` 工具触发）：
 
 - 解析 `plugin.json` 和 `SKILL.md`
 - 计算复杂度、接口清晰度、文档质量评分
@@ -121,7 +126,12 @@ zcode plugin link .
 
 ## 配置
 
-### 在 AGENTS.md 中配置
+### 配置来源（plugin.json，不是 AGENTS.md）
+
+> 配置只来自 `.zcode-plugin/plugin.json` 的 `evolution_config` 段
+> （查找顺序：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.zcode-plugin/plugin.json`
+> → 内置默认值）。**AGENTS.md 不参与任何配置解析** —— 下面的示例块只是为了
+> 直观展示各项含义，实际必须写进 plugin.json。
 
 ```markdown
 ## Self-Evolution
@@ -170,15 +180,16 @@ zcode plugin link .
 
 ## 使用
 
-### 自动模式
+### 调用模式
 
-插件会在以下时机自动运行：
+本插件是 MCP 服务器，一切行为都由**工具调用**驱动：
 
-1. **启动时**：扫描所有插件，建立档案
-2. **运行中**：监控插件性能，累积信号
-3. **信号触发**：检测到足够信号时，生成提案
+1. **扫描**：客户端调用 `scan_plugins` 建立档案
+2. **监控**：宿主在工具调用链上经 `record_tool_call` / `record_user_feedback`
+   注入事件，累积信号
+3. **提案**：`propose_evolution` 基于信号/手动 `signals` 生成提案
 
-> ⚠️ 第 2、3 步**目前跑不起来**：本插件没有「其他插件被调用」的事件来源
+> ⚠️ 第 2 步**目前没有生产调用方**：本插件没有「其他插件被调用」的事件来源
 > （`record_tool_call` / `record_user_feedback` 无生产调用方，1.0 亦如此），
 > 所以 `metrics.jsonl` 不会有数据、信号不会自动触发。可用的是手动路径：
 > `propose_evolution` → `approve_proposal` → `execute_evolution`
@@ -218,7 +229,8 @@ zcode plugin link .
 
 > 这张表与 `CONTEXT.md` 的「Matt Pocock 原则 ↔ 进化类型」是**同一份映射**，
 > 代码里的单一事实来源是 `types/proposal.mbt` 的 `EvolutionType::principle`，
-> 由 `types/behavior_wbtest.mbt` 逐条核对。1.0 版的 README 在这里有 3 处与
+> 由 `src/types/types_wbtest.mbt` 的「principle 映射」用例（L260-280 附近）
+> 逐条核对。1.0 版的 README 在这里有 3 处与
 > CONTEXT.md 不一致（`error_handling_improvement` / `capability_extension` /
 > `performance_tuning`），2.0 已按代码实际行为更正。
 

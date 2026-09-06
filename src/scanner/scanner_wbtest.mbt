@@ -258,10 +258,37 @@ async test "F3: accepts the six manifest forms, in priority order" {
     make_plugin(tmp, "skill-only", [("SKILL.md", "# Just a skill\ncan read")]),
   )
 
+  // ★ 评审 W6 补齐：余下三种清单形态此前从未在测试里出现过。
+  // · .claude-plugin/plugin.json（Claude 插件的清单）
+  // · .mcp.json（MCP server 清单，结构无 name/version → 回退目录名 + 0.0.0）
+  // · .zcode-plugin-seed.json（seed 清单，优先级高于 SKILL.md）
+  let claude_seed =
+    #|{"name":"from-claude","version":"3.3.3"}
+  ignore(
+    make_plugin(tmp, "claude-form", [
+      (".claude-plugin/plugin.json", claude_seed),
+    ]),
+  )
+  let mcp_seed =
+    #|{"mcpServers":{"demo":{"command":"demo"}}}
+  ignore(
+    make_plugin(tmp, "mcp-only", [
+      (".mcp.json", mcp_seed),
+    ]),
+  )
+  let seed_seed =
+    #|{"name":"from-seed","version":"4.4.4"}
+  ignore(
+    make_plugin(tmp, "seed-form", [
+      (".zcode-plugin-seed.json", seed_seed),
+      ("SKILL.md", "# seed\ncan read"), // SKILL.md 优先级最低，不应胜出
+    ]),
+  )
+
   let scanner = test_scanner(tmp)
   scanner.scan_root(tmp, @types.PluginKind::Official)
 
-  assert_eq(scanner.count(), 3)
+  assert_eq(scanner.count(), 6)
   assert_true(scanner.get("mimosa-1.0.3") is Some(_))
   // .zcode-plugin/plugin.json 胜出
   assert_true(scanner.get("from-zcode-1.1.1") is Some(_))
@@ -271,6 +298,12 @@ async test "F3: accepts the six manifest forms, in priority order" {
   assert_eq(fallback.name, "skill-only")
   assert_eq(fallback.version, "0.0.0")
   json_inspect(fallback.capabilities, content=["read"])
+  // 三种新形态：
+  assert_true(scanner.get("from-claude-3.3.3") is Some(_))
+  // .mcp.json 无 name/version → 回退
+  assert_true(scanner.get("mcp-only-0.0.0") is Some(_))
+  // .zcode-plugin-seed.json 提供元数据，且不被同目录的 SKILL.md 顶掉
+  assert_true(scanner.get("from-seed-4.4.4") is Some(_))
 }
 
 ///|
@@ -283,8 +316,10 @@ async test "F2: a ghost cache entry does not resurrect itself on the next scan" 
   let cache_path = @util.path_join(tmp, "plugin-cache.json")
 
   // 手工写一份毒化缓存：条目指向一个不存在的目录（复刻实测的那份 526 字节文件）
+  // 格式必须与当前 cache_version 一致，否则在版本校验处就被整份丢弃，
+  // 这条用例就测不到「幽灵条目被逐条判无效」的 validate 路径了。
   let poisoned =
-    #|{"version":2,"plugins":[{"profile":{"plugin_id":"cached-plugin-0.1.0","name":"cached-plugin","version":"0.1.0","kind":"official","capabilities":[],"tools":[],"events":[],"dependencies":[],"scanned_at":"1757000000000","path":"__GHOST__/cached-plugin","initial_metrics":{"complexity_score":2.0,"interface_clarity":9.0,"documentation_quality":5.0,"usage_frequency":"idle"}},"fingerprint":{"mtime_sec":"1","mtime_nsec":0,"entry_count":3,"child_mtime_sec":"1"}}]}
+    #|{"version":3,"plugins":[{"profile":{"plugin_id":"cached-plugin-0.1.0","name":"cached-plugin","version":"0.1.0","kind":"official","capabilities":[],"tools":[],"events":[],"dependencies":[],"scanned_at":"1757000000000","path":"__GHOST__/cached-plugin","initial_metrics":{"complexity_score":2.0,"interface_clarity":9.0,"documentation_quality":5.0,"usage_frequency":"idle"}},"fingerprint":{"mtime_sec":"1","mtime_nsec":0,"entry_count":3,"child_mtime_ns":"1000000000"}}]}
   let ghost = poisoned.replace_all(
     old="__GHOST__",
     new=@util.path_join(tmp, "already-deleted"),
@@ -430,4 +465,43 @@ async test "all() returns profiles in deterministic discovery order" {
   json_inspect(first_run, content=["alpha-1.0.0", "mid-1.0.0", "zeta-1.0.0"])
   // content= 只接受字面量，比对两个运行时数组用 assert_eq
   assert_eq(second_run, first_run)
+}
+
+///|
+/// ★ W10（scanner 评审）的回归网：`list_files_recursive` 必须有深度上限。
+/// 旧实现没有深度边界 —— Windows 的目录 junction 可以构成环
+/// （`a/junction → a`），递归会无限下钻直到栈溢出崩溃。
+/// junction 无法在 MoonBit 测试里创建（`@fs` 无 symlink API），
+/// 于是用**超过上限的深链**等价地踩同一条代码路径：
+/// 若上限失效，40 层深链会递归 40 层（旧实现还会继续），
+/// 而正确的实现停在 `max_files_depth` 并告警。
+/// 断言「深处文件的查找结果是确定且有限的」—— 不依赖具体层数。
+async test "list_files_recursive stops at the depth cap (W10)" {
+  let tmp = @fs.tmpdir(prefix="evo-scan-")
+  defer @fs.rmdir(tmp, recursive=true)
+
+  // 造一条 40 层深的链，最深处放一个 SKILL.md
+  let mut deep = tmp
+  for i in 0..<40 {
+    deep = @util.path_join(deep, "d\{i}")
+  }
+  @fs.mkdir(deep, recursive=true)
+  @fs.write_file(
+    @util.path_join(deep, "SKILL.md"),
+    "# deep",
+    create_mode=CreateOrTruncate,
+  )
+  // 浅处也放一个：深度上限不应挡掉正常布局的文件
+  @fs.write_file(
+    @util.path_join(tmp, "SKILL.md"),
+    "# shallow",
+    create_mode=CreateOrTruncate,
+  )
+
+  // 必须终止（旧实现这里会栈溢出/挂死），且能正常找到浅处文件
+  let files = list_files_recursive(tmp, fn(name) { name == "SKILL.md" })
+  assert_true(files.contains(@util.path_join(tmp, "SKILL.md")))
+  // 深处文件在 32 层上限之外，不得被找到
+  let too_deep = @util.path_join(deep, "SKILL.md")
+  assert_false(files.contains(too_deep))
 }
