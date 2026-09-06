@@ -127,13 +127,32 @@ pub async fn AgentDefStore::remove(self : AgentDefStore, name : String) -> Unit 
 /// · 按字典序排序 —— `@fs.readdir` 的 `sort` 不承诺字典序，且实测
 ///   `String` 的 `<` 先比长度（结论 T16），显式 `lexical_compare`
 ///   才有确定性的输出顺序（决策 D10）。
+/// · 目录存在但**读不动**（权限故障、竞态删除、路径被文件占据）
+///   → 仍返回空数组，但**留一行 warn**：不把「读不动」说成「没有定义」
+///   （第五轮 W11，与 jsonl / cache 的吞错口径对齐）。
 pub async fn AgentDefStore::list(self : AgentDefStore) -> Array[String] {
   if !@fs.exists(self.dir) {
     return []
   }
-  // readdir 失败（权限、竞态删除）时当作空目录：列表路径不让 I/O 抖动炸掉
-  let names : Array[String] = @fs.readdir(self.dir, include_hidden=true) catch {
-    _ => []
+  // readdir 失败（权限故障、竞态删除、目录位置被文件占据）
+  // 时列表路径不炸，但也不能把「读不动」伪装成「没有定义」
+  // ——调用方（MCP `list_sub_agents`）会把权限故障读成「一个子 Agent
+  // 都没定义」。store/ 其余吞错处（jsonl 跳坏行、cache 忽略坏缓存）
+  // 都留一行日志，这里同口径。★ 第五轮 W11。
+  let readdir : Result[Array[String], String] = Ok(
+    @fs.readdir(self.dir, include_hidden=true),
+  ) catch {
+    e => Err(e.to_string())
+  }
+  let names : Array[String] = match readdir {
+    Ok(ns) => ns
+    Err(reason) => {
+      @util.log_warn(
+        "Store",
+        "Cannot list agent definitions in \{self.dir}: \{reason}; reporting no definitions",
+      )
+      []
+    }
   }
   let out : Array[String] = []
   for n in names {

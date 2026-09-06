@@ -361,7 +361,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 // .zcode-plugin/plugin.json
 {
   "name": "harness-self-evolution",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",

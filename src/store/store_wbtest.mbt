@@ -715,3 +715,20 @@ async test "AgentDefStore lists nothing when the directory does not exist" {
   assert_eq(store.list(), [])
   assert_eq(@fs.exists("\{dir}/absent"), false)
 }
+
+///|
+/// ★ 第五轮 W11：目录位置被**文件**占据时 `@fs.exists` 仍为真、
+/// `@fs.readdir` 必然失败。旧实现用 `catch { _ => [] }` 把它和「目录里
+/// 真的没有定义」混为一谈；现在返回空数组的同时必须留一行 warn。
+/// 日志本身不在断言范围内（`@stdio.stderr` 无法在用例里回收），
+/// 本用例钉的是新的错误分支本身：不抛错、返回空。
+async test "AgentDefStore lists nothing when the directory cannot be read" {
+  let dir = @fs.tmpdir(prefix="evo-agent-defs-")
+  defer @fs.rmdir(dir, recursive=true)
+  let store = AgentDefStore::at("\{dir}/agents")
+  let _ = store.write("alpha", "alpha-content", overwrite=false)
+  // 把「目录」指向一个真实存在的**文件**：readdir 在这里一定失败
+  let blocked = AgentDefStore::at(store.path_of("alpha"))
+  assert_true(@fs.exists(store.path_of("alpha")))
+  assert_eq(blocked.list(), [])
+}

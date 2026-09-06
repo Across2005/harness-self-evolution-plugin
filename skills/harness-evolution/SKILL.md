@@ -1,7 +1,7 @@
 ---
 name: harness-evolution
 description: DeepSeek Harness 全盘自进化升级插件。扫描所有插件，监控性能，基于 Matt Pocock 原则生成进化提案，通过子 Agent 协同完成升级。当用户需要优化插件性能、简化接口、改进文档或扩展能力时使用。
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Harness Self-Evolution

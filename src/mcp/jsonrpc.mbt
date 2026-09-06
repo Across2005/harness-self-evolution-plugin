@@ -40,10 +40,13 @@ pub let default_protocol_version : String = "2024-11-05"
 ///|
 /// 服务名与版本。名字逐字取自 legacy-ts/src/mcp/server.ts L85；
 /// 版本随「运行时从 Node 换成 native exe」这一 breaking change 升到 2.0.0。
+/// 2.1.0：新增子 Agent 工厂（`src/factory/`、`store/agent_defs.mbt`、
+/// `types/agent_scope.mbt` + 3 个 MCP 工具，向后兼容）。文档与代码注释早已
+/// 称 v2.1，此处补齐机器可读元数据（第五轮）。
 pub let server_name : String = "harness-self-evolution"
 
 ///|
-pub let server_version : String = "2.0.0"
+pub let server_version : String = "2.1.0"
 
 // JSON-RPC 2.0 的标准错误码
 
