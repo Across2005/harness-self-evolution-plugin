@@ -3,9 +3,9 @@
 > 让 DeepSeek Harness 的插件生态持续自我进化 —— 扫描 → 监控 → 识别 → 提案 → 人工审批 → 真实升级。
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
-[![Version: 2.2.0](https://img.shields.io/badge/version-2.2.0-1f6feb.svg)](.zcode-plugin/plugin.json)
+[![Version: 2.3.0](https://img.shields.io/badge/version-2.3.0-1f6feb.svg)](.zcode-plugin/plugin.json)
 [![Runtime: MoonBit native](https://img.shields.io/badge/runtime-MoonBit%20native-ff7a18.svg)](moon.mod)
-[![Total tests: 334/334](https://img.shields.io/badge/tests-334%2F334-22cc22.svg)](CONTEXT.md)
+[![Total tests: 347/347](https://img.shields.io/badge/tests-347%2F347-22cc22.svg)](CONTEXT.md)
 [![Gate: 0/0](https://img.shields.io/badge/gate-%20%E2%9C%93%20passing-22cc22.svg)](build.ps1)
 [![Platform: Windows / Linux / macOS](https://img.shields.io/badge/platform-win%20%7C%20linux%20%7C%20macos-informational.svg)]()
 
@@ -19,10 +19,11 @@
 
 挂在 DeepSeek Harness 上的自进化插件。用户全程只介入一处：看提案，点同意或不同意。
 
-### 最新进展（v2.2.0，2026-09-08）
+### 最新进展（v2.3.0，2026-09-08）
 
 | 轮次 | 提交 | 关键变化 |
 |------|------|---------|
+| 2.3.0 | `a2381fd` | **v2.3.0 收尾**：monitor.mbt 缩 367 行（抽到 `monitor/deep_check.mbt` / `monitor/flush.mbt`），config.mbt 缩 197 行（抽到 `types/config_helpers.mbt`）；`ServerState::with_harness_config` 统一三段配置；五处版本元数据升 2.3.0 |
 | 2.2.0 | `8b9970e` | **接通 `scan_targets` 配置孤岛**：`plugin.json` 的 `scan_targets` 段真正驱动扫描根，支持 `~/...` 展开，缺失/类型不符/为空都回退默认根并点名告警；新增 `ScanConfig::from_plugin_json` 纯解析函数和 8 个白盒用例 |
 | 2.2.0 | `8b9970e` | 五处版本元数据一并升 2.2.0（`moon.mod` / `plugin.json` / `jsonrpc server_version` / `DESIGN.md` 镜像 / `SKILL.md` frontmatter） |
 | 第六轮 | `b9392eb` | 信号缓冲有界化（`max_buffered_signals=500`，溢出丢最旧）；`num_field` 拒绝 `NaN` / `Infinity`；删除全仓零调用点的 `::at` 生产构造器 |
@@ -30,14 +31,14 @@
 | 第五轮 | `b309000` | `AgentDefStore::list` 把「读不动」改告警；版本元数据补齐 2.1.0 |
 | v2.1 | `0d3b0ce` | 子 Agent 工厂落地：3 个 MCP 工具管理两个作用域（plugin / user）的定义文件 |
 
-完整门禁（`build.ps1 -Task all`）：`Total tests: 334, passed: 334, failed: 0.`，退出码 0，产物 `bin/harness-evolution.exe` 1,293,824 B，独立两跑一致。
+完整门禁（`build.ps1 -Task all`）：`Total tests: 347, passed: 347, failed: 0.`，退出码 0，产物 `bin/harness-evolution.exe` 1,293,824 B，独立两跑一致。
 
 ### 特性
 
 - **插件扫描**：解析 `plugin.json` / `SKILL.md`，评复杂度、接口清晰度、文档质量。
 - **指标采集**：按调用记录延迟、成功率、Token 开销；热路径不读盘，深度检查按节流间隔。
 - **信号识别**：强信号（用户纠正 / 连续失败 ≥ 3 / 指标下滑 > 20%）立即触发；中信号累积；弱信号只记录。
-- **提案生成**：六类进化提案绑定 Matt Pocock 工程原则；24 小时冷却、每会话上限 3 条、重复丢弃。
+- **提案生成**：八类进化提案绑定 Matt Pocock 工程原则；24 小时冷却、每会话上限 3 条、重复丢弃。
 - **执行验证**：状态机 `pending → approved → executing → completed`，非 `approved` 拒绝执行。
 - **子 Agent 工厂（v2.1）**：3 个 MCP 工具（`create_sub_agent` / `list_sub_agents` / `delete_sub_agent`）管理两个作用域的 Markdown + YAML frontmatter 定义文件；路径 A 出厂模板、路径 B 动态管理均已上线，路径 C（OCR 触发真实派发）待平台回调。
 
@@ -173,7 +174,7 @@ zcode plugin link .
 3. **提案**：`propose_evolution` 基于信号生成提案。
 4. **执行**：`approve_proposal` → `execute_evolution`（必经人工审批）。
 
-### MCP 工具（10 个）
+### MCP 工具（13 个）
 
 | 工具 | 作用 |
 |------|------|
@@ -187,6 +188,9 @@ zcode plugin link .
 | `create_sub_agent` | 创建子 Agent 定义文件（v2.1） |
 | `list_sub_agents` | 列出子 Agent 定义（v2.1，可按 `scope` 过滤） |
 | `delete_sub_agent` | 删除子 Agent 定义（v2.1） |
+| `analyze_plugins` | 合并工具：扫描并/或获取指标（v2.3，`mode=scan/metrics/both`） |
+| `evolve_plugin` | 合并工具：生成或执行提案（v2.3，`action=propose/execute`） |
+| `manage_sub_agent` | 合并工具：管理子 Agent 定义（v2.3，`action=create/list/delete`） |
 
 ### 数据存储
 
@@ -285,7 +289,7 @@ npx jest          # 37 个用例
 
 A self-evolution plugin for the [DeepSeek Harness](https://github.com/deepseek-ai) ecosystem. It scans plugins, monitors performance, detects signals, drafts upgrade proposals, and (only after explicit human approval) executes the upgrade. The user touches it in exactly one place: reviewing proposals.
 
-### Latest (v2.2.0, 2026-09-08)
+### Latest (v2.3.0, 2026-09-08)
 
 - **Closed the last config island**: `plugin.json`'s `scan_targets` field now actually drives the scanner roots (with `~/...` expansion, type-checked, fall-back-with-warn on missing/malformed/empty).
 - **Signal buffer bounded** (`max_buffered_signals=500`, drop-oldest on overflow).

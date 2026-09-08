@@ -493,6 +493,19 @@ fn push_task(
 }
 
 ///|
+/// 代码生成任务的专用辅助函数，封装 CodeGenerator agent 的重复参数。
+fn push_cg_task(
+  tasks : Array[@types.SubAgentTask],
+  changes : ArrayView[@types.Change],
+  kind : @types.ChangeKind,
+  id : String,
+  description : String,
+  timeout_ms : Int,
+) -> Unit {
+  push_task(tasks, changes, kind, id, @types.AgentType::CodeGenerator, description, timeout_ms)
+}
+
+///|
 /// 把提案分解为 Sub-Agent 任务。取代 TS L137-223。
 ///
 /// 任务的**追加顺序**与 TS 一致：
@@ -517,12 +530,11 @@ pub fn decompose_tasks(
   let changes = proposal.proposed_changes
 
   // 代码生成任务（TS L142-185 的固定顺序）
-  push_task(
+  push_cg_task(
     tasks,
     changes,
     @types.ChangeKind::MergeTools,
     "cg-merge",
-    @types.AgentType::CodeGenerator,
     "实现工具合并：创建新工具并保留向后兼容性",
     120_000,
   )
@@ -530,53 +542,47 @@ pub fn decompose_tasks(
   // 之前只为 6 种派发任务 —— `SimplifyParams` 被 `items_of` 接受却没有任何
   // `push_task` 消费它，于是「仅参数简化」的提案分解出 0 个代码生成任务，
   // 直接滑到 Completed（验证路径唯一，executor 仍照常标记完成）。
-  // `plan_changes` 目前还发不出该种类（planning.mbt 的 TODO(param-simplification)），
-  // 但调用方迟早会接上 —— 现在把缺口补上，避免届时静默滑过。
-  push_task(
+  // `plan_param_simplification`（planning.mbt）现已实现，
+  // 基于工具命名模式生成参数简化建议。
+  push_cg_task(
     tasks,
     changes,
     @types.ChangeKind::SimplifyParams,
     "cg-params",
-    @types.AgentType::CodeGenerator,
     "简化工具参数：收敛参数列表并保持向后兼容",
     60_000,
   )
-  push_task(
+  push_cg_task(
     tasks,
     changes,
     @types.ChangeKind::AddMiddleware,
     "cg-middleware",
-    @types.AgentType::CodeGenerator,
     "实现中间件：添加行为优化逻辑",
     60_000,
   )
-  // ★ WEAK 4 修复后的下一个占位：`plan_changes` 目前还发不出 OptimizeFlow
-  // （planning.mbt 的 TODO(flow-optimization) 恒返回 []），该分支当前不可达，
-  // 由穷尽 match 要求而存在。实现该 TODO 时需验证此处的任务派发是否正确。
-  push_task(
+  // ★ `plan_flow_optimization`（planning.mbt）现已实现，
+  // 基于 Loop 信号生成 OptimizeFlow 批处理建议。
+  push_cg_task(
     tasks,
     changes,
     @types.ChangeKind::OptimizeFlow,
     "cg-flow",
-    @types.AgentType::CodeGenerator,
     "实现性能优化：优化工具调用流程",
     90_000,
   )
-  push_task(
+  push_cg_task(
     tasks,
     changes,
     @types.ChangeKind::AddCapability,
     "cg-capability",
-    @types.AgentType::CodeGenerator,
     "实现新能力：扩展插件功能",
     120_000,
   )
-  push_task(
+  push_cg_task(
     tasks,
     changes,
     @types.ChangeKind::ImproveErrorHandling,
     "cg-error",
-    @types.AgentType::CodeGenerator,
     "改进错误处理：增强用户体验",
     60_000,
   )

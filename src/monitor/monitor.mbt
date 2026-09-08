@@ -61,17 +61,7 @@ pub fn new_session_id() -> String {
   "sess_\{@util.now_ms().to_string(radix=36)}_\{n.to_string(radix=36)}"
 }
 
-///|
-/// `Double` 保留 1 位小数的定点格式化，对齐 JS 的 `toFixed(1)`。
-/// 仅用于 `Latency increased by X%` 这条信号描述（TS L270）。
-///
-/// 只对**非负**入参正确（JS 的 toFixed 对负数另有规则）；
-/// 调用点的 `increase` 恒 > 0.2，故安全。
-fn fixed1(d : Double) -> String {
-  let scaled = d * 10.0 + 0.5
-  let rounded = scaled.to_int()
-  "\{rounded / 10}.\{rounded % 10}"
-}
+// `fixed1` 与 `maybe_deep_check` 已拆分至 deep_check.mbt。
 
 ///|
 /// 性能监控器。
@@ -90,10 +80,12 @@ pub struct PerformanceMonitor {
   trailing : Map[String, TrailingState]
   /// 已发射过 loop 信号的 `plugin:tool` 集合（对应 TS L38 loopReported）。
   /// 用 Map 而非 Set：只需存在性，且 Map 的 remove/contains 已确认可用。
-  loop_reported : Map[String, Unit]
+  /// 使用 @ref.Ref 包装，允许 check_threshold_and_report 辅助函数就地修改。
+  loop_reported : @ref.Ref[Map[String, Unit]]
   /// 已发射过 struggle 信号的插件集合（解决已知缺陷#11）。
   /// 每个插件只报告一次 struggle 信号，直到连续失败解除后才能再次报告。
-  struggle_reported : Map[String, Unit]
+  /// 使用 @ref.Ref 包装，允许 check_threshold_and_report 辅助函数就地修改。
+  struggle_reported : @ref.Ref[Map[String, Unit]]
   /// 每插件上次深度检查的时刻（对应 TS L36 lastDeepCheckAt）
   last_deep_check_at : Map[String, Int64]
   /// 信号阈值（默认取 TS 的三个硬编码常量，可由配置覆盖）
@@ -135,8 +127,8 @@ pub fn PerformanceMonitor::with_thresholds(
     signal_buffer: [],
     session_events: @deque.Deque([], capacity=max_session_events),
     trailing: Map([]),
-    loop_reported: Map([]),
-    struggle_reported: Map([]),
+    loop_reported: @ref.Ref(Map([])),
+    struggle_reported: @ref.Ref(Map([])),
     last_deep_check_at: Map([]),
     thresholds,
     max_log_bytes,
@@ -361,12 +353,13 @@ async fn PerformanceMonitor::check_for_signals(
 
   // 连续失败 >= 阈值 → strong/struggle（对齐 TS L227-232）
   // 添加去重机制：每个插件只报告一次 struggle 信号，直到连续失败解除后才能再次报告
-  if state.consecutive_failures < self.thresholds.consecutive_failures {
-    // 低于阈值时清除「已报告」标记，于是下一轮循环能再次上报
-    self.struggle_reported.remove(plugin_id)
-  } else if !self.struggle_reported.contains(plugin_id) {
-    // 达到阈值且本轮尚未报告过时，只发一次 strong/struggle
-    self.struggle_reported.set(plugin_id, ())
+  let should_emit_struggle = check_threshold_and_report(
+    self.struggle_reported,
+    plugin_id,
+    self.thresholds.consecutive_failures,
+    state.consecutive_failures,
+  )
+  if should_emit_struggle {
     self.enqueue_signal(
       make_signal(
         plugin_id,
@@ -380,14 +373,15 @@ async fn PerformanceMonitor::check_for_signals(
     )
   }
 
-  // 连续同名工具（对齐 TS L235-246）：
-  // 低于阈值时清除「已报告」标记，于是下一轮循环能再次上报；
-  // 达到阈值且本轮尚未报告过时，只发一次 medium/loop。
+  // 连续同名工具（对齐 TS L235-246）
   let loop_key = "\{plugin_id}:\{tool}"
-  if state.same_tool_run < self.thresholds.loop_detection {
-    self.loop_reported.remove(loop_key)
-  } else if !self.loop_reported.contains(loop_key) {
-    self.loop_reported.set(loop_key, ())
+  let should_emit_loop = check_threshold_and_report(
+    self.loop_reported,
+    loop_key,
+    self.thresholds.loop_detection,
+    state.same_tool_run,
+  )
+  if should_emit_loop {
     self.enqueue_signal(
       make_signal(
         plugin_id,
@@ -405,6 +399,30 @@ async fn PerformanceMonitor::check_for_signals(
 
   // 深度检查：延迟回归对比（对齐 TS L249 的 `await this.maybeDeepCheck(pluginId)`）
   self.maybe_deep_check(plugin_id)
+}
+
+///|
+/// 通用阈值检查与去重逻辑。封装 struggle/loop 两处共享的模式：
+/// · 低于阈值时清除「已报告」标记，于是下一轮循环能再次上报
+/// · 达到阈值且本轮尚未报告过时，设置标记并返回 true（应发射信号）
+/// · 其他情况返回 false
+///
+/// 使用 `@ref.Ref` 包装 Map，允许就地修改（MoonBit 的 Map 是值类型）。
+fn check_threshold_and_report(
+  reported : @ref.Ref[Map[String, Unit]],
+  key : String,
+  threshold : Int,
+  current_value : Int,
+) -> Bool {
+  if current_value < threshold {
+    reported.val.remove(key)
+    false
+  } else if !reported.val.contains(key) {
+    reported.val.set(key, ())
+    true
+  } else {
+    false
+  }
 }
 
 ///|
@@ -502,296 +520,9 @@ pub fn PerformanceMonitor::pending_event_count(
   self.event_buffer.length()
 }
 
-// ============================================================================
-// 深度检查（受节流的磁盘对比）
-// ============================================================================
+// 深度检查函数已拆分至 deep_check.mbt（fixed1 / maybe_deep_check）。
 
-///|
-/// 节流的延迟回归检查。取代 legacy-ts L255-277。
-///
-/// 保留 TS 的语义：日平均延迟相对周基线上涨超过阈值 → strong/struggle 信号，
-/// 证据来源标为 `Metrics(plugin_id)`（对应 TS L271 的 `metrics:${pluginId}`）。
-///
-/// 失败只记日志、不上抛（对齐 TS L274-276 的 try/catch + console.error）：
-/// 深度检查是**附加**信号源，它坏了不该让 `recordToolCall` 整条失败。
-///
-/// ★ **单次读盘优化**：TS 版调 `getStatistics` 两次（day / week），每次都走
-/// `flushBuffers() → load()` 全量读盘 + JSON 解析。深度检查被节流到 30s 一次，
-/// 但一次检查内的两次 `load()` 仍是纯粹的重复 I/O。
-/// 改为：先 flush 一次 + load 一次，再从同一批原始事件里按两个时间窗口
-/// 分别过滤、分别 summarize。外部语义完全不变（先 flush 后算），
-/// 内部 I/O 减半。
-async fn PerformanceMonitor::maybe_deep_check(
-  self : PerformanceMonitor,
-  plugin_id : String,
-) -> Unit {
-  let now = @util.now_ms()
-  let last = self.last_deep_check_at.get(plugin_id).unwrap_or(0L)
-  if now - last < deep_check_interval_ms {
-    return
-  }
-  self.last_deep_check_at.set(plugin_id, now)
+// 落盘与生命周期相关函数已拆分至 flush.mbt（flush_buffers / trim_quietly /
+// bounded_requeue / requeue_into / shutdown / run_flush_loop）。
 
-  let outcome : Result[Unit, String] = try {
-    // 单次 flush + load：把两次 get_statistics 的共用路径提出来
-    self.flush_buffers()
-    let all : Array[@types.PerformanceEvent] = self.metrics.load()
-    let now_ms = @util.now_ms()
-    let day_cutoff = @types.TimeRange::LastDay.cutoff_ms(now_ms)
-    let week_cutoff = @types.TimeRange::LastWeek.cutoff_ms(now_ms)
-    let day_calls : Array[@types.ToolCallData] = []
-    let week_calls : Array[@types.ToolCallData] = []
-    for event in all {
-      if event.plugin_id != plugin_id {
-        continue
-      }
-      match event.payload {
-        @types.EventPayload::ToolCall(d) => {
-          if event.ts >= week_cutoff {
-            week_calls.push(d)
-          }
-          if event.ts >= day_cutoff {
-            day_calls.push(d)
-          }
-        }
-        _ => ()
-      }
-    }
-    let day = summarize(day_calls)
-    let week = summarize(week_calls)
-    if week.avg_latency_ms > 0.0 {
-      let increase = (day.avg_latency_ms - week.avg_latency_ms) /
-        week.avg_latency_ms
-      if increase > self.thresholds.latency_regression {
-        self.enqueue_signal(
-          make_signal(
-            plugin_id,
-            @types.SignalStrength::Strong,
-            @types.SignalCategory::Struggle,
-            "Latency increased by \{fixed1(increase * 100.0)}%",
-            @types.Evidence::Metrics(plugin_id),
-            None,
-            None,
-          ),
-        )
-      }
-    }
-    Ok(())
-  } catch {
-    e => Err(e.to_string())
-  }
-  match outcome {
-    Ok(_) => ()
-    Err(msg) => @util.log_error("Monitor", "Deep check failed: \{msg}")
-  }
-}
 
-// ============================================================================
-// 落盘与生命周期
-// ============================================================================
-
-///|
-/// 把两个缓冲落盘；写成功才清空，写失败则回填等下一轮重试。
-/// 取代 legacy-ts L381-391（那边的行为差异见下方 ★ 与 CONTEXT.md 的 H1）。
-///
-/// ★ **必须「先换出、后 await」**：换出与清空之间没有任何 await 点，
-/// 而 MoonBit async 是单线程协作式调度、只在 await 处让出，
-/// 故不可能有另一个任务在中间插入 → 无需互斥锁，也不可能重入。
-/// 对比 TS L56 的 `void this.flushBuffers()`：丢弃 Promise 既吞掉异常，
-/// 又允许定时器与手动调用重入。
-///
-/// ★ **落盘失败既不丢数据也不外抛**（对原实现的修正，见 CONTEXT.md）：
-/// `store/jsonl.mbt` 有意把 `append` / `append_many` 的 I/O 错误直接 raise，
-/// 但原来的调用方正是最不该接这个 raise 的地方 —— 事件已经 `clear` 出缓冲，
-/// 一抛就永久丢失；而 `run_flush_loop` 的循环体没有兜错，
-/// 任务一抛周期 flush 就再也不跑（`allow_failure=true` 只保证不连累 group）。
-/// 现在 metrics 与 signals **各自独立兜错**：写不进去的批次按时间序放回缓冲
-/// 头部等下一轮重试，超过 `max_buffered_items` 才丢弃最旧的并告警。
-/// 本函数因此不再 raise，I/O 错误以告警的形式可见。
-pub async fn PerformanceMonitor::flush_buffers(
-  self : PerformanceMonitor,
-) -> Unit {
-  // 空缓冲短路：两个缓冲都为空时，跳过 copy/clear/trim 的全部开销。
-  // 不影响语义——空缓冲的 flush 本就是 no-op。
-  if self.event_buffer.length() == 0 && self.signal_buffer.length() == 0 {
-    return
-  }
-  let events = self.event_buffer.copy()
-  self.event_buffer.clear()
-  let signals = self.signal_buffer.copy()
-  self.signal_buffer.clear()
-  let events_ok = if events.length() == 0 {
-    true
-  } else {
-    try {
-      self.metrics.append_many(events)
-      true
-    } catch {
-      err => {
-        @util.log_warn(
-          "Monitor",
-          "Cannot append metrics.jsonl, \{events.length()} events stay buffered: \{err.to_string()}",
-        )
-        false
-      }
-    }
-  }
-  let signals_ok = if signals.length() == 0 {
-    true
-  } else {
-    try {
-      self.signals.append_many(signals)
-      true
-    } catch {
-      err => {
-        @util.log_warn(
-          "Monitor",
-          "Cannot append signals.jsonl, \{signals.length()} signals stay buffered: \{err.to_string()}",
-        )
-        false
-      }
-    }
-  }
-  // 窗口裁剪挂在唯一的写入路径上：append 成功后才检查上界，
-  // 且走 trim_quietly 兜错 —— append 已成功的事件不能因裁剪出错被
-  // 判回填（重复落盘），flush_buffers 更不能因此重新开始抛错（H1 承诺）。
-  if events_ok {
-    self.trim_quietly(self.metrics)
-  }
-  if signals_ok {
-    self.trim_quietly(self.signals)
-  }
-  if !events_ok {
-    requeue_into(events, self.event_buffer, "events")
-  }
-  if !signals_ok {
-    requeue_into(signals, self.signal_buffer, "signals")
-  }
-}
-
-///|
-/// 裁剪的兜错层：I/O 失败只告警，绝不抛出。
-///
-/// append 已成功的前提下，`Jsonl::trim_to` 的 I/O 错误若沿 raise 逃出
-/// `flush_buffers`，就破坏了 H1 的「flush 不 raise」承诺；若被当成
-/// append 失败处理，已落盘的事件会回填重试造成重复 —— 两边都错，
-/// 所以在这里收口。`max_log_bytes <= 0` 表示显式豁免，不碰文件。
-async fn PerformanceMonitor::trim_quietly(
-  self : PerformanceMonitor,
-  store : @store.Jsonl,
-) -> Unit {
-  if self.max_log_bytes <= 0 {
-    return
-  }
-  let outcome : Result[Bool, String] = Ok(store.trim_to(self.max_log_bytes)) catch {
-    err => Err(err.to_string())
-  }
-  match outcome {
-    Ok(_) => ()
-    Err(msg) => @util.log_warn("Monitor", "Cannot trim \{store.path()}: \{msg}")
-  }
-}
-
-///|
-/// 把「没写进去的一批」按时间序放回缓冲头部，并裁剪到 `max_buffered_items`。
-/// 顺序是 `unsaved ++ buffered`：`unsaved` 是更早换出的那批，而 `buffered`
-/// 里的条目是换出之后新记录的，必然更新 —— 反过来就会打乱时间序，
-/// 让 `get_metrics` / 统计看到「先后的事件倒着发生」。
-/// 裁剪时从头丢起（丢的就是 `unsaved` 里最旧的），故返回 `(缓冲, 丢弃条数)`。
-fn[A] bounded_requeue(
-  unsaved : Array[A],
-  buffered : Array[A],
-) -> (Array[A], Int) {
-  let merged : Array[A] = []
-  for x in unsaved {
-    merged.push(x)
-  }
-  for x in buffered {
-    merged.push(x)
-  }
-  let overflow = merged.length() - max_buffered_items
-  if overflow <= 0 {
-    return (merged, 0)
-  }
-  let kept : Array[A] = []
-  let mut i = overflow
-  while i < merged.length() {
-    kept.push(merged[i])
-    i += 1
-  }
-  (kept, overflow)
-}
-
-///|
-/// 把写失败的批次回填到缓冲头部，溢出时丢弃最旧的并告警。
-/// 封装 `bounded_requeue` + `clear` + `push` + `log_warn` 的固定模式，
-/// 消除 events/signals 两条路径的结构重复。
-async fn[A] requeue_into(
-  unsaved : Array[A],
-  buffer : Array[A],
-  label : String,
-) -> Unit {
-  let (back, dropped) = bounded_requeue(unsaved, buffer)
-  buffer.clear()
-  for x in back {
-    buffer.push(x)
-  }
-  if dropped > 0 {
-    @util.log_warn(
-      "Monitor",
-      "Dropped \{dropped} oldest buffered \{label} (cap \{max_buffered_items})",
-    )
-  }
-}
-
-///|
-/// 停止监控：最后一次 flush。取代 legacy-ts L65-74 的 `stop()`。
-///
-/// 幂等 —— 缓冲已空时是 no-op，故测试里可以随意多调。
-pub async fn PerformanceMonitor::shutdown(self : PerformanceMonitor) -> Unit {
-  self.flush_buffers()
-}
-
-///|
-/// 启动周期性 flush。取代 legacy-ts L53-60 的 `start()` + `setInterval(5000)`。
-///
-/// **为什么用 `spawn` + `sleep` 而不是 `Timer::refresh`**：
-/// `Timer::refresh` 是**非 async 的状态突变**，若由另一个任务在 `Timer::wait`
-/// 挂起期间调用，就会在协程挂起状态下改写 timer 内部状态，
-/// 产生唤醒丢失或重复唤醒的竞态。`sleep(interval)` 的语义是
-/// 「上一轮完成后再等 interval」（固定**间隔**而非固定**频率**），
-/// 对 flush 场景完全够用且无竞态。
-///
-/// ★ **返回 `Task` 句柄给调用方取消** —— 这是必需而非可选的：
-/// `with_task_group` 会等**全部**子任务结束才退出，而这个循环是 `for ;;`
-/// 永不自行结束的。若不在 stdin EOF 后显式 `cancel()`，
-/// group 就会永远等下去 —— 实测表现为 MCP 客户端关闭 stdin 后
-/// 进程挂死（宿主永远收不到退出）。
-///
-/// 为何不用 `group.return_immediately`：它会 `raise Cancelled`，
-/// 而 `with_task_group` 的回调签名是 `async (TaskGroup[X]) -> X`（不带 raise），
-/// 在其内部抛错无法通过类型检查。`Task::cancel` 是纯状态突变，不抛错。
-pub fn PerformanceMonitor::run_flush_loop(
-  self : PerformanceMonitor,
-  group : @async.TaskGroup[Unit],
-) -> @async.Task[Unit] {
-  // 用箭头函数而不是 `fn() { ... }`：后者是 async 却未标注，
-  // 工具链会以 deprecated_syntax 警告「effect inference is deprecated」。
-  let task = group.spawn(allow_failure=true, () => {
-    for ;; {
-      @async.sleep(flush_interval_ms)
-      if @async.is_being_cancelled() {
-        break
-      }
-      // flush_buffers 不 raise（见其 ★ 注释），所以这个循环不会因为
-      // 一次瞬时写失败就终止 —— 原实现会：异常逃出循环体，任务结束，
-      // 此后只剩 add_defer 里最后一次同样可能失败的 flush。
-      self.flush_buffers()
-    }
-  })
-  // 退出前做最后一次 flush。`protect_from_cancel` 是 `add_defer` 文档明写的建议：
-  // 若整个 group 被外部取消，defer 里的 async 操作会被立即取消，
-  // 导致最后这批事件丢失 —— 而这正是 defer 存在的唯一目的。
-  group.add_defer(() => @async.protect_from_cancel(() => self.flush_buffers()))
-  task
-}

@@ -361,7 +361,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 // .zcode-plugin/plugin.json
 {
   "name": "harness-self-evolution",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",
@@ -404,7 +404,10 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
       "reject_proposal",
       "create_sub_agent",
       "list_sub_agents",
-      "delete_sub_agent"
+      "delete_sub_agent",
+      "analyze_plugins",
+      "evolve_plugin",
+      "manage_sub_agent"
     ]
   },
   "dependencies": {},
@@ -554,6 +557,8 @@ server.addTool({
 // monitor 的 record_tool_call / record_user_feedback 在全仓（含 1.0）都**没有
 // 生产调用方**，MCP 只暴露读取用的 get_plugin_metrics —— 采集链的第一环没有输入，
 // metrics.jsonl 只被动等待一个不存在的喂数据方。详见 CONTEXT.md 已知缺陷第 9 条。
+// v2.3 新增 3 个合并工具（analyze_plugins / evolve_plugin / manage_sub_agent），
+// 现共 13 个。
 server.addEventHandler('on_plugin_call', async (event) => {
   await monitor.recordEvent(event);
 });

@@ -49,7 +49,7 @@ pub let default_protocol_version : String = "2024-11-05"
 pub let server_name : String = "harness-self-evolution"
 
 ///|
-pub let server_version : String = "2.2.0"
+pub let server_version : String = "2.3.0"
 
 // JSON-RPC 2.0 的标准错误码
 

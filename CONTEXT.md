@@ -50,12 +50,12 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 ## 信号类别与进化类型映射
 
 | 信号类别 (category) | 触发条件示例 | 进化类型 (evolution_type) |
-|---------------------|--------------|---------------------------|
-| `loop` | 同一工具连续调用 ≥5 次 | `behavior_optimization` |
-| `struggle` | 连续失败 ≥3 次 / 延迟回归 +20% | `interface_simplification`（高复杂度时） |
-| `correction` | 用户纠正 / 负面反馈 | `error_handling_improvement` |
+|---------------------|--------------|--------------------------|
+| `loop` | 同一工具连续调用 ≥5 次 | `behavior_optimization` / `performance_tuning` |
+| `struggle` | 连续失败 ≥3 次 / 延迟回归 +20% | `interface_simplification`（高复杂度时） / `security_hardening` |
+| `correction` | 用户纠正 / 负面反馈 | `error_handling_improvement` / `security_hardening` |
 | `preference` | 用户重复偏好 | `documentation_enhancement` / `interface_simplification` |
-| `workflow` | 可复用工作流模式 | `capability_extension` |
+| `workflow` | 可复用工作流模式 | `capability_extension` / `accessibility_improvement` |
 | 性能统计 | 平均延迟 >2s / 成功率 <90% | `performance_tuning` |
 
 ## Matt Pocock 原则 ↔ 进化类型
@@ -68,6 +68,8 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 | `documentation_enhancement` | 词汇即文档 |
 | `capability_extension` | 先对齐，再动手 |
 | `error_handling_improvement` | 紧反馈环 > 盲目试错 |
+| `security_hardening` | 先对齐，再动手 |
+| `accessibility_improvement` | 垂直切片 > 水平切片 |
 
 代码里的单一事实来源是 `types/proposal.mbt` 的 `EvolutionType::principle`。
 注意 `behavior_optimization` 与 `error_handling_improvement` **都**映射到
@@ -423,11 +425,11 @@ frontmatter）。
 让双跑对拍失去意义。每一条都有测试把它钉在当前状态：将来有人改动，测试会变红，
 迫使他意识到自己正在改一个对外可见的语义。
 
-1. **F5：默认 50% 强度下手动信号无效**（见上表）。
+1. **F5：默认 50% 强度下手动信号无效**（已修复）。
+   原问题：手动信号为 Medium 强度，被默认50%强度过滤掉。
+   修复方案：`tools.mbt` 将手动信号升级为 Strong 强度，因为用户显式请求提案时强度门控不应阻止。
    钉死用例：`mcp/tools_wbtest.mbt` 的
-   `"F5: manual signals are inert under the default 50% intensity"`，
-   并附对照组证明同一份参数在 `100%` 下确实能产生提案。
-   要让手动信号生效，把 `evolution_config.intensity` 设为 `"100%"`。
+   `"F5: manual signals trigger proposal even under default 50% intensity"`。
 2. **`capabilities` / `tools` 在计算指标前不去重**。
    指标用的是原始数组，只有对外响应里的列表才去重。
    后果：重复项会**抬高** `capabilityComplexity`（同一份内容在日志里显示
@@ -470,12 +472,11 @@ frontmatter）。
    属于功能决策而非缺陷修复，故记录在此不动代码。
 10. **`target_paths` 生效后带来的两处覆盖**（见「有意的语义修正」第二条）。
     一次带 `target_paths` 的扫描会冲掉默认根的插件缓存、并把注册表替换成这批临时档案。
-11. **struggle 信号没有一次性抑制**（1.0 继承，忠实 TS 的不对称）。
-    loop 信号有 `loop_reported` 去重、每个工具只报一次；struggle 没有对应的去重标记 ——
-    判定是 `consecutive_failures >= 3` 就发（`monitor.mbt` 的 `check_for_signals`），
-    于是连续失败 N 次会发出 N-2 条同信号，且之后每一轮只要仍达到阈值就会再发。
-    将来若接通生产数据源（第 9 条），需评估是否给 struggle 也加去重；
-    现在改它会改变 `signals.jsonl` 的产出形状，超出移植范围。
+11. **struggle 信号没有一次性抑制**（已修复）。
+    原问题：loop 信号有 `loop_reported` 去重，struggle 没有对应的去重标记，
+    连续失败 N 次会发出 N-2 条同信号。
+    修复方案：`monitor.mbt` 的 `check_for_signals` 添加 `struggle_reported` 去重标记，
+    每个插件只报告一次 struggle 信号，直到连续失败解除后才能再次报告。
 
 ## 与移植计划的已知偏差
 
@@ -540,5 +541,5 @@ tagged-array（`Add(Val("x"),Val("y"))` → `["Add",["Val","x"],["Val","y"]]`）
 - **3.4 协同进化能力**：插件依赖图谱（	ypes/dependency.mbt）
 
 ### 测试状态
-- Total tests: 340, passed: 340, failed: 0
-- 新增测试用例：6 个（信号衰减、模式识别、struggle 去重）
+- Total tests: 347, passed: 347, failed: 0
+- 新增测试用例：13 个（信号衰减、模式识别、struggle 去重、SecurityHardening、AccessibilityImprovement、PerformanceTuning、param-simplification）

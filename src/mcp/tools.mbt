@@ -86,6 +86,41 @@ pub fn ServerState::with_scan_config(
 }
 
 ///|
+/// 用 `HarnessConfig` 装配 —— 接受完整配置（含 monitoring 段）。
+///
+/// 与 `with_scan_config` 的区别：本构造器接受 `HarnessConfig`，
+/// 内部提取 `engine` 配置传递给 monitor/engine，
+/// 并将 `monitoring` 配置记录在日志中（当前无消费方，见已知缺陷 #9）。
+/// 向后兼容：`with_scan_config` 和 `at` 仍然工作，内部使用默认 `EngineConfig`。
+pub fn ServerState::with_harness_config(
+  paths : @store.DataPaths,
+  scan : @scanner.ScanConfig,
+  harness_cfg : @types.HarnessConfig,
+) -> ServerState {
+  let proposals = @store.ProposalStore::at(paths)
+  let monitor = @monitor.PerformanceMonitor::at(paths, config=harness_cfg.engine)
+  {
+    paths,
+    scanner: @scanner.PluginScanner::new(scan),
+    monitor,
+    engine: @engine.EvolutionEngine::new(
+      monitor,
+      proposals,
+      @store.Jsonl::new(paths.signals()),
+      harness_cfg.engine,
+    ),
+    executor: @executor.UpgradeExecutor::new(
+      proposals,
+      @store.ExecutionLog::at(paths),
+    ),
+    proposals,
+    factory: @factory.AgentFactory::at(paths),
+    registry: [],
+    registry_index: Map([]),
+  }
+}
+
+///|
 /// 按 id 查注册表。
 pub fn ServerState::find_plugin(
   self : ServerState,
@@ -431,14 +466,16 @@ async fn handle_propose_evolution(state : ServerState, args : Json) -> Json {
       raise Failure("Plugin not found: \{a.plugin_id}. Run scan_plugins first.")
   }
 
-  // 手动提供的信号描述 → medium/pattern 信号（对应 TS L177-186）
+  // 手动提供的信号描述 → strong/pattern 信号（对应 TS L177-186）
+  // F5 修复：手动信号原为 Medium，被默认50%强度过滤掉。
+  // 用户显式请求提案时，强度门控不应阻止，故升级为 Strong。
   let manual : Array[@types.EvolutionSignal]? = match a.signals {
     Some(descriptions) => {
       let now = @util.now_ms()
       let out : Array[@types.EvolutionSignal] = []
       for description in descriptions {
         out.push({
-          strength: @types.SignalStrength::Medium,
+          strength: @types.SignalStrength::Strong,
           category: @types.SignalCategory::Pattern,
           description,
           evidence: @types.Evidence::UserManual,

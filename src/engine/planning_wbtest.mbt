@@ -167,14 +167,31 @@ test "plan_changes ErrorHandlingImprovement produces improvement with correction
 }
 
 // ----------------------------------------------------------------------------
-// PerformanceTuning（恒返回空，TODO(flow-optimization)）
+// PerformanceTuning（C3 已实现：基于 Loop 信号生成 OptimizeFlow 变更）
 // ----------------------------------------------------------------------------
 
 ///|
-/// 锁定 TODO 语义：PerformanceTuning 恒返回空变更集。
-test "plan_changes PerformanceTuning always returns empty" {
+/// 性能调优：有 Loop 信号时生成 OptimizeFlow 变更。
+test "plan_changes PerformanceTuning with Loop signal returns OptimizeFlow" {
   let signals = [
-    make_signal(@types.SignalCategory::Loop, None),
+    make_signal(@types.SignalCategory::Loop, Some("navigate")),
+  ]
+  let result = plan_changes(
+    make_plugin(["navigate", "click", "type"], 5.0),
+    @types.EvolutionType::PerformanceTuning,
+    signals,
+  )
+  assert_eq(result.length(), 1)
+  match result[0] {
+    @types.Change::OptimizeFlow(xs) => assert_eq(xs.length(), 1)
+    _ => fail("expected OptimizeFlow change")
+  }
+}
+
+///|
+/// 性能调优：无 Loop 信号时返回空变更集。
+test "plan_changes PerformanceTuning without Loop signal returns empty" {
+  let signals = [
     make_signal(@types.SignalCategory::Correction, None),
     make_signal(@types.SignalCategory::Workflow, None),
   ]
@@ -202,6 +219,8 @@ test "plan_changes with empty signals and empty plugin returns empty for all typ
     @types.EvolutionType::DocumentationEnhancement,
     @types.EvolutionType::CapabilityExtension,
     @types.EvolutionType::ErrorHandlingImprovement,
+    @types.EvolutionType::SecurityHardening,
+    @types.EvolutionType::AccessibilityImprovement,
   ]
   for etype in types {
     let result = plan_changes(empty_plugin, etype, empty_signals)
@@ -242,4 +261,101 @@ test "plan_validation with zero capabilities still produces type extras" {
   assert_false(has_capability_scenario)
   // 三级验证始终存在
   assert_eq(plan.validation_levels.length(), 3)
+}
+
+// ----------------------------------------------------------------------------
+// C1/C2/C4 新增功能的测试覆盖
+// ----------------------------------------------------------------------------
+
+///|
+/// SecurityHardening：有 Correction 信号时生成安全中间件和错误处理改进。
+test "plan_changes SecurityHardening with Correction signal generates changes" {
+  let signals = [
+    make_signal(@types.SignalCategory::Correction, None),
+  ]
+  let result = plan_changes(
+    make_plugin(["navigate"], 5.0),
+    @types.EvolutionType::SecurityHardening,
+    signals,
+  )
+  // 应生成 AddMiddleware 和 ImproveErrorHandling 两种变更
+  assert_true(result.length() >= 2)
+  let has_middleware = result.any(fn(c) { c.kind() == @types.ChangeKind::AddMiddleware })
+  let has_error_handling = result.any(fn(c) { c.kind() == @types.ChangeKind::ImproveErrorHandling })
+  assert_true(has_middleware)
+  assert_true(has_error_handling)
+}
+
+///|
+/// SecurityHardening：无信号时返回空变更集。
+test "plan_changes SecurityHardening without signals returns empty" {
+  let signals : Array[@types.EvolutionSignal] = []
+  let result = plan_changes(
+    make_plugin(["navigate"], 5.0),
+    @types.EvolutionType::SecurityHardening,
+    signals,
+  )
+  assert_eq(result.length(), 0)
+}
+
+///|
+/// AccessibilityImprovement：有 Workflow 信号时生成文档和能力扩展。
+test "plan_changes AccessibilityImprovement with Workflow signal generates changes" {
+  let signals = [
+    make_signal(@types.SignalCategory::Workflow, None),
+  ]
+  let result = plan_changes(
+    make_plugin(["navigate"], 5.0),
+    @types.EvolutionType::AccessibilityImprovement,
+    signals,
+  )
+  // 应生成 UpdateDocumentation 和 AddCapability 两种变更
+  assert_true(result.length() >= 2)
+  let has_docs = result.any(fn(c) { c.kind() == @types.ChangeKind::UpdateDocumentation })
+  let has_capability = result.any(fn(c) { c.kind() == @types.ChangeKind::AddCapability })
+  assert_true(has_docs)
+  assert_true(has_capability)
+}
+
+///|
+/// AccessibilityImprovement：无信号但文档质量低时仍生成文档建议。
+test "plan_changes AccessibilityImprovement with low doc quality generates docs" {
+  let signals : Array[@types.EvolutionSignal] = []
+  let result = plan_changes(
+    make_plugin(["navigate"], 5.0),
+    @types.EvolutionType::AccessibilityImprovement,
+    signals,
+  )
+  // 文档质量5.0 < 8.0，应生成文档建议
+  assert_true(result.length() >= 1)
+  let has_docs = result.any(fn(c) { c.kind() == @types.ChangeKind::UpdateDocumentation })
+  assert_true(has_docs)
+}
+
+///|
+/// plan_param_simplification：工具名含 config/settings 时生成简化建议。
+test "plan_param_simplification generates suggestions for complex tool names" {
+  let plugin = make_plugin(["get_config", "update_settings", "navigate"], 5.0)
+  let result = plan_changes(
+    plugin,
+    @types.EvolutionType::InterfaceSimplification,
+    [],
+  )
+  // 应包含 SimplifyParams 变更
+  let has_simplify = result.any(fn(c) { c.kind() == @types.ChangeKind::SimplifyParams })
+  assert_true(has_simplify)
+}
+
+///|
+/// plan_param_simplification：工具名不含复杂模式时不生成建议。
+test "plan_param_simplification generates no suggestions for simple tool names" {
+  let plugin = make_plugin(["navigate", "click", "type"], 5.0)
+  let result = plan_changes(
+    plugin,
+    @types.EvolutionType::InterfaceSimplification,
+    [],
+  )
+  // 不应包含 SimplifyParams 变更（但可能包含 MergeTools）
+  let has_simplify = result.any(fn(c) { c.kind() == @types.ChangeKind::SimplifyParams })
+  assert_false(has_simplify)
 }

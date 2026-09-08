@@ -39,15 +39,15 @@ pub fn plan_changes(
   match etype {
     @types.EvolutionType::InterfaceSimplification => {
       let merges = plan_merges(plugin)
-      // TODO(param-simplification)：TS L339-346 的 proposeParamSimplification
-      // 恒返回 []，属未实现的占位。真要做了就产出 Change::SimplifyParams(...)。
-      // 影响范围：executor/decompose_tasks 的 SimplifyParams 分支因此当前不可达
-      // （由穷尽 match 要求而存在），实现本 TODO 时需同步验证该分支的正确性。
-      if merges.is_empty() {
-        []
-      } else {
-        [@types.Change::MergeTools(merges)]
+      let simplifications = plan_param_simplification(plugin)
+      let changes : Array[@types.Change] = []
+      if !merges.is_empty() {
+        changes.push(@types.Change::MergeTools(merges))
       }
+      if !simplifications.is_empty() {
+        changes.push(@types.Change::SimplifyParams(simplifications))
+      }
+      changes
     }
     @types.EvolutionType::BehaviorOptimization => {
       let middlewares = plan_middleware(signals)
@@ -57,11 +57,14 @@ pub fn plan_changes(
         [@types.Change::AddMiddleware(middlewares)]
       }
     }
-    @types.EvolutionType::PerformanceTuning =>
-      // TODO(flow-optimization)：TS L370-376 的 proposeFlowOptimization 恒返回 []。
-      // 影响范围：executor/decompose_tasks 的 OptimizeFlow 分支因此当前不可达
-      // （由穷尽 match 要求而存在），实现本 TODO 时需同步验证该分支的正确性。
-      []
+    @types.EvolutionType::PerformanceTuning => {
+      let flows = plan_flow_optimization(signals)
+      if flows.is_empty() {
+        []
+      } else {
+        [@types.Change::OptimizeFlow(flows)]
+      }
+    }
     @types.EvolutionType::DocumentationEnhancement => {
       let docs = plan_docs(plugin, signals)
       if docs.is_empty() {
@@ -87,12 +90,28 @@ pub fn plan_changes(
       }
     }
     @types.EvolutionType::SecurityHardening => {
-      // TODO(security-hardening): 实现安全加固变更规划
-      []
+      let middlewares = plan_security_middleware(signals)
+      let handling = plan_security_error_handling(signals)
+      let changes : Array[@types.Change] = []
+      if !middlewares.is_empty() {
+        changes.push(@types.Change::AddMiddleware(middlewares))
+      }
+      if !handling.is_empty() {
+        changes.push(@types.Change::ImproveErrorHandling(handling))
+      }
+      changes
     }
     @types.EvolutionType::AccessibilityImprovement => {
-      // TODO(accessibility-improvement): 实现可访问性改进变更规划
-      []
+      let docs = plan_accessibility_docs(plugin, signals)
+      let caps = plan_accessibility_capability(signals)
+      let changes : Array[@types.Change] = []
+      if !docs.is_empty() {
+        changes.push(@types.Change::UpdateDocumentation(docs))
+      }
+      if !caps.is_empty() {
+        changes.push(@types.Change::AddCapability(caps))
+      }
+      changes
     }
   }
 }
@@ -142,6 +161,39 @@ fn plan_merges(plugin : @types.PluginMetadata) -> Array[@types.ToolMerge] {
     ]
   }
   []
+}
+
+///|
+/// 参数简化启发式。实现原 TODO(param-simplification)。
+///
+/// TS 的 `proposeParamSimplification` 恒返回 []，属未实现的占位。
+/// 新版基于工具命名模式生成简化建议：
+/// · 名称含 `config` / `settings` / `options` 的工具通常参数较多，
+///   建议收敛为结构化参数对象
+/// · 名称含 `advanced` / `detailed` 的工具建议提供合理默认值
+///
+/// 注意：`PluginMetadata.tools` 只有工具名，没有参数详情，
+/// 故此处的启发式是保守的「建议」而非确定性的「必须」。
+fn plan_param_simplification(
+  plugin : @types.PluginMetadata,
+) -> Array[@types.ParamSimplification] {
+  let result : Array[@types.ParamSimplification] = []
+  let complex_patterns = ["config", "settings", "options", "advanced", "detailed"]
+  for tool in plugin.tools {
+    let lower = tool.to_lower()
+    for pattern in complex_patterns {
+      if lower.contains(pattern) {
+        result.push({
+          tool,
+          remove_params: [],
+          defaults: Json::empty_object(),
+          reason: "工具名含 '\{pattern}'，通常参数较多，建议提供合理默认值简化调用",
+        })
+        break
+      }
+    }
+  }
+  result
 }
 
 ///|
@@ -290,5 +342,131 @@ pub fn plan_validation(
         timeout_ms: Some(120000),
       },
     ],
+  }
+}
+
+// ============================================================================
+// 以下为 C1/C2/C3 新增的辅助函数
+// ============================================================================
+
+///|
+/// 流程优化建议。基于 Loop 信号生成 OptimizeFlow 变更。
+/// Loop 信号表明某个工具被反复调用，可以通过缓存或批处理优化。
+fn plan_flow_optimization(
+  signals : ArrayView[@types.EvolutionSignal],
+) -> Array[@types.FlowOptimization] {
+  match find_signal(signals, @types.SignalCategory::Loop) {
+    None => []
+    Some(signal) => {
+      let tool = signal.tool.unwrap_or("unknown")
+      [
+        {
+          tool,
+          optimization: @types.OptimizationKind::Batching,
+          implementation: "检测到循环调用，建议使用批量操作替代重复单次调用",
+          expected_improvement: "减少 \{signal.count.unwrap_or(0)} 次独立调用为单次批量操作",
+        },
+      ]
+    }
+  }
+}
+
+///|
+/// 安全加固中间件建议。基于 Correction 和 Struggle 信号生成安全相关中间件。
+fn plan_security_middleware(
+  signals : ArrayView[@types.EvolutionSignal],
+) -> Array[@types.MiddlewareAddition] {
+  let result : Array[@types.MiddlewareAddition] = []
+  // 输入验证中间件：当有 Correction 信号时建议添加
+  if find_signal(signals, @types.SignalCategory::Correction) is Some(_) {
+    result.push({
+      name: "input_validation",
+      target_tool: None,
+      target_event: None,
+      threshold: None,
+      intervention: "添加输入验证和参数校验，防止无效或恶意输入",
+      priority: 8,
+    })
+  }
+  // 速率限制中间件：当有 Struggle 信号时建议添加
+  if find_signal(signals, @types.SignalCategory::Struggle) is Some(_) {
+    result.push({
+      name: "rate_limiting",
+      target_tool: None,
+      target_event: None,
+      threshold: Some(10),
+      intervention: "添加速率限制，防止过度调用导致资源耗尽",
+      priority: 9,
+    })
+  }
+  result
+}
+
+///|
+/// 安全加固错误处理建议。
+fn plan_security_error_handling(
+  signals : ArrayView[@types.EvolutionSignal],
+) -> Array[@types.ErrorHandlingImprovement] {
+  match find_signal(signals, @types.SignalCategory::Correction) {
+    None => []
+    Some(_) =>
+      [
+        {
+          error_type: "security_input_validation",
+          current_behavior: "未对用户输入进行安全校验",
+          improved_behavior: "对所有用户输入进行转义和校验，防止注入攻击",
+          user_message: "输入包含不安全字符，已自动过滤",
+          recovery_strategy: "应用输入验证规则并记录安全事件",
+        },
+      ]
+  }
+}
+
+///|
+/// 可访问性文档建议。
+fn plan_accessibility_docs(
+  plugin : @types.PluginMetadata,
+  signals : ArrayView[@types.EvolutionSignal],
+) -> Array[@types.DocumentationUpdate] {
+  let updates : Array[@types.DocumentationUpdate] = []
+  // 为所有插件添加可访问性文档建议
+  if plugin.initial_metrics.documentation_quality < 8.0 {
+    updates.push({
+      file: "SKILL.md",
+      section: "Accessibility",
+      new_content: "添加可访问性指南，包括键盘导航、屏幕阅读器支持和高对比度模式说明",
+      reason: "提升插件的可访问性，确保更多用户能够使用",
+    })
+  }
+  // 如果有 workflow 信号，添加工作流可访问性文档
+  for signal in signals {
+    if signal.category == @types.SignalCategory::Workflow {
+      updates.push({
+        file: "SKILL.md",
+        section: "Accessible Workflows",
+        new_content: "记录可访问的工作流模式：\{signal.description}",
+        reason: "确保用户工作流对所有用户都可访问",
+      })
+    }
+  }
+  updates
+}
+
+///|
+/// 可访问性能力扩展建议。
+fn plan_accessibility_capability(
+  signals : ArrayView[@types.EvolutionSignal],
+) -> Array[@types.CapabilityAddition] {
+  match find_signal(signals, @types.SignalCategory::Workflow) {
+    None => []
+    Some(signal) =>
+      [
+        {
+          capability_name: "accessible_interaction",
+          description: "可访问的交互模式：\{signal.description}",
+          implementation: "添加键盘快捷键、ARIA 标签和屏幕阅读器支持",
+          dependencies: [],
+        },
+      ]
   }
 }

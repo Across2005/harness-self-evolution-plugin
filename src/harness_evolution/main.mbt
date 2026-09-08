@@ -151,7 +151,7 @@ async fn main {
 
   let (harness_cfg, scan) = load_config(paths)
   let config = harness_cfg.engine
-  let state = @mcp.ServerState::with_scan_config(paths, scan, config~)
+  let state = @mcp.ServerState::with_harness_config(paths, scan, harness_cfg)
 
   @util.log_info(
     "HarnessEvolution",

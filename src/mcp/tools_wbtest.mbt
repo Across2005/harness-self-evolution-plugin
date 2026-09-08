@@ -934,9 +934,9 @@ async test "target_paths actually redirects the scan (legacy declared but ignore
 /// 或让 50% 也放行 medium），这条用例会立即变红，迫使他意识到
 /// 自己正在改一个对外可见的语义 —— 而这正是「不默默优化」约束的执行手段。
 ///
-/// 对照用例：同一组手动信号在 `Full` 强度下**确实**能产生提案
-/// （见上面的主链路测试），证明参数本身没死，只是被强度闸门挡住。
-async test "F5: manual signals are inert under the default 50% intensity" {
+/// F5 修复后：手动提供的信号应跳过强度过滤，因为用户显式请求了提案。
+/// 原测试断言手动信号在50%下不产生提案；修复后断言手动信号在50%下**能**产生提案。
+async test "F5: manual signals trigger proposal even under default 50% intensity" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   seed_plugin(tmp)
@@ -956,21 +956,8 @@ async test "F5: manual signals are inert under the default 50% intensity" {
   assert_false(is_tool_error(resp))
   let body = obj(tool_payload(resp))
   assert_eq(body.get("success"), Some(Json::boolean(true)))
-  assert_false(body.contains("proposal"))
-  // reason 字段把真因说清楚了（新版追加），而不只是笼统的那一句
-  assert_eq(
-    body.get("reason"),
-    Some(Json::string("insufficient signals to trigger evolution")),
-  )
-
-  // 对照：同一份参数，只把强度改成 Full，就能产生提案。
-  // 这里重新走一次 scan_plugins 而不是直接把注册表搬过去 ——
-  // 对照组的价值在于「只变强度这一个变量」，其余步骤完全相同。
-  let full = full_intensity_state(tmp)
-  ignore(send(full, call_line(3, "scan_plugins", { "force_rescan": true })))
-  let resp2 = send(full, call_line(4, "propose_evolution", args))
-  let body2 = obj(tool_payload(resp2))
-  assert_true(body2.contains("proposal"))
+  // F5 修复：手动信号应产生提案
+  assert_true(body.contains("proposal"))
 }
 
 ///|

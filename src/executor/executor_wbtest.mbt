@@ -367,8 +367,8 @@ test "an empty change set decomposes to no tasks" {
 /// 代码生成任务。旧实现 `items_of` 认 7 种 Change 种类、`push_task` 却
 /// 只为 6 种派发 —— 参数简化被接受却不产生任务，仅含它的提案会
 /// 分解出 0 个代码生成任务、直接滑到 Completed。
-/// `plan_changes` 目前还发不出这种类（planning.mbt 的 TODO），
-/// 但 decompose_tasks 的契约是「每种非空变更都有对应任务」。
+/// `plan_param_simplification`（planning.mbt）现已实现，
+/// 基于工具命名模式生成参数简化建议。
 test "SimplifyParams changes decompose into a code-generator task" {
   let params : Array[@types.ParamSimplification] = [
     {
