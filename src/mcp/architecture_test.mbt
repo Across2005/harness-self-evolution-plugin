@@ -230,7 +230,10 @@ fn declared_edges() -> Array[(String, Array[String])] {
         "util",
       ],
     ),
-    ("harness_evolution", ["mcp", "store", "types", "util"]),
+    // 2.2.0 起 harness_evolution 直接 import scanner：load_config 在装配期
+    // 把 plugin.json 的 scan_targets 解析成 ScanConfig（接通配置孤岛），
+    // 经 ServerState::with_scan_config 注入 —— 边仍严格向下（6 → 3）。
+    ("harness_evolution", ["mcp", "scanner", "store", "types", "util"]),
   ]
 }
 

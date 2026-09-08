@@ -33,12 +33,13 @@ pub struct ScanConfig {
 /// ~/.agents/plugins
 /// ```
 ///
-/// **已知配置孤岛（有意不改）**：`.zcode-plugin/plugin.json` L67-74 另有一份
-/// `scan_targets`（6 个路径，含 `~/.deepseek/harness/plugins/`、`~/.agents/skills/` 等），
-/// 但 TS 代码从不读它 —— 与 `evolution_config` 是同一类孤岛。
-/// `evolution_config` 已在 types/config.mbt 里接通（因为读它不改变行为语义），
-/// 而 `scan_targets` 一旦接通就会**改变发现哪些插件**，属于超出移植范围的行为变更，
-/// 故保留 TS 的 3 个硬编码根，并把这条缺口记入 CONTEXT.md。
+/// **配置来源（2.2.0 起接通，此前是已知缺陷第 6 条的配置孤岛）**：
+/// `.zcode-plugin/plugin.json` 的 `scan_targets` 段（6 个路径，含
+/// `~/.deepseek/harness/plugins/`、`~/.agents/skills/` 等）经
+/// `ScanConfig::from_plugin_json` 解析，在 `main.mbt` 装配时替换默认根；
+/// 未配置时回退到这里的 3 个硬编码根（与 legacy-ts scanner L21-26 逐字对齐）。
+/// 接通它会**改变发现哪些插件** —— 这是 2.2.0 经用户「全面升级」授权后
+/// 做出的显式行为变更， rationale 与回退语义见 `from_plugin_json`。
 pub fn default_scan_roots() -> Array[String] {
   [
     @util.expand_home("~/.zcode/cli/plugins/cache/zcode-plugins-official"),
@@ -78,6 +79,66 @@ pub fn ScanConfig::custom(
   max_depth? : Int = max_discovery_depth,
 ) -> ScanConfig {
   { roots, cache_path, max_depth }
+}
+
+///|
+/// 从整个 `.zcode-plugin/plugin.json` 解析 `scan_targets` 段（2.2.0 接通，
+/// 此前它与 `evolution_config` 一样是「写了但没人读」的配置孤岛）。
+///
+/// 容错语义与 `EngineConfig::from_json_checked` 同一套原则 ——
+/// 配置写错绝不让启动失败，但**退化取值必须显式回落并点名告警**：
+///
+/// - `scan_targets` 缺失 → 默认根，无告警（「没配」是最常见的正常态）；
+/// - `scan_targets` 不是数组 → 默认根 + 点名告警；
+/// - 数组元素混入非字符串或空串 → 跳过该元素 + 点名告警（按下标）；
+/// - 过滤后没有任何可用路径（含显式 `[]`）→ 默认根 + 告警
+///   （空列表等于关掉整个扫描，属 H2 意义上的退化取值）；
+/// - 正常列表 → 逐项 `@util.expand_home`（支持 `~/...`）后作为扫描根。
+///
+/// 本函数是**纯解析**：不做任何文件系统存在性检查 —— 不存在的路径由
+/// `scan_root` 在扫描时打一行 `Path does not exist` 后跳过，与默认根的
+/// 行为一致（`~/.zcode/plugins` 在多数机器上同样不存在）。
+///
+/// 返回 `(config, warns)`；告警由调用方（`main.mbt` 的启动序列）打到 stderr。
+pub fn ScanConfig::from_plugin_json(
+  json : Json,
+  cache_path : String,
+) -> (ScanConfig, Array[String]) {
+  let warn : Array[String] = []
+  let defaults = fn() { ScanConfig::with_cache(cache_path) }
+  let root = match json {
+    Object(o) => o
+    _ => return (defaults(), warn)
+  }
+  let items = match root.get("scan_targets") {
+    None => return (defaults(), warn)
+    Some(Array(items)) => items
+    Some(_) => {
+      warn.push(
+        "scan_targets: expected an array of paths; fell back to the default scan roots",
+      )
+      return (defaults(), warn)
+    }
+  }
+  let roots : Array[String] = []
+  for i, item in items {
+    match item {
+      String(s) =>
+        if s.length() == 0 {
+          warn.push("scan_targets[\{i}]: empty path was skipped")
+        } else {
+          roots.push(@util.expand_home(s))
+        }
+      _ => warn.push("scan_targets[\{i}]: not a string, was skipped")
+    }
+  }
+  if roots.is_empty() {
+    warn.push(
+      "scan_targets: no usable path; fell back to the default scan roots",
+    )
+    return (defaults(), warn)
+  }
+  (ScanConfig::custom(roots, cache_path), warn)
 }
 
 ///|

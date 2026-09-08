@@ -132,6 +132,11 @@ zcode plugin link .
 > （查找顺序：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.zcode-plugin/plugin.json`
 > → 内置默认值）。**AGENTS.md 不参与任何配置解析** —— 下面的示例块只是为了
 > 直观展示各项含义，实际必须写进 plugin.json。
+>
+> 同一份 plugin.json 的 **`scan_targets` 段（2.2.0 起）驱动扫描根**：数组里
+> 的每个路径（支持 `~/...`）会替换内置的 3 个默认根；未配置/为空/类型不符时
+> 回退默认根，退化取值会在启动时点名告警。不存在的路径在扫描时跳过并打一行
+> stderr 提示。完整语义见 `CONTEXT.md` 的「配置来源」一节。
 
 ```markdown
 ## Self-Evolution

@@ -361,7 +361,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 // .zcode-plugin/plugin.json
 {
   "name": "harness-self-evolution",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",
@@ -458,13 +458,15 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
   经 `create_sub_agent` 在数据根/宿主目录新建或覆盖的是**另一批**文件）。
 - **`mcp` 段声明了 10 个工具**（前 7 个为 1.0 的 legacy 顺序，后 3 个为
   v2.1 子 Agent 工厂新增）；实现侧的真实清单见 `src/mcp/tools.mbt`。
-- **`scan_targets` 是配置孤岛**（有意保留，见 `CONTEXT.md`）：扫描根在
-  `scan_plugins` 调用时由 `ServerState` 提供，`plugin.json` 的该段不被
-  `src/scanner/` 读取。
+- **`scan_targets` 自 2.2.0 起真正被读取**（2.0/2.1 期间是配置孤岛，见
+  `CONTEXT.md` 已知缺陷第 6 条的历史记录）：`main.mbt` 装配时经
+  `ScanConfig::from_plugin_json` 解析该段并替换默认扫描根；
+  未配置/为空/类型不符时回退默认根（退化取值会点名告警）。
+  每个路径支持 `~/...` 展开；不存在的路径在扫描时跳过并打一行 stderr。
 - **`monitoring` 段目前不参与行为**：监控事件由宿主经 MCP 工具调用链埋点
   （`record_tool_call` / `record_user_feedback` 的注入缝），
-  `enabled` / `sample_rate` 尚无消费方 —— 与 `scan_targets` 一样属于
-  「声明了但当前不生效」的配置项。
+  `enabled` / `sample_rate` 尚无消费方 —— 它声明的是宿主侧的埋点行为，
+  插件进程自己没有事件源（见 `CONTEXT.md` 已知缺陷第 9 条）。
 - **`max_log_bytes`（32 MiB）会真的被读取**：`metrics.jsonl` / `signals.jsonl`
   的裁剪上限（`flush_buffers` → `trim_to`）。
 

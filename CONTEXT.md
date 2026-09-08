@@ -172,7 +172,27 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 （32 MiB）+ 点名字段告警。
 
 > 1.0 里 `evolution_config` 是一处**配置孤岛**：写了但 `src/**` 里没有任何代码读它，
-> 改配置等于空操作。2.0 已接通。相邻的 `scan_targets` 仍是孤岛，见下面第 6 条。
+> 改配置等于空操作。2.0 已接通。相邻的 `scan_targets` 也已于 2.2.0 接通
+> （曾长期是最后一处孤岛，见下面第 6 条的历史记录），解析走
+> `scanner/scanner.mbt` 的 `ScanConfig::from_plugin_json`。
+
+### `scan_targets` 的接通语义（2.2.0）
+
+`main.mbt` 装配时从**同一份** plugin.json 解析 `scan_targets`，替换默认扫描根
+（`default_scan_roots()` 的 3 个硬编码根降级为回退值）。容错与
+`evolution_config` 同一套原则 —— 缺失静默回落、退化取值点名告警：
+
+| 输入 | 结果 |
+|------|------|
+| `scan_targets` 缺失 | 默认根，无告警 |
+| 不是数组（如字符串） | 默认根 + 告警 |
+| 元素非字符串 / 空串 | 跳过该元素 + 按下标告警 |
+| 过滤后为空（含显式 `[]`） | 默认根 + 告警（空列表等于关掉整个扫描） |
+| 正常列表 | 逐项 `expand_home`（支持 `~/...`）后作为扫描根 |
+
+解析是**纯函数**，不做文件系统存在性检查 —— 不存在的路径由 `scan_root`
+在扫描时打一行 `Path does not exist` 后跳过（与默认根同款行为）。
+`main.mbt` 的启动日志会报告生效的扫描根数量。
 
 ## 已修复的缺陷（1.0 → 2.0）
 
@@ -326,6 +346,53 @@ OSError("@fs.readdir(): ... The directory name is invalid."); reporting no defin
 > 第四轮的逐条红/绿证据本会话**未留档**（`_scratch` 里没有那一轮的门禁日志），
 > 所以本文只写「做了什么」，不复述「去掉修复即可单独复现红」这类没有留档支撑的数字。
 
+## 2.2.0 升级轮（2026-09-08 会话，实机全链路验证 + 接通最后一处配置孤岛）
+
+本轮分两段。
+
+**第一段：第六轮加固落盘（commit `b9392eb`）**。把上一会话遗留的工作树改动
+验证后提交：monitor 的信号缓冲有界化（`max_buffered_signals = 500` +
+`enqueue_signal`，溢出丢最旧）、`flush_buffers` 空缓冲短路、events/signals
+回填收敛为 `requeue_into`、`num_field` 拒绝 NaN/Infinity、删除三个零调用点的
+`::at` 生产构造器、`planning_wbtest.mbt` 补齐 4 种进化类型的直接测试与
+`compute_metrics` 边界用例。门禁 326/326 绿。
+
+**第二段：实机启动「全面升级」并顺势接通 `scan_targets`（版本 2.2.0）**。
+先以 dogfood 方式把 `bin/harness-evolution.exe` 当作 stdio MCP 服务器驱动
+（请求走 JSONL 文件重定向，stderr 单独落档），在真实生态上跑通了
+**scan → metrics → propose → approve → execute → list** 全链路：
+
+- 默认根扫描发现 **18 个真实插件**（browser-use ×5 个版本、document-skills ×3、
+  computer-use ×2、mimosa、zcode-cua、zcode-guide、skill-creator 等）；
+- `get_plugin_metrics` 返回全零统计 —— 已知缺陷第 9 条（无生产数据源）的实机再现；
+- 手动信号（intensity 100%）生成提案
+  `evo-2026-09-08-browser-use-0.4.2-performance-tuning`（零指标插件路由到
+  `performance_tuning` —— 已知缺陷第 3 条的实机再现），经
+  approve → execute（3 个 Validator 任务 = T0/T1/T2 全绿）后状态机走到
+  `completed`，`proposals.jsonl` 留下完整的 pending → approved → executing →
+  completed 四行审计轨迹，`execution.log` 记录 start/complete；
+- 子 Agent 工厂实机验证：`create_sub_agent`（scope=plugin）→ `list_sub_agents`
+  （同时发现了宿主 `~/.zcode/agents/coder.md` 的 user 作用域定义）→
+  `delete_sub_agent`，创建与删除都落盘可见。
+
+**接通 `scan_targets`**：dogfood 中「全面扫描」靠 `scan_plugins` 的
+`target_paths` 参数手动传路径完成 —— 而插件出厂自带的 `scan_targets` 配置
+（6 个路径）仍是孤岛，恰是本轮要修的主体。语义见「配置来源」一节的表格；
+实现三处：`ScanConfig::from_plugin_json`（纯解析）、`main.mbt` 的
+`load_config` 改为同时返回 `(EngineConfig, ScanConfig)` 并经
+`ServerState::with_scan_config` 注入、G1 守卫的声明图补上
+`harness_evolution → scanner` 这条向下边。8 个新用例全绿，全量
+**Total tests: 334, passed: 334, failed: 0**，`moon check --deny-warn` 通过。
+版本按 semver（向后兼容的功能级新增）五处一并升 **2.2.0**（同第五轮 VER 的
+口径：`moon.mod`、`.zcode-plugin/plugin.json`、`jsonrpc.mbt` 的
+`server_version`、`DESIGN.md` 镜像块、`skills/harness-evolution/SKILL.md`
+frontmatter）。
+
+**一条实机教训**：对 `~/.openclaw-autoclaw/skills/`（46 个目录）这类大体量
+生态做首次全量扫描时，进程曾被外部 CTRL_C 打断（MCP 响应未产出，stderr 以
+`^C` 截止）—— 扫描本身无状态、可重入，重跑即可；缓存指纹（F2/W3）保证
+第二次扫描只重算变化的子树。
+
 ## 有意的语义修正
 
 移植过程中**只有两处**故意改变了 1.0 的行为语义，记录在此以免被当成 bug 回退
@@ -376,11 +443,13 @@ OSError("@fs.readdir(): ... The directory name is invalid."); reporting no defin
    这与 `propose_evolution`、`approve_proposal` 用 `isError` 的做法不一致，
    但 1.0 就是如此（`execute()` 是 `return` 而不是 `throw`）。
    三条失败通道的分界见 `mcp/tools_wbtest.mbt` 里的表格注释。
-6. **`scan_targets` 是一处未接通的配置孤岛**。
-   `.zcode-plugin/plugin.json` 列了 6 个扫描路径，但代码用的是
-   `scanner/scanner.mbt` 里 3 个硬编码根。接通它会**改变发现哪些插件**，
-   属于超出移植范围的行为变更，故保留缺口并记录在此。
-   （对比：`evolution_config` 已接通，因为读它不改变行为语义。）
+6. **`scan_targets` 曾是一处未接通的配置孤岛（2.2.0 已接通）**。
+   `.zcode-plugin/plugin.json` 列了 6 个扫描路径，但 1.0/2.0/2.1 的代码用的是
+   `scanner/scanner.mbt` 里 3 个硬编码根 —— 与 `evolution_config` 同源的孤岛。
+   接通它会**改变发现哪些插件**（超出移植范围的行为变更），故 2.0/2.1 刻意保留缺口。
+   2.2.0 经「全面升级」授权后接通：装配期 `ScanConfig::from_plugin_json`
+   解析该段，未配置/退化时回退默认根，语义见上面「配置来源」一节；
+   8 个专项用例钉住（`scanner/scan_targets_wbtest.mbt`）。
 7. **首次 `record_tool_call` 会立即触发一次落盘**。
    链路是 `record_tool_call → maybe_deep_check → get_statistics → flush_buffers`。
    反直觉（缓冲本该等 5s 周期），但忠实移植自 1.0，并有专门用例钉住。

@@ -1,7 +1,7 @@
 ---
 name: harness-evolution
 description: DeepSeek Harness 全盘自进化升级插件。扫描所有插件，监控性能，基于 Matt Pocock 原则生成进化提案，通过子 Agent 协同完成升级。当用户需要优化插件性能、简化接口、改进文档或扩展能力时使用。
-version: 2.1.0
+version: 2.2.0
 ---
 
 # Harness Self-Evolution
@@ -36,11 +36,16 @@ version: 2.1.0
 **目标**：发现并分析所有 harness 插件
 
 **步骤**：
-1. 扫描配置的插件目录：
+1. 扫描配置的插件目录 —— 扫描根来自 `.zcode-plugin/plugin.json` 的
+   `scan_targets` 段（2.2.0 起真正生效；未配置时回退内置默认根），
+   出厂配置列出：
    - `~/.deepseek/harness/plugins/`
    - `~/.zcode/cli/plugins/`
+   - `~/.zcode/skills/`
    - `~/.agents/skills/`
    - `~/.openclaw-autoclaw/skills/`
+
+   也可在调用 `scan_plugins` 时用 `target_paths` 参数临时替换扫描根。
 
 2. 解析插件元数据：
    - `plugin.json`：名称、版本、依赖、能力

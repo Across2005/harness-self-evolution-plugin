@@ -1,5 +1,6 @@
 import {
   "across2005/harness-self-evolution/mcp",
+  "across2005/harness-self-evolution/scanner",
   "across2005/harness-self-evolution/store",
   "across2005/harness-self-evolution/types",
   "across2005/harness-self-evolution/util",

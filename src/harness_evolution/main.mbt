@@ -17,7 +17,7 @@
 /// 详见 mcp/server.mbt 里关于「为什么不显式调 set_global_cancellation_signals」的说明。
 
 ///|
-/// 读取 `evolution_config`。查找顺序：
+/// 读取 `evolution_config` 与 `scan_targets`。查找顺序：
 /// 1. `$HARNESS_EVOLUTION_CONFIG`（显式覆盖，测试与多档案场景用）
 /// 2. `<cwd>/.zcode-plugin/plugin.json`
 /// 3. `.zcode-plugin/plugin.json`（相对路径兜底）
@@ -27,7 +27,15 @@
 /// **这一步修掉了 legacy 的一处配置孤岛**：`.zcode-plugin/plugin.json` L48-66
 /// 写了完整的 `evolution_config`（含 `signal_thresholds`），
 /// 但 legacy 的 `src/**` 里没有任何代码读它，改配置等于空操作。
-async fn load_config() -> @types.EngineConfig {
+/// 新版由 `EngineConfig::from_json` 真正读取，配置文件重新生效。
+///
+/// **2.2.0 起同一份 plugin.json 的 `scan_targets` 也被接通**（最后一块配置
+/// 孤岛，见 CONTEXT.md 已知缺陷第 6 条）：解析走
+/// `ScanConfig::from_plugin_json`，未配置时回退 `default_scan_roots()`。
+/// 接通它会改变发现哪些插件 —— 这是「全面升级」授权下的显式行为变更。
+async fn load_config(
+  paths : @store.DataPaths,
+) -> (@types.EngineConfig, @scanner.ScanConfig) {
   let candidates : Array[String] = []
   match @env.get_env_var("HARNESS_EVOLUTION_CONFIG") {
     Some(p) if p.length() > 0 => candidates.push(@util.expand_home(p))
@@ -57,15 +65,27 @@ async fn load_config() -> @types.EngineConfig {
             "Invalid evolution_config value, fell back to default: \{w}",
           )
         }
-        return cfg
+        // 同一份 plugin.json 的 scan_targets：与 evolution_config 同轮接通，
+        // 告警语义见 ScanConfig::from_plugin_json（缺失静默、退化点名）。
+        let (scan, scan_warns) = @scanner.ScanConfig::from_plugin_json(
+          json,
+          paths.plugin_cache(),
+        )
+        for w in scan_warns {
+          @util.log_warn(
+            "HarnessEvolution",
+            "Invalid scan_targets value, fell back to defaults: \{w}",
+          )
+        }
+        return (cfg, scan)
       }
       None => ()
     }
   }
   @util.log_info(
-    "HarnessEvolution", "No plugin.json found; using the default evolution config",
+    "HarnessEvolution", "No plugin.json found; using the default evolution config and scan roots",
   )
-  @types.EngineConfig::default()
+  (@types.EngineConfig::default(), @scanner.ScanConfig::at(paths))
 }
 
 ///|
@@ -74,12 +94,12 @@ async fn main {
   paths.warn_on_legacy_v1()
   paths.ensure_root()
 
-  let config = load_config()
-  let state = @mcp.ServerState::at(paths, config~)
+  let (config, scan) = load_config(paths)
+  let state = @mcp.ServerState::with_scan_config(paths, scan, config~)
 
   @util.log_info(
     "HarnessEvolution",
-    "Server started (data root: \{paths.root()}, intensity: \{config.intensity.wire_name()})",
+    "Server started (data root: \{paths.root()}, intensity: \{config.intensity.wire_name()}, scan roots: \{scan.roots.length()})",
   )
 
   @async.with_task_group() <| group => {

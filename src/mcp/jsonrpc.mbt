@@ -43,10 +43,13 @@ pub let default_protocol_version : String = "2024-11-05"
 /// 2.1.0：新增子 Agent 工厂（`src/factory/`、`store/agent_defs.mbt`、
 /// `types/agent_scope.mbt` + 3 个 MCP 工具，向后兼容）。文档与代码注释早已
 /// 称 v2.1，此处补齐机器可读元数据（第五轮）。
+/// 2.2.0：接通 `scan_targets` 配置孤岛（plugin.json 该段真正驱动扫描根，
+/// 向后兼容：未配置时回退默认根）。至此 plugin.json 不再有「写了但没人读」的段
+/// （`monitoring` 除外 —— 它声明的是宿主侧行为，见 DESIGN.md §4.1）。
 pub let server_name : String = "harness-self-evolution"
 
 ///|
-pub let server_version : String = "2.1.0"
+pub let server_version : String = "2.2.0"
 
 // JSON-RPC 2.0 的标准错误码
 
