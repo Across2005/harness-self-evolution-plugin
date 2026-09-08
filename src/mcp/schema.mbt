@@ -87,7 +87,11 @@ fn bool_prop(description : String, default : Bool) -> Json {
 /// （与 `object_schema` 的 `additionalProperties` 同一条注释）。
 ///
 /// 只有这一个使用方，故不再保留无下界的 `number_prop`（避免 unused 警告）。
-fn bounded_number_prop(description : String, default : Int, minimum : Int) -> Json {
+fn bounded_number_prop(
+  description : String,
+  default : Int,
+  minimum : Int,
+) -> Json {
   {
     "type": "number",
     "description": Json::string(description),

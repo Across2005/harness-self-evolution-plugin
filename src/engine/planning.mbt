@@ -41,6 +41,8 @@ pub fn plan_changes(
       let merges = plan_merges(plugin)
       // TODO(param-simplification)：TS L339-346 的 proposeParamSimplification
       // 恒返回 []，属未实现的占位。真要做了就产出 Change::SimplifyParams(...)。
+      // 影响范围：executor/decompose_tasks 的 SimplifyParams 分支因此当前不可达
+      // （由穷尽 match 要求而存在），实现本 TODO 时需同步验证该分支的正确性。
       if merges.is_empty() {
         []
       } else {
@@ -57,6 +59,8 @@ pub fn plan_changes(
     }
     @types.EvolutionType::PerformanceTuning =>
       // TODO(flow-optimization)：TS L370-376 的 proposeFlowOptimization 恒返回 []。
+      // 影响范围：executor/decompose_tasks 的 OptimizeFlow 分支因此当前不可达
+      // （由穷尽 match 要求而存在），实现本 TODO 时需同步验证该分支的正确性。
       []
     @types.EvolutionType::DocumentationEnhancement => {
       let docs = plan_docs(plugin, signals)

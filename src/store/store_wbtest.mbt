@@ -471,7 +471,10 @@ async test "PluginCache fingerprint detects in-place content rewrites" {
 
   // 目录自身 mtime 与 entry_count 可能不变，但子项纳秒级 mtime 必须变
   assert_eq(fp_before.entry_count, fp_after.entry_count)
-  assert_true(fp_before != fp_after, msg="in-place rewrite must change the fingerprint")
+  assert_true(
+    fp_before != fp_after,
+    msg="in-place rewrite must change the fingerprint",
+  )
   assert_true(
     fp_after.child_mtime_ns >= fp_before.child_mtime_ns,
     msg="rewrite must not move the child mtime backwards",

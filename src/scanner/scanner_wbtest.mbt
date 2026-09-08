@@ -271,11 +271,7 @@ async test "F3: accepts the six manifest forms, in priority order" {
   )
   let mcp_seed =
     #|{"mcpServers":{"demo":{"command":"demo"}}}
-  ignore(
-    make_plugin(tmp, "mcp-only", [
-      (".mcp.json", mcp_seed),
-    ]),
-  )
+  ignore(make_plugin(tmp, "mcp-only", [(".mcp.json", mcp_seed)]))
   let seed_seed =
     #|{"name":"from-seed","version":"4.4.4"}
   ignore(

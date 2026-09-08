@@ -38,6 +38,11 @@ let flush_interval_ms : Int = 5000 // ← TS L57 setInterval 的周期
 let max_buffered_items : Int = 1000
 
 ///|
+/// 信号缓冲的有界上限。信号产生速率远低于事件（只有特定模式被检测到时才发射），
+/// 故上限低于 `max_buffered_items`。磁盘长期写不进去时，溢出丢最旧的并告警。
+let max_buffered_signals : Int = 500
+
+///|
 /// 会话 id 的进程内单调序号。
 ///
 /// TS 用 `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,11)}`
@@ -248,7 +253,7 @@ pub fn PerformanceMonitor::record_user_feedback(
       Some(c) => c
       None => "no details"
     }
-    self.signal_buffer.push(
+    self.enqueue_signal(
       make_signal(
         plugin_id,
         @types.SignalStrength::Strong,
@@ -352,7 +357,7 @@ async fn PerformanceMonitor::check_for_signals(
 
   // 连续失败 >= 阈值 → strong/struggle（对齐 TS L227-232）
   if state.consecutive_failures >= self.thresholds.consecutive_failures {
-    self.signal_buffer.push(
+    self.enqueue_signal(
       make_signal(
         plugin_id,
         @types.SignalStrength::Strong,
@@ -373,7 +378,7 @@ async fn PerformanceMonitor::check_for_signals(
     self.loop_reported.remove(loop_key)
   } else if !self.loop_reported.contains(loop_key) {
     self.loop_reported.set(loop_key, ())
-    self.signal_buffer.push(
+    self.enqueue_signal(
       make_signal(
         plugin_id,
         @types.SignalStrength::Medium,
@@ -413,6 +418,21 @@ fn make_signal(
     plugin_id,
     count,
     tool,
+  }
+}
+
+///|
+/// 往 `signal_buffer` 压入一条信号，溢出时丢弃最旧的。
+/// 与 `event_buffer` 的 `max_buffered_items` 对称，但上限是 `max_buffered_signals`。
+/// 不记日志：`record_user_feedback` 不是 async，无法调用 `log_warn`；
+/// 信号产生速率极低，溢出罕见，静默丢弃即可。
+fn PerformanceMonitor::enqueue_signal(
+  self : PerformanceMonitor,
+  signal : @types.EvolutionSignal,
+) -> Unit {
+  self.signal_buffer.push(signal)
+  if self.signal_buffer.length() > max_buffered_signals {
+    ignore(self.signal_buffer.remove(0))
   }
 }
 
@@ -507,7 +527,7 @@ async fn PerformanceMonitor::maybe_deep_check(
       let increase = (day.avg_latency_ms - week.avg_latency_ms) /
         week.avg_latency_ms
       if increase > self.thresholds.latency_regression {
-        self.signal_buffer.push(
+        self.enqueue_signal(
           make_signal(
             plugin_id,
             @types.SignalStrength::Strong,
@@ -555,6 +575,11 @@ async fn PerformanceMonitor::maybe_deep_check(
 pub async fn PerformanceMonitor::flush_buffers(
   self : PerformanceMonitor,
 ) -> Unit {
+  // 空缓冲短路：两个缓冲都为空时，跳过 copy/clear/trim 的全部开销。
+  // 不影响语义——空缓冲的 flush 本就是 no-op。
+  if self.event_buffer.length() == 0 && self.signal_buffer.length() == 0 {
+    return
+  }
   let events = self.event_buffer.copy()
   self.event_buffer.clear()
   let signals = self.signal_buffer.copy()
@@ -601,32 +626,10 @@ pub async fn PerformanceMonitor::flush_buffers(
     self.trim_quietly(self.signals)
   }
   if !events_ok {
-    let (back, dropped) = bounded_requeue(events, self.event_buffer)
-    // 不重新绑定字段（`event_buffer` 不是 `mut` 字段），而是原地改写：
-    // Array 本身可变，clear + push 与本函数开头的 copy + clear 是同一套操作。
-    self.event_buffer.clear()
-    for x in back {
-      self.event_buffer.push(x)
-    }
-    if dropped > 0 {
-      @util.log_warn(
-        "Monitor",
-        "Dropped \{dropped} oldest buffered events (cap \{max_buffered_items})",
-      )
-    }
+    requeue_into(events, self.event_buffer, "events")
   }
   if !signals_ok {
-    let (back, dropped) = bounded_requeue(signals, self.signal_buffer)
-    self.signal_buffer.clear()
-    for x in back {
-      self.signal_buffer.push(x)
-    }
-    if dropped > 0 {
-      @util.log_warn(
-        "Monitor",
-        "Dropped \{dropped} oldest buffered signals (cap \{max_buffered_items})",
-      )
-    }
+    requeue_into(signals, self.signal_buffer, "signals")
   }
 }
 
@@ -681,6 +684,28 @@ fn[A] bounded_requeue(
     i += 1
   }
   (kept, overflow)
+}
+
+///|
+/// 把写失败的批次回填到缓冲头部，溢出时丢弃最旧的并告警。
+/// 封装 `bounded_requeue` + `clear` + `push` + `log_warn` 的固定模式，
+/// 消除 events/signals 两条路径的结构重复。
+async fn[A] requeue_into(
+  unsaved : Array[A],
+  buffer : Array[A],
+  label : String,
+) -> Unit {
+  let (back, dropped) = bounded_requeue(unsaved, buffer)
+  buffer.clear()
+  for x in back {
+    buffer.push(x)
+  }
+  if dropped > 0 {
+    @util.log_warn(
+      "Monitor",
+      "Dropped \{dropped} oldest buffered \{label} (cap \{max_buffered_items})",
+    )
+  }
 }
 
 ///|

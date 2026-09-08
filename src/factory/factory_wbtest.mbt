@@ -118,10 +118,10 @@ test "system_prompt validation rejects leading/trailing blank lines" {
   for
     bad in [
       "\n正文", // 首行为空行
-      "  \n正文", // 首行为空白行
-      "正文\n", // 末行为空行
-      "正文\n  ", // 末行为空白行
-      "\n正文\n", // 两侧空行
+       "  \n正文", // 首行为空白行
+       "正文\n", // 末行为空行
+       "正文\n  ", // 末行为空白行
+       "\n正文\n", // 两侧空行
     ] {
     let msg = try {
       make_def(system_prompt=bad).validate()

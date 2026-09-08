@@ -93,21 +93,6 @@ pub fn EvolutionEngine::new(
 }
 
 ///|
-/// 用 `DataPaths` 构造（生产路径）。
-pub fn EvolutionEngine::at(
-  paths : @store.DataPaths,
-  monitor : @monitor.PerformanceMonitor,
-  config? : @types.EngineConfig = @types.EngineConfig::default(),
-) -> EvolutionEngine {
-  EvolutionEngine::new(
-    monitor,
-    @store.ProposalStore::at(paths),
-    @store.Jsonl::new(paths.signals()),
-    config,
-  )
-}
-
-///|
 /// 生成进化提案。取代 TS L54-150。
 ///
 /// 7 道闸门的顺序与 TS **逐一对应**，不得重排：

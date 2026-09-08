@@ -298,21 +298,25 @@ async test "two versions of the same plugin name get separate proposals" {
 
   // 0.4.1 的信号与插件
   let v41 = engine.generate_proposal(
-    { ..mock_plugin(), plugin_id: "browser-use-0.4.1", },
-    signals=Some([signal(
-      @types.SignalStrength::Strong,
-      @types.SignalCategory::Correction,
-      "d",
-    )]),
+    { ..mock_plugin(), plugin_id: "browser-use-0.4.1" },
+    signals=Some([
+      signal(
+        @types.SignalStrength::Strong,
+        @types.SignalCategory::Correction,
+        "d",
+      ),
+    ]),
   )
   // 0.3.1 的信号与插件（信号必须属于它自己：⑤/⑥/⑦ 都按 plugin_id 或签名走）
   let v31 = engine.generate_proposal(
-    { ..mock_plugin(), plugin_id: "browser-use-0.3.1", },
-    signals=Some([signal(
-      @types.SignalStrength::Strong,
-      @types.SignalCategory::Correction,
-      "d",
-    )]),
+    { ..mock_plugin(), plugin_id: "browser-use-0.3.1" },
+    signals=Some([
+      signal(
+        @types.SignalStrength::Strong,
+        @types.SignalCategory::Correction,
+        "d",
+      ),
+    ]),
   )
 
   // 两个版本都必须 Created，而不是 0.4.1 把 0.3.1 挡成 Duplicate

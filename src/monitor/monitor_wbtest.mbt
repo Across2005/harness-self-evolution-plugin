@@ -911,7 +911,10 @@ async test "emits a latency-regression signal when the daily average exceeds the
 
   let signals = load_signals(dir)
   let regress = find_by_category(signals, @types.SignalCategory::Struggle)
-  assert_true(regress is Some(_), msg="延迟回归必须产出 struggle 信号")
+  assert_true(
+    regress is Some(_),
+    msg="延迟回归必须产出 struggle 信号",
+  )
   match regress {
     Some(s) => {
       assert_eq(s.strength, @types.SignalStrength::Strong)
@@ -939,15 +942,13 @@ async test "does not emit a latency-regression signal within the threshold" {
   let baseline : Array[@types.PerformanceEvent] = []
   for i in 0..<5 {
     // 基线 10ms：event_at 的默认 latency_ms 是 1，这里手动改成 10 的夹具
-    baseline.push(
-      {
-        ..event_at("p-1", "navigate", three_days_ago + i.to_int64()),
-        payload: @types.EventPayload::ToolCall({
-          ..tool_call("navigate"),
-          latency_ms: 10,
-        }),
-      },
-    )
+    baseline.push({
+      ..event_at("p-1", "navigate", three_days_ago + i.to_int64()),
+      payload: @types.EventPayload::ToolCall({
+        ..tool_call("navigate"),
+        latency_ms: 10,
+      }),
+    })
   }
   @store.Jsonl::new(metrics_path(dir)).append_many(baseline)
 

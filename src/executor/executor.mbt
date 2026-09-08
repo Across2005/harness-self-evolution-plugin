@@ -70,15 +70,6 @@ pub fn UpgradeExecutor::new(
 }
 
 ///|
-/// 用 `DataPaths` 构造（生产路径）。
-pub fn UpgradeExecutor::at(paths : @store.DataPaths) -> UpgradeExecutor {
-  UpgradeExecutor::new(
-    @store.ProposalStore::at(paths),
-    @store.ExecutionLog::at(paths),
-  )
-}
-
-///|
 /// 执行一份已审批的提案。取代 TS L37-132。
 ///
 /// 状态流转严格对齐 TS，且全部经 `ProposalStore.set_status`
@@ -559,6 +550,9 @@ pub fn decompose_tasks(
     "实现中间件：添加行为优化逻辑",
     60_000,
   )
+  // ★ WEAK 4 修复后的下一个占位：`plan_changes` 目前还发不出 OptimizeFlow
+  // （planning.mbt 的 TODO(flow-optimization) 恒返回 []），该分支当前不可达，
+  // 由穷尽 match 要求而存在。实现该 TODO 时需验证此处的任务派发是否正确。
   push_task(
     tasks,
     changes,

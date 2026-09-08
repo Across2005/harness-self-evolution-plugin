@@ -103,12 +103,6 @@ pub fn PluginScanner::new(cfg : ScanConfig) -> PluginScanner {
 }
 
 ///|
-/// 用 `DataPaths` 构造（生产路径）。
-pub fn PluginScanner::at(paths : @store.DataPaths) -> PluginScanner {
-  PluginScanner::new(ScanConfig::at(paths))
-}
-
-///|
 /// 已发现的插件数。
 pub fn PluginScanner::count(self : PluginScanner) -> Int {
   self.profiles.length()

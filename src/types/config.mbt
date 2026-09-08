@@ -103,9 +103,17 @@ fn bool_field(obj : Map[String, Json], key : String) -> Bool? {
 }
 
 ///|
+/// 提取 JSON 数值字段。过滤 NaN/Infinity（JSON 规范不允许这些值，
+/// 但手工构造的 `Json` 可以携带它们）：让它们走“字段缺失”路径
+/// （回落默认值），与 H2 的“显式失效优于静默采纳”原则一致。
 fn num_field(obj : Map[String, Json], key : String) -> Double? {
   match obj.get(key) {
-    Some(Number(n, ..)) => Some(n)
+    Some(Number(n, ..)) =>
+      if n != n || n == 1.0 / 0.0 || n == -1.0 / 0.0 {
+        None
+      } else {
+        Some(n)
+      }
     _ => None
   }
 }
@@ -186,11 +194,7 @@ fn threshold_int(
 /// `n.to_int()`，`"cooldown_hours": 0.5` 会截断成 0（域内值，静默关掉冷却），
 /// `"max_log_bytes": 2097152.9` 会截断成 2097152 —— 与 signal_thresholds
 /// 的守卫不一致。现在统一走这里。
-fn integer_field(
-  name : String,
-  d : Double,
-  fallback : Int,
-) -> (Int, String?) {
+fn integer_field(name : String, d : Double, fallback : Int) -> (Int, String?) {
   if d == d.floor() {
     (d.to_int(), None)
   } else {
@@ -432,7 +436,10 @@ pub fn EngineConfig::from_json_checked(
   for msg in w_threshold {
     warn.push(msg)
   }
-  for w in [w_cooldown_int, w_max_log_int, w_cooldown, w_cf, w_loop, w_latency, w_max_log] {
+  for
+    w in [
+      w_cooldown_int, w_max_log_int, w_cooldown, w_cf, w_loop, w_latency, w_max_log,
+    ] {
     match w {
       Some(msg) => warn.push(msg)
       None => ()

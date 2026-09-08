@@ -82,3 +82,30 @@ test "String::length is UTF-16 code units, identical to JS String.length" {
   // 混合：2 个 BMP 字符 + 1 个代理对 + 2 个 BMP 字符 = 6
   assert_eq("扫描😀ab".length(), 6)
 }
+
+///|
+/// 边界输入覆盖：零工具零能力、单工具单能力、有工具无能力等极端情况。
+test "compute_metrics boundary inputs" {
+  // 零工具零能力但有 SKILL.md：文档分由文件长度决定，复杂度恒为 2.0
+  let zero = compute_metrics(Some(100), 0, 0)
+  // doc = min(100/500, 5) + 5 = 5.2
+  assert_eq(zero.documentation_quality, 5.2)
+  // complexity = min(0*0.5,5) + min(0*0.3,3) + 2 = 2.0（与文档无关）
+  assert_eq(zero.complexity_score, 2.0)
+
+  // 有工具无能力无文档：复杂度由工具数驱动，文档分恒为 5
+  let tool_only = compute_metrics(None, 1, 0)
+  assert_eq(tool_only.documentation_quality, 5.0)
+  assert_true(tool_only.complexity_score > 2.0)
+
+  // 单工具单能力无文档：最小非零输入
+  let minimal = compute_metrics(None, 1, 1)
+  assert_eq(minimal.documentation_quality, 5.0)
+
+  // 有文档但零工具零能力：文档分高于默认，复杂度仍为 2.0
+  let doc_only = compute_metrics(Some(500), 0, 0)
+  // doc = min(500/500, 5) + 5 = 6.0
+  assert_eq(doc_only.documentation_quality, 6.0)
+  // complexity = min(0*0.5,5) + min(0*0.3,3) + 2 = 2.0（与文档无关）
+  assert_eq(doc_only.complexity_score, 2.0)
+}
