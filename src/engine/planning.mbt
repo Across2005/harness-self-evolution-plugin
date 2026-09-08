@@ -86,6 +86,14 @@ pub fn plan_changes(
         [@types.Change::ImproveErrorHandling(handling)]
       }
     }
+    @types.EvolutionType::SecurityHardening => {
+      // TODO(security-hardening): 实现安全加固变更规划
+      []
+    }
+    @types.EvolutionType::AccessibilityImprovement => {
+      // TODO(accessibility-improvement): 实现可访问性改进变更规划
+      []
+    }
   }
 }
 

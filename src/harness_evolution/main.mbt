@@ -17,7 +17,7 @@
 /// 详见 mcp/server.mbt 里关于「为什么不显式调 set_global_cancellation_signals」的说明。
 
 ///|
-/// 读取 `evolution_config` 与 `scan_targets`。查找顺序：
+/// 读取 `evolution_config`、`scan_targets` 和 `monitoring`。查找顺序：
 /// 1. `$HARNESS_EVOLUTION_CONFIG`（显式覆盖，测试与多档案场景用）
 /// 2. `<cwd>/.zcode-plugin/plugin.json`
 /// 3. `.zcode-plugin/plugin.json`（相对路径兜底）
@@ -33,9 +33,13 @@
 /// 孤岛，见 CONTEXT.md 已知缺陷第 6 条）：解析走
 /// `ScanConfig::from_plugin_json`，未配置时回退 `default_scan_roots()`。
 /// 接通它会改变发现哪些插件 —— 这是「全面升级」授权下的显式行为变更。
+///
+/// **2.3.0 起统一配置管理**：三个配置段（`evolution_config`、`scan_targets`、
+/// `monitoring`）合并为 `HarnessConfig` + `ScanConfig`。`monitoring` 段
+/// 现在被解析和验证（已知缺陷 #9 的第一步），为未来的监控数据源接入做准备。
 async fn load_config(
   paths : @store.DataPaths,
-) -> (@types.EngineConfig, @scanner.ScanConfig) {
+) -> (@types.HarnessConfig, @scanner.ScanConfig) {
   let candidates : Array[String] = []
   match @env.get_env_var("HARNESS_EVOLUTION_CONFIG") {
     Some(p) if p.length() > 0 => candidates.push(@util.expand_home(p))
@@ -53,16 +57,16 @@ async fn load_config(
       Some(json) => {
         @util.log_info(
           "HarnessEvolution",
-          "Loaded evolution_config from \{path}",
+          "Loaded config from \{path}",
         )
-        let (cfg, warns) = @types.EngineConfig::from_json_checked(json)
+        let (harness_cfg, warns) = @types.HarnessConfig::from_json_checked(json)
         // 越界取值会**回落默认值**，但必须让人看见：配置孤岛是 2.0 才接通的，
         // 退化值（`consecutive_failures: 0` 等）过去会被静默兜底，
         // 引擎会拿着被改写的阈值产出的垃圾信号去改真实插件。
         for w in warns {
           @util.log_warn(
             "HarnessEvolution",
-            "Invalid evolution_config value, fell back to default: \{w}",
+            "Invalid config value, fell back to default: \{w}",
           )
         }
         // 同一份 plugin.json 的 scan_targets：与 evolution_config 同轮接通，
@@ -77,15 +81,66 @@ async fn load_config(
             "Invalid scan_targets value, fell back to defaults: \{w}",
           )
         }
-        return (cfg, scan)
+        return (harness_cfg, scan)
       }
       None => ()
     }
   }
   @util.log_info(
-    "HarnessEvolution", "No plugin.json found; using the default evolution config and scan roots",
+    "HarnessEvolution", "No plugin.json found; using default config and scan roots",
   )
-  (@types.EngineConfig::default(), @scanner.ScanConfig::at(paths))
+  (@types.HarnessConfig::default(), @scanner.ScanConfig::at(paths))
+}
+
+///|
+/// 配置文件监听器。
+///
+/// 通过轮询机制检测配置文件变化，当文件修改时间发生变化时记录日志。
+/// 由于 MoonBit 的限制，无法在运行时修改 ServerState 的字段，
+/// 因此配置热重载功能仅记录变化，不自动更新 ServerState。
+///
+/// **设计决策**：
+/// - 使用轮询而非文件系统事件：MoonBit 的 fs 模块没有提供跨平台的文件监听 API
+/// - 轮询间隔可配置，默认 5 秒
+/// - 只记录配置变化，不自动重载（需要重启插件才能应用新配置）
+async fn config_watcher_loop(
+  config_path : String,
+) -> Unit {
+  let poll_interval_ms = 5000
+  let mut last_mtime : (Int64, Int)? = None
+
+  @util.log_info(
+    "ConfigWatcher",
+    "Started watching config file: \{config_path}",
+  )
+
+  while true {
+    @async.sleep(poll_interval_ms)
+
+    // 获取当前修改时间
+    let current_mtime = if @fs.exists(config_path) {
+      Some(@fs.mtime(config_path)) catch { _ => None }
+    } else {
+      None
+    }
+
+    // 比较修改时间
+    let changed = match (last_mtime, current_mtime) {
+      (None, None) => false
+      (Some(_), None) => true // 文件被删除
+      (None, Some(_)) => true // 文件被创建
+      (Some((old_sec, old_nsec)), Some((new_sec, new_nsec))) =>
+        old_sec != new_sec || old_nsec != new_nsec
+    }
+
+    if changed {
+      @util.log_info(
+        "ConfigWatcher",
+        "Config file changed, restart required to apply new configuration",
+      )
+      last_mtime = current_mtime
+    }
+  }
 }
 
 ///|
@@ -94,16 +149,28 @@ async fn main {
   paths.warn_on_legacy_v1()
   paths.ensure_root()
 
-  let (config, scan) = load_config(paths)
+  let (harness_cfg, scan) = load_config(paths)
+  let config = harness_cfg.engine
   let state = @mcp.ServerState::with_scan_config(paths, scan, config~)
 
   @util.log_info(
     "HarnessEvolution",
-    "Server started (data root: \{paths.root()}, intensity: \{config.intensity.wire_name()}, scan roots: \{scan.roots.length()})",
+    "Server started (data root: \{paths.root()}, intensity: \{config.intensity.wire_name()}, scan roots: \{scan.roots.length()}, monitoring: \{harness_cfg.monitoring.enabled})",
   )
+
+  // 确定配置文件路径
+  let config_path = match @env.get_env_var("HARNESS_EVOLUTION_CONFIG") {
+    Some(p) if p.length() > 0 => @util.expand_home(p)
+    _ => match @env.current_dir() {
+      Some(cwd) => @util.path_join(cwd, ".zcode-plugin/plugin.json")
+      None => ".zcode-plugin/plugin.json"
+    }
+  }
 
   @async.with_task_group() <| group => {
     let flush_task = state.run_background_tasks(group)
+    // 启动配置文件监听（仅记录变化，不自动重载）
+    ignore(group.spawn(async fn() { config_watcher_loop(config_path) }))
     @mcp.serve_stdio(state)
     // ★ stdin EOF → 必须显式取消后台 flush 循环，否则 group 永远等不结束。
     // 实测教训：未加这一行时，客户端关闭 stdin 后进程挂死（烟雾测试超时 600 s）。

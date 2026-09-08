@@ -43,6 +43,8 @@ pub let evolution_type_wire : @util.WireEnum[EvolutionType] = @util.WireEnum::of
     ("documentation_enhancement", EvolutionType::DocumentationEnhancement),
     ("capability_extension", EvolutionType::CapabilityExtension),
     ("error_handling_improvement", EvolutionType::ErrorHandlingImprovement),
+    ("security_hardening", EvolutionType::SecurityHardening),
+    ("accessibility_improvement", EvolutionType::AccessibilityImprovement),
   ],
 )
 

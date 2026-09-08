@@ -190,7 +190,7 @@ test "every string enum round-trips through its wire table" {
 
 ///|
 test "every wire table is complete and has no duplicate names" {
-  check_table("evolution_type_wire", evolution_type_wire, 6)
+  check_table("evolution_type_wire", evolution_type_wire, 8)
   check_table("proposal_status_wire", proposal_status_wire, 5)
   check_table("principle_wire", principle_wire, 6)
   check_table("confidence_wire", confidence_wire, 3)
@@ -260,7 +260,7 @@ test "TimeRange and AgentType encode/decode through their public impls" {
 test "wire names match the CONTEXT.md vocabulary verbatim" {
   json_inspect(evolution_type_wire.names(), content=[
     "interface_simplification", "behavior_optimization", "performance_tuning", "documentation_enhancement",
-    "capability_extension", "error_handling_improvement",
+    "capability_extension", "error_handling_improvement", "security_hardening", "accessibility_improvement",
   ])
   // CONTEXT.md L40-49 的「应用原则」列。注意 behavior_optimization 与
   // error_handling_improvement 都映射到「紧反馈环 > 盲目试错」。
@@ -272,10 +272,13 @@ test "wire names match the CONTEXT.md vocabulary verbatim" {
       EvolutionType::DocumentationEnhancement.principle().wire_name(),
       EvolutionType::CapabilityExtension.principle().wire_name(),
       EvolutionType::ErrorHandlingImprovement.principle().wire_name(),
+      EvolutionType::SecurityHardening.principle().wire_name(),
+      EvolutionType::AccessibilityImprovement.principle().wire_name(),
     ],
     content=[
       "Deep Module > 浅模块", "紧反馈环 > 盲目试错", "垂直切片 > 水平切片",
       "词汇即文档", "先对齐，再动手", "紧反馈环 > 盲目试错",
+      "先对齐，再动手", "垂直切片 > 水平切片",
     ],
   )
   // CONTEXT.md L51-59 的 Sub-Agent 角色表用连字符，与其余表的下划线风格不同

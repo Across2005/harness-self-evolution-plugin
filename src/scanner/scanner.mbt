@@ -235,8 +235,13 @@ pub async fn PluginScanner::scan_all(
   }
 
   self.reset()
-  for root in self.cfg.roots {
-    self.scan_root(root, @types.PluginKind::Official, cache_by_dir~)
+  // 并行扫描多个根目录以提升性能
+  @async.with_task_group() <| group => {
+    for root in self.cfg.roots {
+      let _ = group.spawn(allow_failure=true, () => {
+        self.scan_root(root, @types.PluginKind::Official, cache_by_dir~)
+      })
+    }
   }
   self.save_cache()
 }

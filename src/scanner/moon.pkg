@@ -2,14 +2,12 @@ import {
   "across2005/harness-self-evolution/store",
   "across2005/harness-self-evolution/types",
   "across2005/harness-self-evolution/util",
+  "moonbitlang/async",
   "moonbitlang/async/fs",
   "moonbitlang/core/json",
+  "moonbitlang/core/ref",
   "moonbitlang/core/string",
 }
-
-import {
-  "moonbitlang/async",
-} for "wbtest"
 
 options(
   // scanner 的用例全部触碰真实文件系统（递归 readdir + 多文件读写）。

@@ -91,6 +91,9 @@ pub struct PerformanceMonitor {
   /// 已发射过 loop 信号的 `plugin:tool` 集合（对应 TS L38 loopReported）。
   /// 用 Map 而非 Set：只需存在性，且 Map 的 remove/contains 已确认可用。
   loop_reported : Map[String, Unit]
+  /// 已发射过 struggle 信号的插件集合（解决已知缺陷#11）。
+  /// 每个插件只报告一次 struggle 信号，直到连续失败解除后才能再次报告。
+  struggle_reported : Map[String, Unit]
   /// 每插件上次深度检查的时刻（对应 TS L36 lastDeepCheckAt）
   last_deep_check_at : Map[String, Int64]
   /// 信号阈值（默认取 TS 的三个硬编码常量，可由配置覆盖）
@@ -133,6 +136,7 @@ pub fn PerformanceMonitor::with_thresholds(
     session_events: @deque.Deque([], capacity=max_session_events),
     trailing: Map([]),
     loop_reported: Map([]),
+    struggle_reported: Map([]),
     last_deep_check_at: Map([]),
     thresholds,
     max_log_bytes,
@@ -356,7 +360,13 @@ async fn PerformanceMonitor::check_for_signals(
   state.observe(tool, success)
 
   // 连续失败 >= 阈值 → strong/struggle（对齐 TS L227-232）
-  if state.consecutive_failures >= self.thresholds.consecutive_failures {
+  // 添加去重机制：每个插件只报告一次 struggle 信号，直到连续失败解除后才能再次报告
+  if state.consecutive_failures < self.thresholds.consecutive_failures {
+    // 低于阈值时清除「已报告」标记，于是下一轮循环能再次上报
+    self.struggle_reported.remove(plugin_id)
+  } else if !self.struggle_reported.contains(plugin_id) {
+    // 达到阈值且本轮尚未报告过时，只发一次 strong/struggle
+    self.struggle_reported.set(plugin_id, ())
     self.enqueue_signal(
       make_signal(
         plugin_id,
@@ -418,6 +428,7 @@ fn make_signal(
     plugin_id,
     count,
     tool,
+    decay_factor: 1.0,
   }
 }
 
@@ -503,6 +514,13 @@ pub fn PerformanceMonitor::pending_event_count(
 ///
 /// 失败只记日志、不上抛（对齐 TS L274-276 的 try/catch + console.error）：
 /// 深度检查是**附加**信号源，它坏了不该让 `recordToolCall` 整条失败。
+///
+/// ★ **单次读盘优化**：TS 版调 `getStatistics` 两次（day / week），每次都走
+/// `flushBuffers() → load()` 全量读盘 + JSON 解析。深度检查被节流到 30s 一次，
+/// 但一次检查内的两次 `load()` 仍是纯粹的重复 I/O。
+/// 改为：先 flush 一次 + load 一次，再从同一批原始事件里按两个时间窗口
+/// 分别过滤、分别 summarize。外部语义完全不变（先 flush 后算），
+/// 内部 I/O 减半。
 async fn PerformanceMonitor::maybe_deep_check(
   self : PerformanceMonitor,
   plugin_id : String,
@@ -515,14 +533,32 @@ async fn PerformanceMonitor::maybe_deep_check(
   self.last_deep_check_at.set(plugin_id, now)
 
   let outcome : Result[Unit, String] = try {
-    let day = self.get_statistics(
-      plugin_id,
-      time_range=@types.TimeRange::LastDay,
-    )
-    let week = self.get_statistics(
-      plugin_id,
-      time_range=@types.TimeRange::LastWeek,
-    )
+    // 单次 flush + load：把两次 get_statistics 的共用路径提出来
+    self.flush_buffers()
+    let all : Array[@types.PerformanceEvent] = self.metrics.load()
+    let now_ms = @util.now_ms()
+    let day_cutoff = @types.TimeRange::LastDay.cutoff_ms(now_ms)
+    let week_cutoff = @types.TimeRange::LastWeek.cutoff_ms(now_ms)
+    let day_calls : Array[@types.ToolCallData] = []
+    let week_calls : Array[@types.ToolCallData] = []
+    for event in all {
+      if event.plugin_id != plugin_id {
+        continue
+      }
+      match event.payload {
+        @types.EventPayload::ToolCall(d) => {
+          if event.ts >= week_cutoff {
+            week_calls.push(d)
+          }
+          if event.ts >= day_cutoff {
+            day_calls.push(d)
+          }
+        }
+        _ => ()
+      }
+    }
+    let day = summarize(day_calls)
+    let week = summarize(week_calls)
     if week.avg_latency_ms > 0.0 {
       let increase = (day.avg_latency_ms - week.avg_latency_ms) /
         week.avg_latency_ms

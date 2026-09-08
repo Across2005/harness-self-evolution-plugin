@@ -128,16 +128,20 @@ pub async fn EvolutionEngine::generate_proposal(
     None => self.get_signals_for_plugin(plugin.plugin_id)
   }
 
-  // ③ 按强度过滤
-  let filtered = filter_by_intensity(raw_signals, self.config.intensity)
+  // ③ 应用信号聚合（时间衰减）
+  let now = @util.now_ms()
+  let aggregated = aggregate_signals(raw_signals, now)
 
-  // ④ 过滤后为空
+  // ④ 按强度过滤
+  let filtered = filter_by_intensity(aggregated, self.config.intensity)
+
+  // ⑤ 过滤后为空
   if filtered.length() == 0 {
     @util.log_info("Engine", "No signals to trigger evolution")
     return NoSignals
   }
 
-  // ⑤ 已有 pending → 返回它
+  // ⑥ 已有 pending → 返回它
   match self.proposals.find_pending_for_plugin(plugin.plugin_id) {
     Some(pending) => {
       @util.log_info(
@@ -148,7 +152,7 @@ pub async fn EvolutionEngine::generate_proposal(
     None => ()
   }
 
-  // ⑥ 冷却期
+  // ⑦ 冷却期
   let cooldown_ms = @util.hours_to_ms(self.config.cooldown_hours)
   let recent = self.proposals.recent_for_plugin(plugin.plugin_id, cooldown_ms)
   if recent.length() > 0 {
@@ -161,7 +165,7 @@ pub async fn EvolutionEngine::generate_proposal(
   let changes = plan_changes(plugin, etype, filtered)
   let signature = generate_signature(plugin.plugin_id, etype)
 
-  // ⑦ 同签名重复 → 返回已存在的
+  // ⑧ 同签名重复 → 返回已存在的
   match self.proposals.find_duplicate(signature) {
     Some(dup) => {
       @util.log_info("Engine", "Duplicate proposal detected")
@@ -170,10 +174,18 @@ pub async fn EvolutionEngine::generate_proposal(
     None => ()
   }
 
+  // 检测信号模式
+  let patterns = detect_signal_patterns(filtered)
+  if patterns.length() > 0 {
+    @util.log_info("Engine", "Detected signal patterns: \{patterns.length()}")
+    for pattern in patterns {
+      @util.log_info("Engine", "Pattern: \{pattern}")
+    }
+  }
+
   // 构造提案。created_at 只取一次时钟，
   // 于是 proposal_id 里的日期段与 created_at 必然自洽
   // （TS L130 与 L133 各调一次 `new Date()`，跨午夜时两者会落在不同日期）。
-  let now = @util.now_ms()
   let proposal : @types.EvolutionProposal = {
     proposal_id: "evo-\{@util.date_utc(now)}-\{signature}",
     plugin_id: plugin.plugin_id,
@@ -305,4 +317,133 @@ fn has_category(
     }
   }
   false
+}
+
+///|
+/// 计算信号的时间衰减因子。
+/// 信号越老，衰减因子越小。默认衰减半衰期为 24 小时。
+/// 衰减公式：decay_factor = 0.5 ^ (age_hours / half_life_hours)
+fn calculate_decay_factor(
+  signal_ts : Int64,
+  current_ts : Int64,
+  half_life_hours : Double,
+) -> Double {
+  let age_ms = current_ts - signal_ts
+  let age_hours = @util.ms_to_hours(age_ms)
+  let exponent = age_hours / half_life_hours
+  // 使用近似计算：0.5^x ≈ 1.0 / (1.0 + x * ln(2)) for small x
+  // 更精确的衰减：exp(-x * ln(2))
+  let decay_factor = 1.0 / (1.0 + exponent * 0.693147)
+  // 限制衰减因子在 [0.01, 1.0] 范围内
+  if decay_factor < 0.01 {
+    0.01
+  } else if decay_factor > 1.0 {
+    1.0
+  } else {
+    decay_factor
+  }
+}
+
+///|
+/// 聚合信号：按时间衰减强度，合并相同类别的信号。
+/// 返回聚合后的信号列表，每个信号的强度已根据时间衰减。
+pub fn aggregate_signals(
+  signals : ArrayView[@types.EvolutionSignal],
+  current_ts : Int64,
+) -> Array[@types.EvolutionSignal] {
+  let aggregated : Array[@types.EvolutionSignal] = []
+  let half_life_hours = 24.0
+  for s in signals {
+    let decay_factor = calculate_decay_factor(s.ts, current_ts, half_life_hours)
+    let decayed_signal : @types.EvolutionSignal = {
+      strength: s.strength,
+      category: s.category,
+      description: s.description,
+      evidence: s.evidence,
+      ts: s.ts,
+      plugin_id: s.plugin_id,
+      count: s.count,
+      tool: s.tool,
+      decay_factor,
+    }
+    aggregated.push(decayed_signal)
+  }
+  aggregated
+}
+
+///|
+/// 识别信号模式：检测信号中的重复模式和趋势。
+/// 返回识别到的模式列表。
+pub fn detect_signal_patterns(
+  signals : ArrayView[@types.EvolutionSignal],
+) -> Array[String] {
+  let patterns : Array[String] = []
+  
+  // 统计各类别信号的数量
+  let mut struggle_count = 0
+  let mut loop_count = 0
+  let mut correction_count = 0
+  let mut preference_count = 0
+  let mut workflow_count = 0
+  let mut pattern_count = 0
+  
+  for s in signals {
+    match s.category {
+      @types.SignalCategory::Struggle => struggle_count += 1
+      @types.SignalCategory::Loop => loop_count += 1
+      @types.SignalCategory::Correction => correction_count += 1
+      @types.SignalCategory::Preference => preference_count += 1
+      @types.SignalCategory::Workflow => workflow_count += 1
+      @types.SignalCategory::Pattern => pattern_count += 1
+    }
+  }
+  
+  // 检测高频类别
+  if struggle_count >= 3 {
+    patterns.push("High frequency struggle signals detected (\{struggle_count} occurrences)")
+  }
+  if loop_count >= 3 {
+    patterns.push("High frequency loop signals detected (\{loop_count} occurrences)")
+  }
+  if correction_count >= 3 {
+    patterns.push("High frequency correction signals detected (\{correction_count} occurrences)")
+  }
+  if preference_count >= 3 {
+    patterns.push("High frequency preference signals detected (\{preference_count} occurrences)")
+  }
+  if workflow_count >= 3 {
+    patterns.push("High frequency workflow signals detected (\{workflow_count} occurrences)")
+  }
+  if pattern_count >= 3 {
+    patterns.push("High frequency pattern signals detected (\{pattern_count} occurrences)")
+  }
+  
+  // 检测时间集中模式
+  let time_windows : Array[(Int64, Int)] = []
+  let window_size_ms = 3600000L // 1 小时
+  for s in signals {
+    let window_start = s.ts / window_size_ms * window_size_ms
+    let mut found = false
+    for i in 0..<time_windows.length() {
+      let w = time_windows[i]
+      if w.0 == window_start {
+        time_windows[i] = (w.0, w.1 + 1)
+        found = true
+        break
+      }
+    }
+    if !found {
+      time_windows.push((window_start, 1))
+    }
+  }
+  
+  // 检测时间窗口内的信号集中
+  for i in 0..<time_windows.length() {
+    let w = time_windows[i]
+    if w.1 >= 5 {
+      patterns.push("Signal burst detected at \{@util.date_utc(w.0)} (\{w.1} signals in 1 hour)")
+    }
+  }
+  
+  patterns
 }

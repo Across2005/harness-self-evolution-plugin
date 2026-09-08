@@ -121,6 +121,9 @@ pub(all) struct EvolutionSignal {
   /// 取代 engine L357 的 `/Tool (\w+) called/` 正则反解。
   /// 非循环信号为 None。
   tool : String?
+  /// 信号强度衰减因子（0.0-1.0），用于信号聚合时的强度衰减计算。
+  /// 新信号默认为 1.0（无衰减），随时间推移可被衰减。
+  decay_factor : Double
 } derive(Eq, Debug, ToJson, @json.FromJson)
 
 ///|

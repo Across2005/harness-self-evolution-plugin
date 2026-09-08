@@ -329,7 +329,7 @@ async test "tools/list works before any initialize handshake" {
     Some(Array(a)) => a
     _ => abort("tools must be an array")
   }
-  assert_eq(list.length(), 10)
+  assert_eq(list.length(), 13)
 }
 
 // ============================================================================
@@ -1272,7 +1272,7 @@ async test "tools/list advertises the three sub-agent factory tools after the le
     Some(Array(a)) => a
     _ => abort("tools must be an array")
   }
-  assert_eq(list.length(), 10)
+  assert_eq(list.length(), 13)
   let names : Array[String] = []
   for t in list {
     match obj(t).get("name") {

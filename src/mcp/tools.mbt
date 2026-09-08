@@ -297,6 +297,25 @@ pub fn tools() -> Array[Tool] {
       schema: delete_sub_agent_schema(),
       handler: handle_delete_sub_agent,
     },
+    // v2.3 合并工具（推荐使用）
+    {
+      name: "analyze_plugins",
+      description: "分析插件：扫描并/或获取性能指标。mode=scan 仅扫描，mode=metrics 仅获取指标，mode=both 两者都做。",
+      schema: analyze_plugins_schema(),
+      handler: handle_analyze_plugins,
+    },
+    {
+      name: "evolve_plugin",
+      description: "进化插件：生成或执行进化提案。action=propose 生成提案，action=execute 执行已审批的提案。",
+      schema: evolve_plugin_schema(),
+      handler: handle_evolve_plugin,
+    },
+    {
+      name: "manage_sub_agent",
+      description: "管理子 Agent：创建、列出或删除定义。action=create 创建，action=list 列出，action=delete 删除。",
+      schema: manage_sub_agent_schema(),
+      handler: handle_manage_sub_agent,
+    },
   ]
 }
 
@@ -427,6 +446,7 @@ async fn handle_propose_evolution(state : ServerState, args : Json) -> Json {
           plugin_id: a.plugin_id,
           count: None,
           tool: None,
+          decay_factor: 1.0,
         })
       }
       Some(out)
@@ -668,6 +688,134 @@ async fn handle_delete_sub_agent(state : ServerState, args : Json) -> Json {
 
 // ----------------------------------------------------------------------------
 // 消息派发
+// ----------------------------------------------------------------------------
+
+// v2.3 合并工具的 handler
+// 这些工具通过构造对应的参数 JSON 来委托给现有的 handler 实现，
+// 避免重复代码并保持向后兼容性。
+// ----------------------------------------------------------------------------
+
+///|
+/// `analyze_plugins`（v2.3 合并工具）。
+/// 合并了 `scan_plugins` 和 `get_plugin_metrics` 的功能。
+/// mode="scan" 执行扫描，mode="metrics" 获取指标，mode="both" 两者都做。
+async fn handle_analyze_plugins(state : ServerState, args : Json) -> Json {
+  let a : AnalyzePluginsArgs = @json.from_json(args)
+  let mode = a.mode
+
+  // scan 模式或 both 模式：委托给 handle_scan_plugins
+  if mode == "scan" || mode == "both" {
+    let scan_args : Json = {
+      "force_rescan": Json::boolean(a.force_rescan.unwrap_or(default_force_rescan)),
+    }
+    ignore(handle_scan_plugins(state, scan_args))
+  }
+
+  // metrics 模式或 both 模式：委托给 handle_get_plugin_metrics
+  if mode == "metrics" || mode == "both" {
+    match a.plugin_id {
+      Some(plugin_id) => {
+        let metrics_args : Json = {
+          "plugin_id": Json::string(plugin_id),
+          "time_range": Json::string(a.time_range.unwrap_or(default_time_range).wire_name()),
+        }
+        return handle_get_plugin_metrics(state, metrics_args)
+      }
+      None => {
+        if mode == "metrics" {
+          raise Failure("plugin_id is required for metrics mode")
+        }
+      }
+    }
+  }
+
+  // scan 模式返回扫描结果
+  let plugins : Array[Json] = []
+  for p in state.registry {
+    plugins.push({
+      "plugin_id": Json::string(p.plugin_id),
+      "name": Json::string(p.name),
+      "version": Json::string(p.version),
+    })
+  }
+  { "plugins": Json::array(plugins) }
+}
+
+///|
+/// `evolve_plugin`（v2.3 合并工具）。
+/// 合并了 `propose_evolution` 和 `execute_evolution` 的功能。
+/// action="propose" 生成提案，action="execute" 执行提案。
+async fn handle_evolve_plugin(state : ServerState, args : Json) -> Json {
+  let a : EvolvePluginArgs = @json.from_json(args)
+  let action = a.action
+
+  if action == "propose" {
+    match a.plugin_id {
+      Some(plugin_id) => {
+        let propose_args : Json = {
+          "plugin_id": Json::string(plugin_id),
+        }
+        return handle_propose_evolution(state, propose_args)
+      }
+      None => raise Failure("plugin_id is required for propose action")
+    }
+  } else if action == "execute" {
+    match a.proposal_id {
+      Some(proposal_id) => {
+        let execute_args : Json = {
+          "proposal_id": Json::string(proposal_id),
+          "dry_run": Json::boolean(a.dry_run.unwrap_or(default_dry_run)),
+        }
+        return handle_execute_evolution(state, execute_args)
+      }
+      None => raise Failure("proposal_id is required for execute action")
+    }
+  } else {
+    raise Failure("Unknown action: \{action}. Use 'propose' or 'execute'.")
+  }
+}
+
+///|
+/// `manage_sub_agent`（v2.3 合并工具）。
+/// 合并了 `create_sub_agent`、`list_sub_agents` 和 `delete_sub_agent` 的功能。
+/// action="create" 创建，action="list" 列出，action="delete" 删除。
+async fn handle_manage_sub_agent(state : ServerState, args : Json) -> Json {
+  let a : ManageSubAgentArgs = @json.from_json(args)
+  let action = a.action
+
+  if action == "create" {
+    match (a.name, a.description, a.system_prompt) {
+      (Some(name), Some(description), Some(system_prompt)) => {
+        let create_args : Json = {
+          "name": Json::string(name),
+          "description": Json::string(description),
+          "system_prompt": Json::string(system_prompt),
+          "scope": Json::string(a.scope.unwrap_or(default_sub_agent_scope).wire_name()),
+          "overwrite": Json::boolean(a.overwrite.unwrap_or(default_sub_agent_overwrite)),
+        }
+        return handle_create_sub_agent(state, create_args)
+      }
+      _ => raise Failure("name, description, and system_prompt are required for create action")
+    }
+  } else if action == "list" {
+    let list_args : Json = Json::empty_object()
+    return handle_list_sub_agents(state, list_args)
+  } else if action == "delete" {
+    match a.name {
+      Some(name) => {
+        let delete_args : Json = {
+          "name": Json::string(name),
+          "scope": Json::string(a.scope.unwrap_or(default_sub_agent_scope).wire_name()),
+        }
+        return handle_delete_sub_agent(state, delete_args)
+      }
+      None => raise Failure("name is required for delete action")
+    }
+  } else {
+    raise Failure("Unknown action: \{action}. Use 'create', 'list', or 'delete'.")
+  }
+}
+
 // ----------------------------------------------------------------------------
 
 ///|

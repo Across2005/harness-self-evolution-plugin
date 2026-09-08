@@ -44,6 +44,12 @@ pub fn hours_to_ms(h : Int) -> Int64 {
 }
 
 ///|
+/// 毫秒 → 小时（Double）。供信号衰减计算使用。
+pub fn ms_to_hours(ms : Int64) -> Double {
+  ms.to_double() / ms_per_hour.to_double()
+}
+
+///|
 /// C 语义的截断除法（向零取整）。
 ///
 /// Hinnant 的 civil_from_days 算法依赖此语义来处理 1970 之前的负天数

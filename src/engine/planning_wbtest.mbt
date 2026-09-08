@@ -42,6 +42,7 @@ fn make_signal(
     plugin_id: "plan-test-1.0.0",
     count: None,
     tool,
+    decay_factor: 1.0,
   }
 }
 

@@ -117,3 +117,54 @@ pub async fn hanging_task(task : @types.SubAgentTask) -> Json {
   @async.sleep(60_000)
   { "never": "reached" }
 }
+
+///|
+/// 真实进程执行器（占位实现）。
+///
+/// **设计决策**：
+/// - 当前版本使用模拟实现，因为 MoonBit 的原生 API 没有进程管理功能
+/// - 未来可以通过 `mizchi/x` 包或 `@process` 模块实现真实进程执行
+/// - 保留函数签名以便未来扩展
+///
+/// **扩展点**：
+/// - 进程型：使用 `mizchi/x/process` 包的 `collect_output` 函数
+/// - 沙箱执行：可通过 Docker/gVisor 包装命令
+/// - 流式回传：可通过 `@process.spawn` + 管道实现
+pub async fn process_task(task : @types.SubAgentTask) -> Json {
+  // 当前版本使用模拟实现
+  // 未来可以通过 mizchi/x 包实现真实进程执行
+  @async.sleep(100)
+  {
+    "simulated": true,
+    "task": Json::string(task.task),
+    "input": task.input,
+    "message": "Process execution simulated (mizchi/x not available)",
+  }
+}
+
+///|
+/// 真实三级验证（占位实现）。
+///
+/// **设计决策**：
+/// - 当前版本使用模拟实现，因为 MoonBit 的原生 API 没有进程管理功能
+/// - 未来可以通过 `mizchi/x` 包或 `@process` 模块实现真实验证
+/// - 保留函数签名以便未来扩展
+///
+/// **扩展点**：
+/// - T0：`moon check --deny-warn`（真实编译检查）
+/// - T1：`moon test`（真实单元测试）
+/// - T2：`build.ps1 all`（真实全量构建）
+pub async fn real_validation(
+  level : @types.ValidationLevelTag,
+  _proposal : @types.EvolutionProposal,
+) -> (Bool, String) {
+  // 当前版本使用模拟实现
+  // 未来可以通过 mizchi/x 包实现真实验证
+  let (delay_ms, message) = match level {
+    @types.ValidationLevelTag::T0 => (50, "Syntax validation passed (simulated)")
+    @types.ValidationLevelTag::T1 => (100, "Functionality validation passed (simulated)")
+    @types.ValidationLevelTag::T2 => (150, "Regression validation passed (simulated)")
+  }
+  @async.sleep(delay_ms)
+  (true, message)
+}

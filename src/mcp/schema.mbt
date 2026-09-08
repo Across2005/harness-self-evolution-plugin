@@ -358,3 +358,137 @@ pub(all) struct DeleteSubAgentArgs {
   name : String
   scope : @types.AgentScope?
 } derive(Debug, @json.FromJson)
+
+// ============================================================================
+// v2.3 合并工具的 Schema 与参数
+// ============================================================================
+
+///|
+/// `analyze_plugins` 的参数（v2.3 合并工具）。
+/// 合并了 `scan_plugins` 和 `get_plugin_metrics` 的功能。
+/// mode="scan" 执行扫描，mode="metrics" 获取指标，mode="both" 两者都做。
+pub(all) struct AnalyzePluginsArgs {
+  /// 操作模式：scan（扫描）、metrics（获取指标）、both（两者）
+  mode : String
+  /// 插件 ID（metrics/both 模式必填）
+  plugin_id : String?
+  /// 强制重新扫描（scan/both 模式可选）
+  force_rescan : Bool?
+  /// 自定义扫描路径（scan/both 模式可选）
+  target_paths : Array[String]?
+  /// 时间范围（metrics/both 模式可选）
+  time_range : @types.TimeRange?
+} derive(Debug, @json.FromJson)
+
+///|
+/// `analyze_plugins` 的 JSON Schema。
+pub fn analyze_plugins_schema() -> Json {
+  object_schema(
+    {
+      "mode": {
+        "type": "string",
+        "description": "操作模式：scan（扫描）、metrics（获取指标）、both（两者）",
+        "enum": Json::array([Json::string("scan"), Json::string("metrics"), Json::string("both")]),
+        "default": Json::string("both"),
+      },
+      "plugin_id": str_prop("插件 ID（metrics/both 模式必填）"),
+      "force_rescan": bool_prop("强制重新扫描（scan/both 模式可选）", default_force_rescan),
+      "target_paths": string_array_prop("自定义扫描路径（scan/both 模式可选）"),
+      "time_range": {
+        "type": "string",
+        "description": "时间范围（metrics/both 模式可选）",
+        "enum": ToJson::to_json(@types.time_range_wire.names()),
+        "default": Json::string(default_time_range.wire_name()),
+      },
+    },
+    [],
+  )
+}
+
+///|
+/// `evolve_plugin` 的参数（v2.3 合并工具）。
+/// 合并了 `propose_evolution` 和 `execute_evolution` 的功能。
+/// action="propose" 生成提案，action="execute" 执行提案。
+pub(all) struct EvolvePluginArgs {
+  /// 操作模式：propose（生成提案）、execute（执行提案）
+  action : String
+  /// 插件 ID（propose 模式必填）
+  plugin_id : String?
+  /// 提案 ID（execute 模式必填）
+  proposal_id : String?
+  /// 手动提供的信号描述列表（propose 模式可选）
+  signals : Array[String]?
+  /// 是否为干运行（execute 模式可选）
+  dry_run : Bool?
+} derive(Debug, @json.FromJson)
+
+///|
+/// `evolve_plugin` 的 JSON Schema。
+pub fn evolve_plugin_schema() -> Json {
+  object_schema(
+    {
+      "action": {
+        "type": "string",
+        "description": "操作模式：propose（生成提案）、execute（执行提案）",
+        "enum": Json::array([Json::string("propose"), Json::string("execute")]),
+        "default": Json::string("propose"),
+      },
+      "plugin_id": str_prop("插件 ID（propose 模式必填）"),
+      "proposal_id": str_prop("提案 ID（execute 模式必填）"),
+      "signals": string_array_prop("手动提供的信号描述列表（propose 模式可选）"),
+      "dry_run": bool_prop("是否为干运行（execute 模式可选）", default_dry_run),
+    },
+    [],
+  )
+}
+
+///|
+/// `manage_sub_agent` 的参数（v2.3 合并工具）。
+/// 合并了 `create_sub_agent`、`list_sub_agents` 和 `delete_sub_agent` 的功能。
+/// action="create" 创建，action="list" 列出，action="delete" 删除。
+pub(all) struct ManageSubAgentArgs {
+  /// 操作模式：create（创建）、list（列出）、delete（删除）
+  action : String
+  /// Agent 名称（create/delete 模式必填）
+  name : String?
+  /// Agent 描述（create 模式必填）
+  description : String?
+  /// 系统提示词（create 模式必填）
+  system_prompt : String?
+  /// 作用域（create/delete 模式可选，默认 plugin）
+  scope : @types.AgentScope?
+  /// 是否覆盖已有定义（create 模式可选）
+  overwrite : Bool?
+  /// 可选的颜色标记（create 模式可选）
+  color : String?
+  /// 可用工具列表（create 模式可选）
+  tools : Array[String]?
+} derive(Debug, @json.FromJson)
+
+///|
+/// `manage_sub_agent` 的 JSON Schema。
+pub fn manage_sub_agent_schema() -> Json {
+  object_schema(
+    {
+      "action": {
+        "type": "string",
+        "description": "操作模式：create（创建）、list（列出）、delete（删除）",
+        "enum": Json::array([Json::string("create"), Json::string("list"), Json::string("delete")]),
+        "default": Json::string("list"),
+      },
+      "name": str_prop("Agent 名称（create/delete 模式必填）"),
+      "description": str_prop("Agent 描述（create 模式必填）"),
+      "system_prompt": str_prop("系统提示词（create 模式必填）"),
+      "scope": {
+        "type": "string",
+        "description": "作用域（create/delete 模式可选）",
+        "enum": ToJson::to_json(@types.agent_scope_wire.names()),
+        "default": Json::string(default_sub_agent_scope.wire_name()),
+      },
+      "overwrite": bool_prop("是否覆盖已有定义（create 模式可选）", default_sub_agent_overwrite),
+      "color": str_prop("颜色标记（create 模式可选）"),
+      "tools": string_array_prop("可用工具列表（create 模式可选）"),
+    },
+    [],
+  )
+}

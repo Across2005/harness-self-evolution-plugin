@@ -468,6 +468,7 @@ test "EvolutionProposal round-trips through JSONL-shaped JSON" {
         plugin_id: "browser-use-0.4.1",
         count: Some(5),
         tool: Some("navigate"),
+        decay_factor: 1.0,
       },
     ],
     evolution_type: EvolutionType::BehaviorOptimization,

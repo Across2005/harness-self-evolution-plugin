@@ -18,6 +18,7 @@ fn strength_signal(strength : @types.SignalStrength) -> @types.EvolutionSignal {
     plugin_id: "p",
     count: None,
     tool: None,
+    decay_factor: 1.0,
   }
 }
 

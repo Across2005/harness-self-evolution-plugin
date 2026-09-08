@@ -51,6 +51,7 @@ fn signal(
     plugin_id: "test-plugin-1.0.0",
     count: None,
     tool: None,
+    decay_factor: 1.0,
   }
 }
 
@@ -467,6 +468,7 @@ async test "maps a loop signal to behavior_optimization with middleware" {
     plugin_id: loop_signal.plugin_id,
     count: Some(5),
     tool: Some("navigate"),
+    decay_factor: loop_signal.decay_factor,
   }
 
   match
@@ -844,4 +846,124 @@ fn completed_proposal(
     signature: "prior-signature",
     confidence: @types.Confidence::Medium,
   }
+}
+
+// ============================================================================
+// 信号衰减与模式识别测试
+// ============================================================================
+
+///|
+/// 测试信号衰减机制：新信号的衰减因子应为 1.0
+test "signal decay factor defaults to 1.0" {
+  let s = signal(
+    @types.SignalStrength::Strong,
+    @types.SignalCategory::Struggle,
+    "3 consecutive failures detected",
+  )
+  assert_eq(s.decay_factor, 1.0)
+}
+
+///|
+/// 测试信号聚合：新信号的衰减因子应接近 1.0
+test "aggregate_signals preserves decay factor for new signals" {
+  let now = @util.now_ms()
+  let signals : Array[@types.EvolutionSignal] = [
+    signal(@types.SignalStrength::Strong, @types.SignalCategory::Struggle, "failure"),
+    signal(@types.SignalStrength::Medium, @types.SignalCategory::Loop, "loop"),
+  ]
+  let aggregated = aggregate_signals(signals, now)
+  for s in aggregated {
+    assert_true(s.decay_factor >= 0.99)
+    assert_true(s.decay_factor <= 1.01)
+  }
+}
+
+///|
+/// 测试信号衰减：旧信号的衰减因子应小于 1.0
+test "aggregate_signals decays old signals" {
+  let now = @util.now_ms()
+  let old_ts = now - 48 * 3600000L // 48 小时前
+  let old_signal : @types.EvolutionSignal = {
+    strength: @types.SignalStrength::Strong,
+    category: @types.SignalCategory::Struggle,
+    description: "old failure",
+    evidence: @types.Evidence::Session("test"),
+    ts: old_ts,
+    plugin_id: "test-plugin-1.0.0",
+    count: Some(3),
+    tool: None,
+    decay_factor: 1.0,
+  }
+  let aggregated = aggregate_signals([old_signal], now)
+  // 48 小时前，半衰期 24 小时，衰减因子应约为 0.33
+  assert_true(aggregated[0].decay_factor < 0.5)
+  assert_true(aggregated[0].decay_factor > 0.1)
+}
+
+///|
+/// 测试信号模式识别：高频 struggle 信号应被检测到
+test "detect_signal_patterns identifies high frequency struggle signals" {
+  let signals : Array[@types.EvolutionSignal] = []
+  for _ in 0..<5 {
+    signals.push(signal(
+      @types.SignalStrength::Strong,
+      @types.SignalCategory::Struggle,
+      "failure",
+    ))
+  }
+  let patterns = detect_signal_patterns(signals)
+  let mut found_struggle_pattern = false
+  for p in patterns {
+    if p.contains("struggle") {
+      found_struggle_pattern = true
+      break
+    }
+  }
+  assert_true(found_struggle_pattern)
+}
+
+///|
+/// 测试信号模式识别：少量信号不应触发高频检测
+test "detect_signal_patterns does not trigger for few signals" {
+  let signals : Array[@types.EvolutionSignal] = [
+    signal(@types.SignalStrength::Strong, @types.SignalCategory::Struggle, "failure"),
+    signal(@types.SignalStrength::Medium, @types.SignalCategory::Loop, "loop"),
+  ]
+  let patterns = detect_signal_patterns(signals)
+  assert_eq(patterns.length(), 0)
+}
+
+///|
+/// 测试 struggle 信号去重机制
+async test "struggle signal deduplication prevents repeated signals" {
+  let dir = @fs.tmpdir(prefix="evo-engine-dedup-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = @monitor.PerformanceMonitor::new(
+    @util.path_join(dir, "metrics.jsonl"),
+    @util.path_join(dir, "signals.jsonl"),
+  )
+  
+  // 触发 5 次连续失败
+  for _ in 0..<5 {
+    mon.record_tool_call(
+      "test-plugin-1.0.0",
+      "a",
+      Json::empty_object(),
+      10,
+      false,
+      error_message=Some("error"),
+    )
+  }
+  mon.shutdown()
+  
+  // 检查信号：应该只有 1 条 struggle 信号，而不是 3 条
+  let signals = @store.Jsonl::new(@util.path_join(dir, "signals.jsonl"))
+  let all_signals : Array[@types.EvolutionSignal] = signals.load()
+  let mut struggle_count = 0
+  for s in all_signals {
+    if s.category == @types.SignalCategory::Struggle {
+      struggle_count += 1
+    }
+  }
+  assert_eq(struggle_count, 1)
 }

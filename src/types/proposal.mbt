@@ -51,6 +51,10 @@ pub(all) enum EvolutionType {
   DocumentationEnhancement
   CapabilityExtension
   ErrorHandlingImprovement
+  /// 安全加固（v2.3新增）
+  SecurityHardening
+  /// 可访问性改进（v2.3新增）
+  AccessibilityImprovement
 } derive(Eq, Debug)
 
 ///|
@@ -89,6 +93,8 @@ pub fn EvolutionType::principle(self : EvolutionType) -> MattPocockPrinciple {
     DocumentationEnhancement => VocabularyAsDocs
     CapabilityExtension => AlignFirst
     ErrorHandlingImprovement => TightFeedback
+    SecurityHardening => AlignFirst
+    AccessibilityImprovement => VerticalSlice
   }
 }
 
@@ -151,6 +157,22 @@ pub fn EvolutionType::expected_benefits(
         success_rate: None,
         error_reduction: Some("-40-60%"),
       }
+    SecurityHardening =>
+      {
+        latency_improvement: None,
+        token_reduction: None,
+        user_satisfaction: Some("+5-10%"),
+        success_rate: None,
+        error_reduction: Some("-30-50%"),
+      }
+    AccessibilityImprovement =>
+      {
+        latency_improvement: None,
+        token_reduction: None,
+        user_satisfaction: Some("+20-30%"),
+        success_rate: Some("+5-10%"),
+        error_reduction: None,
+      }
   }
 }
 
@@ -166,6 +188,8 @@ pub fn EvolutionType::extra_scenarios(self : EvolutionType) -> Array[String] {
     DocumentationEnhancement => []
     CapabilityExtension => []
     ErrorHandlingImprovement => []
+    SecurityHardening => ["安全扫描测试", "漏洞检测测试"]
+    AccessibilityImprovement => ["可访问性测试", "WCAG合规测试"]
   }
 }
 

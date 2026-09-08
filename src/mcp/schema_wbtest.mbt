@@ -236,7 +236,7 @@ test "required fields match the legacy zod shapes" {
 /// 前 7 个与 legacy-ts/package.json L58-66 的 `mcp.tools` 逐项、同序一致，
 /// 后 3 个是 v2.1 子 Agent 工厂新增（create / list / delete_sub_agent），
 /// 追加在 legacy 顺序之后，绝不打乱前 7 个的相对顺序。
-test "the ten tool names keep the legacy order with the v2.1 ones appended" {
+test "the tool names keep the legacy order with v2.1 and v2.3 ones appended" {
   let names : Array[String] = []
   for t in tools() {
     names.push(t.name)
@@ -245,6 +245,7 @@ test "the ten tool names keep the legacy order with the v2.1 ones appended" {
     "scan_plugins", "get_plugin_metrics", "propose_evolution", "execute_evolution",
     "list_proposals", "approve_proposal", "reject_proposal", "create_sub_agent",
     "list_sub_agents", "delete_sub_agent",
+    "analyze_plugins", "evolve_plugin", "manage_sub_agent",
   ])
 }
 
@@ -285,14 +286,14 @@ test "find_tool resolves every declared name and nothing else" {
 
 ///|
 /// `tools/list` 的响应体形状：`{tools:[{name,description,inputSchema}]}`，
-/// 不含 `nextCursor`（10 个工具远小于任何客户端的页大小，不分页）。
+/// 不含 `nextCursor`（13 个工具远小于任何客户端的页大小，不分页）。
 test "tools_list_result has the MCP tool-list shape" {
   let resp = tools_list_result()
   guard resp is Object(o) else { abort("expected an object") }
   assert_false(o.contains("nextCursor"))
   let list = o.get("tools")
   guard list is Some(Array(a)) else { abort("tools must be an array") }
-  assert_eq(a.length(), 10)
+  assert_eq(a.length(), 13)
   for entry in a {
     guard entry is Object(t) else { abort("each tool must be an object") }
     assert_true(t.contains("name"))
