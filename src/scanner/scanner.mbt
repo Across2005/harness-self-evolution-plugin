@@ -306,12 +306,14 @@ pub async fn PluginScanner::scan_plugin_dir(
     return
   }
 
-  // 技能文件：抽取 capabilities / tools，并顺手记下**根** SKILL.md 的长度
+  // 技能文件和源码文件：一次性遍历目录，避免两次遍历
   let capabilities : Array[String] = []
   let tools : Array[String] = []
   let root_skill_path = @util.path_join(dir, "SKILL.md")
   let mut root_skill_len : Int? = None
-  for skill in list_skill_files(dir) {
+  let (skill_files, source_files) = list_skill_and_source_files(dir)
+  
+  for skill in skill_files {
     match read_text_or_none(skill) {
       Some(text) => {
         if skill == root_skill_path {
@@ -332,7 +334,7 @@ pub async fn PluginScanner::scan_plugin_dir(
   }
 
   // 源码文件：抽取 MCP 工具注册名
-  for src in list_source_files(dir) {
+  for src in source_files {
     match read_text_or_none(src) {
       Some(text) => extract_tools_from_source_text(text, tools)
       None => ()

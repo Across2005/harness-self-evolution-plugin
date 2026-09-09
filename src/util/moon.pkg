@@ -3,6 +3,7 @@ import {
   "moonbitlang/async/stdio",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
+  "moonbitlang/core/random",
 }
 
 import {

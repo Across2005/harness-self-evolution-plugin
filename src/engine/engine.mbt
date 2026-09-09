@@ -418,30 +418,20 @@ pub fn detect_signal_patterns(
     patterns.push("High frequency pattern signals detected (\{pattern_count} occurrences)")
   }
   
-  // 检测时间集中模式
-  let time_windows : Array[(Int64, Int)] = []
+  // 检测时间集中模式（使用 Map 优化，从 O(n²) 降到 O(n)）
   let window_size_ms = 3600000L // 1 小时
+  let time_windows : Map[Int64, Int] = Map([])
   for s in signals {
     let window_start = s.ts / window_size_ms * window_size_ms
-    let mut found = false
-    for i in 0..<time_windows.length() {
-      let w = time_windows[i]
-      if w.0 == window_start {
-        time_windows[i] = (w.0, w.1 + 1)
-        found = true
-        break
-      }
-    }
-    if !found {
-      time_windows.push((window_start, 1))
-    }
+    let count = time_windows.get(window_start).unwrap_or(0)
+    time_windows.set(window_start, count + 1)
   }
   
   // 检测时间窗口内的信号集中
-  for i in 0..<time_windows.length() {
-    let w = time_windows[i]
-    if w.1 >= 5 {
-      patterns.push("Signal burst detected at \{@util.date_utc(w.0)} (\{w.1} signals in 1 hour)")
+  for entry in time_windows {
+    let (window_start, count) = entry
+    if count >= 5 {
+      patterns.push("Signal burst detected at \{@util.date_utc(window_start)} (\{count} signals in 1 hour)")
     }
   }
   

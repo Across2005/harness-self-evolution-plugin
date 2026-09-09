@@ -483,3 +483,48 @@ pub async fn AgentFactory::delete(
   store.remove(name)
   path
 }
+
+///|
+/// 验证模板文件的完整性。
+///
+/// **用途**：验证出厂模板是否符合规范。
+///
+/// **参数**：
+/// - `content`：模板文件内容
+///
+/// **返回**：验证结果，包含错误信息（如果有）
+pub fn validate_template(content : String) -> Result[Unit, String] {
+  match parse(content) {
+    Some(def) => {
+      // 验证 name
+      if def.name.length() == 0 || def.name.length() > 64 {
+        return Err("Invalid template name: length must be between 1 and 64 characters")
+      }
+      // 验证 description
+      if def.description.length() == 0 || def.description.length() > 1024 {
+        return Err("Invalid template description: length must be between 1 and 1024 characters")
+      }
+      // 验证 system_prompt
+      if def.system_prompt.length() == 0 || def.system_prompt.length() > 65536 {
+        return Err("Invalid template system_prompt: length must be between 1 and 65536 characters")
+      }
+      // 验证 frontmatter 格式
+      if !content.has_prefix("---") {
+        return Err("Invalid template format: missing frontmatter fence")
+      }
+      let lines = content.split("\n")
+      let mut found_close = false
+      for line in lines {
+        if line.trim() == "---" {
+          found_close = true
+          break
+        }
+      }
+      if !found_close {
+        return Err("Invalid template format: missing closing frontmatter fence")
+      }
+      Ok(())
+    }
+    None => Err("Invalid template format: could not parse frontmatter")
+  }
+}

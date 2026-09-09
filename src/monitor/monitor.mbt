@@ -93,6 +93,8 @@ pub struct PerformanceMonitor {
   /// 观测日志（metrics / signals 两个 JSONL）的保留上限（字节），
   /// 来自 `EngineConfig.max_log_bytes`。0 = 不裁剪（测试豁免用）。
   max_log_bytes : Int
+  /// 缓冲区是否有新数据未落盘（脏标记）
+  buffers_dirty : @ref.Ref[Bool]
 }
 
 ///|
@@ -132,6 +134,7 @@ pub fn PerformanceMonitor::with_thresholds(
     last_deep_check_at: Map([]),
     thresholds,
     max_log_bytes,
+    buffers_dirty: @ref.Ref(false),
   }
 }
 
@@ -214,6 +217,7 @@ pub async fn PerformanceMonitor::record_tool_call(
   }
 
   self.event_buffer.push(event)
+  self.buffers_dirty.val = true
   self.push_session_event(event)
   self.check_for_signals(plugin_id, tool, success)
 }
@@ -460,6 +464,7 @@ fn PerformanceMonitor::enqueue_signal(
   signal : @types.EvolutionSignal,
 ) -> Unit {
   self.signal_buffer.push(signal)
+  self.buffers_dirty.val = true
   if self.signal_buffer.length() > max_buffered_signals {
     ignore(self.signal_buffer.remove(0))
   }
@@ -479,7 +484,11 @@ pub async fn PerformanceMonitor::get_metrics(
   plugin_id : String,
   time_range? : @types.TimeRange = @types.TimeRange::All,
 ) -> Array[@types.PerformanceEvent] {
-  self.flush_buffers()
+  // 只在缓冲区有新数据时才 flush，减少不必要的磁盘 I/O
+  if self.buffers_dirty.val {
+    self.flush_buffers()
+    self.buffers_dirty.val = false
+  }
   let all : Array[@types.PerformanceEvent] = self.metrics.load()
   let cutoff = time_range.cutoff_ms(@util.now_ms())
   let out : Array[@types.PerformanceEvent] = []

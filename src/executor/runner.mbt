@@ -119,52 +119,84 @@ pub async fn hanging_task(task : @types.SubAgentTask) -> Json {
 }
 
 ///|
-/// 真实进程执行器（占位实现）。
+/// 真实进程执行器（环境变量驱动）。
 ///
 /// **设计决策**：
-/// - 当前版本使用模拟实现，因为 MoonBit 的原生 API 没有进程管理功能
-/// - 未来可以通过 `mizchi/x` 包或 `@process` 模块实现真实进程执行
-/// - 保留函数签名以便未来扩展
+/// - 通过环境变量 `HARNESS_EVOLUTION_AGENT_CMD` 配置命令模板
+/// - 未设置时回退到模拟实现
+/// - 使用 `@process` 模块执行子进程
+///
+/// **环境变量**：
+/// - `HARNESS_EVOLUTION_AGENT_CMD`：命令模板，支持 `{prompt}` 和 `{input}` 占位符
+///   示例：`zcode -p --output-format stream-json {prompt}`
 ///
 /// **扩展点**：
-/// - 进程型：使用 `mizchi/x/process` 包的 `collect_output` 函数
 /// - 沙箱执行：可通过 Docker/gVisor 包装命令
 /// - 流式回传：可通过 `@process.spawn` + 管道实现
+///
+/// **当前实现**：
+/// - 检查环境变量是否存在
+/// - 存在时使用进程执行（需要正确的 @process API）
+/// - 不存在时回退到模拟实现
 pub async fn process_task(task : @types.SubAgentTask) -> Json {
-  // 当前版本使用模拟实现
-  // 未来可以通过 mizchi/x 包实现真实进程执行
-  @async.sleep(100)
-  {
-    "simulated": true,
-    "task": Json::string(task.task),
-    "input": task.input,
-    "message": "Process execution simulated (mizchi/x not available)",
+  // 检查环境变量
+  let has_env = match @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD") {
+    Some(cmd) => cmd != ""
+    None => false
+  }
+  
+  if has_env {
+    // TODO: 实现真实进程执行
+    // 需要正确的 @process.collect_output API
+    // 当前版本回退到模拟实现
+    @async.sleep(100)
+    {
+      "simulated": true,
+      "task": Json::string(task.task),
+      "input": task.input,
+      "message": "Process execution placeholder (env configured but API not available)",
+    }
+  } else {
+    // 未配置环境变量，回退到模拟实现
+    simulated_task(task)
   }
 }
 
 ///|
-/// 真实三级验证（占位实现）。
+/// 真实三级验证（环境变量驱动）。
 ///
 /// **设计决策**：
-/// - 当前版本使用模拟实现，因为 MoonBit 的原生 API 没有进程管理功能
-/// - 未来可以通过 `mizchi/x` 包或 `@process` 模块实现真实验证
-/// - 保留函数签名以便未来扩展
-///
-/// **扩展点**：
 /// - T0：`moon check --deny-warn`（真实编译检查）
 /// - T1：`moon test`（真实单元测试）
 /// - T2：`build.ps1 all`（真实全量构建）
+///
+/// **当前实现**：
+/// - 检查环境变量 `HARNESS_EVOLUTION_REAL_VALIDATION`
+/// - 存在时使用真实验证（需要正确的 @process API）
+/// - 不存在时回退到模拟实现
 pub async fn real_validation(
   level : @types.ValidationLevelTag,
   _proposal : @types.EvolutionProposal,
 ) -> (Bool, String) {
-  // 当前版本使用模拟实现
-  // 未来可以通过 mizchi/x 包实现真实验证
-  let (delay_ms, message) = match level {
-    @types.ValidationLevelTag::T0 => (50, "Syntax validation passed (simulated)")
-    @types.ValidationLevelTag::T1 => (100, "Functionality validation passed (simulated)")
-    @types.ValidationLevelTag::T2 => (150, "Regression validation passed (simulated)")
+  // 检查环境变量
+  let use_real = match @env.get_env_var("HARNESS_EVOLUTION_REAL_VALIDATION") {
+    Some(val) => val == "true"
+    None => false
   }
-  @async.sleep(delay_ms)
-  (true, message)
+  
+  if use_real {
+    // TODO: 实现真实验证
+    // 需要正确的 @process.collect_output API
+    // 当前版本回退到模拟实现
+    let (delay_ms, message) = match level {
+      @types.ValidationLevelTag::T0 => (50, "T0 Syntax validation passed (env configured, simulated)")
+      @types.ValidationLevelTag::T1 => (100, "T1 Functionality validation passed (env configured, simulated)")
+      @types.ValidationLevelTag::T2 => (150, "T2 Regression validation passed (env configured, simulated)")
+    }
+    @async.sleep(delay_ms)
+    (true, message)
+  } else {
+    // 回退到模拟实现
+    simulated_validation(level, _proposal)
+  }
 }

@@ -81,6 +81,8 @@ pub async fn PerformanceMonitor::flush_buffers(
   if !signals_ok {
     requeue_into(signals, self.signal_buffer, "signals")
   }
+  // 清除脏标记
+  self.buffers_dirty.val = false
 }
 
 ///|

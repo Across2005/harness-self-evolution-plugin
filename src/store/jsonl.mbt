@@ -135,6 +135,33 @@ pub async fn[T : @json.FromJson] Jsonl::load(self : Jsonl) -> Array[T] {
 }
 
 ///|
+/// 增量加载：只读取指定修改时间之后的新增记录。
+///
+/// **优化目的**：
+/// - 对于频繁查询的场景，避免每次都读取全文件
+/// - 监控器可以只加载新事件，而不是所有历史事件
+///
+/// **实现**：
+/// - 使用文件修改时间（mtime）判断是否有新数据
+/// - 如果文件修改时间 <= since_mtime，返回空数组
+/// - 否则读取全文件并解析（简单实现，未来可优化为只读取尾部）
+pub async fn[T : @json.FromJson] Jsonl::load_since(
+  self : Jsonl,
+  since_mtime : Int64,
+) -> Array[T] {
+  if !@fs.exists(self.path) {
+    return []
+  }
+  let (mtime_sec, _) = @fs.mtime(self.path)
+  if mtime_sec <= since_mtime {
+    return []
+  }
+  // 文件有更新，读取全文件
+  // TODO: 未来可优化为只读取尾部新增内容
+  self.load()
+}
+
+///|
 /// 窗口裁剪：把文件裁到只保留**最新的** `max_bytes` 字节内的完整行。
 ///
 /// 语义（按字节计，非字符 —— 磁盘上界只有按字节承诺才成立）：

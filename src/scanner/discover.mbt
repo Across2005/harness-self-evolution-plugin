@@ -292,6 +292,50 @@ pub async fn list_source_files(dir : String) -> Array[String] {
 }
 
 ///|
+/// 一次性遍历目录，同时收集技能文件和源码文件。
+/// 优化：避免两次遍历同一目录，减少 I/O 操作。
+pub async fn list_skill_and_source_files(dir : String) -> (Array[String], Array[String]) {
+  let skill_files : Array[String] = []
+  let source_files : Array[String] = []
+  walk_into_combined(dir, 1, skill_files, source_files)
+  (skill_files, source_files)
+}
+
+///|
+/// 递归收集技能文件和源码文件。
+async fn walk_into_combined(
+  dir : String,
+  depth : Int,
+  skill_files : Array[String],
+  source_files : Array[String],
+) -> Unit {
+  for entry in read_entries(dir) {
+    let (name, is_dir) = entry
+    let full = @util.path_join(dir, name)
+    if is_dir {
+      if is_pruned(name) {
+        continue
+      }
+      if depth >= max_files_depth {
+        @util.log_warn(
+          "Scanner",
+          "Stopping descent at depth \{depth} in \{full}: possible directory cycle or pathological tree",
+        )
+        continue
+      }
+      walk_into_combined(full, depth + 1, skill_files, source_files)
+    } else {
+      if name == "SKILL.md" {
+        skill_files.push(full)
+      }
+      if is_source_file(name) {
+        source_files.push(full)
+      }
+    }
+  }
+}
+
+///|
 /// 读取文本文件；不存在或不可读返回 `None`（不上抛）。
 pub async fn read_text_or_none(path : String) -> String? {
   if !@fs.exists(path) {
