@@ -170,7 +170,7 @@ fn is_test_file(rel : String) -> Bool {
 
 ///|
 /// 模块内包名的前缀。
-let module_prefix : String = "across2005/harness-self-evolution/"
+let module_prefix : String = "Across2005/harness-self-evolution/"
 
 ///|
 /// 从一个 `moon.pkg` 文本里取出**第一个**（即无条件的）`import { ... }` 块

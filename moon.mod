@@ -1,4 +1,4 @@
-name = "across2005/harness-self-evolution"
+name = "Across2005/harness-self-evolution"
 
 version = "2.4.0"
 

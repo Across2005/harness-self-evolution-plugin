@@ -1,6 +1,6 @@
 import {
-  "across2005/harness-self-evolution/types",
-  "across2005/harness-self-evolution/util",
+  "Across2005/harness-self-evolution/types",
+  "Across2005/harness-self-evolution/util",
   "moonbitlang/async/fs",
   "moonbitlang/core/env",
   "moonbitlang/core/json",

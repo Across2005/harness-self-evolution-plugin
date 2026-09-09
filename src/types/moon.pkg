@@ -1,5 +1,5 @@
 import {
-  "across2005/harness-self-evolution/util",
+  "Across2005/harness-self-evolution/util",
   "moonbitlang/core/json",
 }
 
