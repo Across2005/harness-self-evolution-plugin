@@ -1,6 +1,6 @@
 name = "across2005/harness-self-evolution"
 
-version = "2.3.0"
+version = "2.4.0"
 
 readme = "README.md"
 

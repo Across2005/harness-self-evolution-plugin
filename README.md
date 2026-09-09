@@ -3,9 +3,9 @@
 > 让 DeepSeek Harness 的插件生态持续自我进化 —— 扫描 → 监控 → 识别 → 提案 → 人工审批 → 真实升级。
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
-[![Version: 2.3.0](https://img.shields.io/badge/version-2.3.0-1f6feb.svg)](.zcode-plugin/plugin.json)
+[![Version: 2.4.0](https://img.shields.io/badge/version-2.4.0-1f6feb.svg)](.zcode-plugin/plugin.json)
 [![Runtime: MoonBit native](https://img.shields.io/badge/runtime-MoonBit%20native-ff7a18.svg)](moon.mod)
-[![Total tests: 347/347](https://img.shields.io/badge/tests-347%2F347-22cc22.svg)](CONTEXT.md)
+[![Total tests: 422/422](https://img.shields.io/badge/tests-422%2F422-22cc22.svg)](CONTEXT.md)
 [![Gate: 0/0](https://img.shields.io/badge/gate-%20%E2%9C%93%20passing-22cc22.svg)](build.ps1)
 [![Platform: Windows / Linux / macOS](https://img.shields.io/badge/platform-win%20%7C%20linux%20%7C%20macos-informational.svg)]()
 
@@ -19,10 +19,11 @@
 
 挂在 DeepSeek Harness 上的自进化插件。用户全程只介入一处：看提案，点同意或不同意。
 
-### 最新进展（v2.3.0，2026-09-08）
+### 最新进展（v2.4.0，2026-09-09）
 
 | 轮次 | 提交 | 关键变化 |
 |------|------|---------|
+| 2.4.0 | `02e1d51` | **DSH subagent 真实集成**：1.0 端 `dsh-runner.ts` 适配 DSH 宿主编排协议，server.ts 新增 3 个 MCP 工具（`get_execution_plan` / `report_task_result` / `finalize_execution`），配套 371 行 `DSH_INTEGRATION.md`；MoonBit 端真实进程执行器由占位升级为 `HARNESS_EVOLUTION_AGENT_CMD` 环境变量驱动，scanner 加 `list_skill_and_source_files` 双收集；legacy-ts 增 41 个 test（store 状态机、server 注册、engine 映射），引入 eslint；版本元数据升 2.4.0 |
 | 2.3.0 | `a2381fd` | **v2.3.0 收尾**：monitor.mbt 缩 367 行（抽到 `monitor/deep_check.mbt` / `monitor/flush.mbt`），config.mbt 缩 197 行（抽到 `types/config_helpers.mbt`）；`ServerState::with_harness_config` 统一三段配置；五处版本元数据升 2.3.0 |
 | 2.2.0 | `8b9970e` | **接通 `scan_targets` 配置孤岛**：`plugin.json` 的 `scan_targets` 段真正驱动扫描根，支持 `~/...` 展开，缺失/类型不符/为空都回退默认根并点名告警；新增 `ScanConfig::from_plugin_json` 纯解析函数和 8 个白盒用例 |
 | 2.2.0 | `8b9970e` | 五处版本元数据一并升 2.2.0（`moon.mod` / `plugin.json` / `jsonrpc server_version` / `DESIGN.md` 镜像 / `SKILL.md` frontmatter） |
@@ -31,7 +32,7 @@
 | 第五轮 | `b309000` | `AgentDefStore::list` 把「读不动」改告警；版本元数据补齐 2.1.0 |
 | v2.1 | `0d3b0ce` | 子 Agent 工厂落地：3 个 MCP 工具管理两个作用域（plugin / user）的定义文件 |
 
-完整门禁（`build.ps1 -Task all`）：`Total tests: 347, passed: 347, failed: 0.`，退出码 0，产物 `bin/harness-evolution.exe` 1,293,824 B，独立两跑一致。
+完整门禁（`build.ps1 -Task all`）：`Total tests: 347, passed: 347, failed: 0.`，退出码 0，产物 `bin/harness-evolution.exe` 1,293,824 B，独立两跑一致。1.0 参考实现（`legacy-ts/`，TypeScript + Node）6 suites / 75 tests 全过，跨实现合计 **422/422**。
 
 ### 特性
 
@@ -174,7 +175,7 @@ zcode plugin link .
 3. **提案**：`propose_evolution` 基于信号生成提案。
 4. **执行**：`approve_proposal` → `execute_evolution`（必经人工审批）。
 
-### MCP 工具（13 个）
+### MCP 工具（16 个）
 
 | 工具 | 作用 |
 |------|------|
@@ -191,6 +192,57 @@ zcode plugin link .
 | `analyze_plugins` | 合并工具：扫描并/或获取指标（v2.3，`mode=scan/metrics/both`） |
 | `evolve_plugin` | 合并工具：生成或执行提案（v2.3，`action=propose/execute`） |
 | `manage_sub_agent` | 合并工具：管理子 Agent 定义（v2.3，`action=create/list/delete`） |
+| `get_execution_plan` | **NEW** 获取任务 DAG（供 DSH Agent 编排 subagent） |
+| `report_task_result` | **NEW** 回写 Sub-Agent 执行结果 |
+| `finalize_execution` | **NEW** 完成执行并更新提案状态 |
+
+### DSH Sub-Agent 集成
+
+> **⚠️ 给接手 Agent 的提示**
+>
+> 本插件的执行器已与 DSH 的 `subagent` 工具对接。
+> 如果你是一个运行在 DSH 中的 Agent，请阅读 [`DSH_INTEGRATION.md`](DSH_INTEGRATION.md) 了解完整的集成模式。
+
+**快速开始**：
+
+```javascript
+// 1. 获取执行计划
+const plan = await callMcpTool('execute_evolution', { proposal_id: 'evo-xxx', dry_run: false });
+
+// 2. 按层级执行（同层并行，层间串行）
+for (const layer of plan.task_dag) {
+  await Promise.all(layer.tasks.map(task =>
+    subagent({ prompt: task.prompt, description: task.agent })
+  ));
+}
+
+// 3. 完成
+await callMcpTool('finalize_execution', { proposal_id: 'evo-xxx', success: true });
+```
+
+**执行流程**：
+
+```
+宿主 Agent                    MCP Server                    DSH subagent
+    │                             │                             │
+    ├── execute_evolution ────────►│                             │
+    │◄── task_dag ────────────────┤                             │
+    │                             │                             │
+    ├── subagent(prompt) ─────────┼────────────────────────────►│
+    │   (layer 0, 并行)           │                             │
+    │◄────────────────────────────┼──── result ─────────────────┤
+    │                             │                             │
+    ├── report_task_result ──────►│                             │
+    │                             │                             │
+    ├── subagent(prompt) ─────────┼────────────────────────────►│
+    │   (layer 1)                 │                             │
+    │◄────────────────────────────┼──── result ─────────────────┤
+    │                             │                             │
+    ├── finalize_execution ──────►│                             │
+    │◄── status: completed ───────┤                             │
+```
+
+详细文档见 [`DSH_INTEGRATION.md`](DSH_INTEGRATION.md)。
 
 ### 数据存储
 
@@ -289,13 +341,14 @@ npx jest          # 37 个用例
 
 A self-evolution plugin for the [DeepSeek Harness](https://github.com/deepseek-ai) ecosystem. It scans plugins, monitors performance, detects signals, drafts upgrade proposals, and (only after explicit human approval) executes the upgrade. The user touches it in exactly one place: reviewing proposals.
 
-### Latest (v2.3.0, 2026-09-08)
+### Latest (v2.4.0, 2026-09-09)
 
-- **Closed the last config island**: `plugin.json`'s `scan_targets` field now actually drives the scanner roots (with `~/...` expansion, type-checked, fall-back-with-warn on missing/malformed/empty).
-- **Signal buffer bounded** (`max_buffered_signals=500`, drop-oldest on overflow).
-- **Numeric config defense** (`num_field` rejects `NaN` / `Infinity`).
-- **Dead `::at` constructors** swept across engine / executor / scanner.
-- Plus 4 real bug fixes and 10 hardening items from the prior two review rounds (see `CONTEXT.md`).
+- **DSH subagent integration**: the 1.0 side now ships a `dsh-runner.ts` adapter that hands a topology-sorted task DAG to the host DeepSeek Harness Agent; the host executes each layer in parallel via `subagent` calls, then writes results back via `report_task_result` and finalizes with `finalize_execution`. See `DSH_INTEGRATION.md` (371 lines) for the full host-side contract.
+- **Real process runner**: MoonBit's `runner.mbt` reads `HARNESS_EVOLUTION_AGENT_CMD` (template with `{prompt}` / `{input}` placeholders) and dispatches to `@process`; falls back to a mock when unset, with sandbox and streaming-IO extension points preserved.
+- **Scanner one-pass dual collection**: `list_skill_and_source_files` collects skill and source manifests in a single walk, halving I/O for large plugin trees.
+- **JsonlStore backward read**: tolerates v1/v2 records and normalises to v3 schema on load.
+- **1.0 hygiene**: `legacy-ts/.eslintrc.js` lands; `tests/server.test.ts` and `tests/store.test.ts` close the 1.0 coverage gap (75/75, +41 tests in this round).
+- Combined test count: **422/422** (MoonBit 347 + legacy-ts 75).
 
 ### Quickstart
 
