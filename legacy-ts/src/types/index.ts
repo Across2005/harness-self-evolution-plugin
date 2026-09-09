@@ -47,7 +47,7 @@ export interface PerformanceEvent {
 
 export interface ToolCallData {
   tool: string;
-  params: Record<string, any>;
+  params: Record<string, unknown>;
   latency_ms: number;
   success: boolean;
   token_usage?: TokenUsage;
@@ -57,7 +57,7 @@ export interface ToolCallData {
 
 export interface EventData {
   event_name: string;
-  payload: any;
+  payload: unknown;
   processing_time_ms: number;
 }
 
@@ -170,7 +170,7 @@ export interface ToolMerge {
   new_interface: {
     params: string[];
     description: string;
-    defaults?: Record<string, any>;
+    defaults?: Record<string, unknown>;
   };
   backward_compatible: boolean;
 }
@@ -178,7 +178,7 @@ export interface ToolMerge {
 export interface ParamSimplification {
   tool: string;
   remove_params: string[];
-  defaults: Record<string, any>;
+  defaults: Record<string, unknown>;
   reason: string;
 }
 
@@ -255,11 +255,12 @@ export interface RiskAssessment {
 // ============================================================================
 
 export interface SubAgentTask {
+  id: string;
   agent: AgentType;
   task: string;
-  input: any;
-  dependencies?: string[];  // Other task IDs
-  timeout_ms?: number;
+  input: unknown;
+  deps: string[];  // Other task IDs
+  timeout_ms: number;
 }
 
 export type AgentType = 
@@ -273,7 +274,7 @@ export interface SubAgentResult {
   task_id: string;
   agent: AgentType;
   success: boolean;
-  output: any;
+  output: unknown;
   error?: string;
   duration_ms: number;
 }
@@ -290,12 +291,51 @@ export interface PluginRegistry {
   config: EvolutionConfig;
 }
 
+// ============================================================================
+// Configuration Types
+// ============================================================================
+
 export interface EvolutionConfig {
   intensity: '100%' | '50%' | '0%';
   auto_approve: boolean;
   max_proposals_per_session: number;
   cooldown_hours: number;
-  signal_thresholds: SignalThresholds;
+  max_log_bytes: number;
+  signal_thresholds: SignalThresholdsConfig;
+}
+
+export interface SignalThresholdsConfig {
+  consecutive_failures: number;
+  loop_detection: number;
+  latency_regression: number;
+}
+
+export interface ConfigValidationResult {
+  config: EvolutionConfig;
+  warnings: string[];
+}
+
+export const DEFAULT_CONFIG: EvolutionConfig = {
+  intensity: '50%',
+  auto_approve: false,
+  max_proposals_per_session: 3,
+  cooldown_hours: 24,
+  max_log_bytes: 32 * 1024 * 1024, // 32 MiB
+  signal_thresholds: {
+    consecutive_failures: 3,
+    loop_detection: 5,
+    latency_regression: 0.2
+  }
+};
+
+// ============================================================================
+// Directory Fingerprint Types
+// ============================================================================
+
+export interface DirFingerprint {
+  mtime_ms: number;
+  child_count: number;
+  child_mtime_ms: number;
 }
 
 // ============================================================================
@@ -334,4 +374,53 @@ export interface ApprovalParams {
   proposal_id: string;
   action: 'approve' | 'reject' | 'revise';
   revision_instructions?: string;
+}
+
+// ============================================================================
+// Merged Tool Types (v2.0)
+// ============================================================================
+
+export interface AnalyzePluginsParams {
+  mode: 'scan' | 'metrics' | 'both';
+  plugin_id?: string;
+  time_range?: 'last_hour' | 'last_day' | 'last_week' | 'all';
+  target_paths?: string[];
+}
+
+export interface EvolvePluginParams {
+  action: 'propose' | 'execute';
+  plugin_id?: string;
+  proposal_id?: string;
+  signals?: string[];
+  dry_run?: boolean;
+}
+
+export interface ManageConfigParams {
+  action: 'get' | 'set' | 'reset';
+  key?: string;
+  value?: string;
+}
+
+// ============================================================================
+// Backup Types
+// ============================================================================
+
+export interface BackupEntry {
+  original_path: string;
+  backup_path: string;
+  hash: string;
+  timestamp: string;
+}
+
+// ============================================================================
+// Task Definition Types (DAG)
+// ============================================================================
+
+export interface TaskDefinition {
+  id: string;
+  agent: AgentType;
+  task: string;
+  input: unknown;
+  deps: string[];
+  timeout_ms: number;
 }

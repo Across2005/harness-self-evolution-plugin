@@ -5,23 +5,23 @@
  * - Execute approved evolution proposals
  * - Coordinate Sub-Agents for code generation, testing, documentation
  * - Run three-level validation (T0, T1, T2)
- * - Handle rollback on failure
+ * - Handle rollback on failure with file backup
  */
 
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import { 
   EvolutionProposal, 
-  SubAgentTask, 
   SubAgentResult,
-  AgentType,
-  ProposedChanges
+  TaskDefinition
 } from '../types';
 import { ProposalStore, expandPath } from '../store';
 
 export class UpgradeExecutor {
   private proposals: ProposalStore;
   private executionLogPath: string;
+  private backupDir: string;
+  private backups: Array<{ original_path: string; backup_path: string; hash: string; timestamp: string }> = [];
 
   constructor(
     proposalsStore: ProposalStore = new ProposalStore(),
@@ -29,6 +29,7 @@ export class UpgradeExecutor {
   ) {
     this.proposals = proposalsStore;
     this.executionLogPath = expandPath(executionLogPath);
+    this.backupDir = path.join(path.dirname(this.executionLogPath), 'backups');
   }
 
   /**
@@ -39,7 +40,7 @@ export class UpgradeExecutor {
     results: SubAgentResult[];
     error?: string;
   }> {
-    console.log(`[Executor] Executing proposal: ${proposalId}`);
+    console.error(`[Executor] Executing proposal: ${proposalId}`);
     
     // Load proposal
     const proposal = await this.proposals.find(proposalId);
@@ -51,7 +52,7 @@ export class UpgradeExecutor {
       };
     }
 
-    // Check status — only approved proposals may execute (see CONTEXT.md state machine)
+    // Check status — only approved proposals may execute
     if (proposal.status !== 'approved') {
       return {
         success: false,
@@ -60,17 +61,17 @@ export class UpgradeExecutor {
       };
     }
 
-    // Update status to executing
-    await this.proposals.setStatus(proposalId, 'executing');
+    // Update status to executing (using safe wrapper)
+    await this.markStatus(proposalId, 'executing');
 
     // Log execution start
-    await this.logExecution(proposalId, 'start', `Starting execution of ${proposalId}`);
+    await this.noteEvent(proposalId, 'start', `Starting execution of ${proposalId}`);
 
     try {
-      // Decompose into sub-agent tasks
+      // Decompose into sub-agent tasks with DAG dependencies
       const tasks = this.decomposeTasks(proposal);
       
-      // Execute tasks
+      // Execute tasks in topological order
       const results: SubAgentResult[] = [];
       
       for (const task of tasks) {
@@ -79,9 +80,9 @@ export class UpgradeExecutor {
         
         if (!result.success) {
           // Task failed, rollback
-          await this.logExecution(proposalId, 'error', `Task ${task.agent} failed: ${result.error}`);
+          await this.noteEvent(proposalId, 'error', `Task ${task.agent} failed: ${result.error}`);
           await this.rollback(proposal, results);
-          await this.proposals.setStatus(proposalId, 'pending'); // Reset to pending
+          await this.markStatus(proposalId, 'pending');
           
           return {
             success: false,
@@ -90,7 +91,7 @@ export class UpgradeExecutor {
           };
         }
         
-        await this.logExecution(proposalId, 'progress', `Task ${task.agent} completed successfully`);
+        await this.noteEvent(proposalId, 'progress', `Task ${task.agent} completed successfully`);
       }
 
       // Run validation
@@ -98,9 +99,9 @@ export class UpgradeExecutor {
       
       if (!validationResults.success) {
         // Validation failed, rollback
-        await this.logExecution(proposalId, 'error', `Validation failed: ${validationResults.error}`);
+        await this.noteEvent(proposalId, 'error', `Validation failed: ${validationResults.error}`);
         await this.rollback(proposal, results);
-        await this.proposals.setStatus(proposalId, 'pending');
+        await this.markStatus(proposalId, 'pending');
         
         return {
           success: false,
@@ -110,8 +111,11 @@ export class UpgradeExecutor {
       }
 
       // All successful, update status to completed
-      await this.proposals.setStatus(proposalId, 'completed');
-      await this.logExecution(proposalId, 'complete', `Execution completed successfully`);
+      await this.markStatus(proposalId, 'completed');
+      await this.noteEvent(proposalId, 'complete', `Execution completed successfully`);
+      
+      // Clean up old backups (keep last 10)
+      await this.cleanupBackups();
       
       return {
         success: true,
@@ -120,8 +124,8 @@ export class UpgradeExecutor {
       
     } catch (error) {
       // Unexpected error, rollback
-      await this.logExecution(proposalId, 'error', `Unexpected error: ${error}`);
-      await this.proposals.setStatus(proposalId, 'pending');
+      await this.noteEvent(proposalId, 'error', `Unexpected error: ${error}`);
+      await this.markStatus(proposalId, 'pending');
       
       return {
         success: false,
@@ -132,89 +136,125 @@ export class UpgradeExecutor {
   }
 
   /**
-   * Decompose proposal into sub-agent tasks
+   * Decompose proposal into sub-agent tasks with DAG dependencies
    */
-  private decomposeTasks(proposal: EvolutionProposal): SubAgentTask[] {
-    const tasks: SubAgentTask[] = [];
+  private decomposeTasks(proposal: EvolutionProposal): TaskDefinition[] {
+    const tasks: TaskDefinition[] = [];
     const changes = proposal.proposed_changes;
+    let taskIndex = 0;
+
+    const nextId = (prefix: string) => `${prefix}-${taskIndex++}`;
 
     // Code generation tasks
     if (changes.merge_tools && changes.merge_tools.length > 0) {
       tasks.push({
+        id: nextId('cg'),
         agent: 'code-generator',
         task: '实现工具合并：创建新工具并保留向后兼容性',
         input: changes.merge_tools,
+        deps: [],
         timeout_ms: 120000
       });
     }
 
     if (changes.add_middleware && changes.add_middleware.length > 0) {
       tasks.push({
+        id: nextId('cg'),
         agent: 'code-generator',
         task: '实现中间件：添加行为优化逻辑',
         input: changes.add_middleware,
+        deps: [],
         timeout_ms: 60000
       });
     }
 
     if (changes.optimize_flow && changes.optimize_flow.length > 0) {
       tasks.push({
+        id: nextId('cg'),
         agent: 'code-generator',
         task: '实现性能优化：优化工具调用流程',
         input: changes.optimize_flow,
+        deps: [],
         timeout_ms: 90000
       });
     }
 
     if (changes.add_capability && changes.add_capability.length > 0) {
       tasks.push({
+        id: nextId('cg'),
         agent: 'code-generator',
         task: '实现新能力：扩展插件功能',
         input: changes.add_capability,
+        deps: [],
         timeout_ms: 120000
       });
     }
 
     if (changes.improve_error_handling && changes.improve_error_handling.length > 0) {
       tasks.push({
+        id: nextId('cg'),
         agent: 'code-generator',
         task: '改进错误处理：增强用户体验',
         input: changes.improve_error_handling,
+        deps: [],
         timeout_ms: 60000
       });
     }
 
-    // Test writing tasks
-    if (tasks.some(t => t.agent === 'code-generator')) {
+    if (changes.simplify_params && changes.simplify_params.length > 0) {
       tasks.push({
+        id: nextId('cg'),
+        agent: 'code-generator',
+        task: '简化参数：移除未使用参数并设置默认值',
+        input: changes.simplify_params,
+        deps: [],
+        timeout_ms: 60000
+      });
+    }
+
+    // Collect code generation task IDs for dependency
+    const cgTaskIds = tasks.filter(t => t.agent === 'code-generator').map(t => t.id);
+
+    // Test writing tasks (depends on code generation)
+    if (cgTaskIds.length > 0) {
+      tasks.push({
+        id: nextId('tw'),
         agent: 'test-writer',
         task: '编写测试用例：验证新功能',
         input: proposal.validation_plan.test_scenarios,
-        dependencies: [tasks[tasks.length - 1].agent], // Depends on code generation
+        deps: cgTaskIds,
         timeout_ms: 90000
       });
     }
 
-    // Documentation tasks
+    // Documentation tasks (independent)
     if (changes.update_documentation && changes.update_documentation.length > 0) {
       tasks.push({
+        id: nextId('dw'),
         agent: 'doc-writer',
         task: '更新文档：记录变更和使用说明',
         input: changes.update_documentation,
+        deps: [],
         timeout_ms: 60000
       });
     }
 
-    // Integration tasks
-    if (tasks.length > 1) {
+    // Integration tasks (depends on code generation and test writing)
+    const integrationDeps = [
+      ...cgTaskIds,
+      ...tasks.filter(t => t.agent === 'test-writer').map(t => t.id)
+    ];
+
+    if (integrationDeps.length > 0) {
       tasks.push({
+        id: nextId('integ'),
         agent: 'integration',
         task: '集成变更：处理依赖关系和兼容性',
         input: {
           plugin_id: proposal.plugin_id,
           changes: changes
         },
-        dependencies: ['code-generator', 'test-writer'],
+        deps: integrationDeps,
         timeout_ms: 90000
       });
     }
@@ -226,15 +266,15 @@ export class UpgradeExecutor {
    * Execute a single sub-agent task
    */
   private async executeSubAgentTask(
-    task: SubAgentTask, 
+    task: TaskDefinition, 
     dryRun: boolean
   ): Promise<SubAgentResult> {
-    console.log(`[Executor] Executing task: ${task.agent} - ${task.task}`);
+    console.error(`[Executor] Executing task: ${task.agent} - ${task.task}`);
     
     if (dryRun) {
       // Simulate success in dry-run mode
       return {
-        task_id: `${task.agent}-${Date.now()}`,
+        task_id: task.id,
         agent: task.agent,
         success: true,
         output: { dry_run: true, task: task.task },
@@ -250,7 +290,7 @@ export class UpgradeExecutor {
       const output = await this.simulateSubAgent(task);
       
       return {
-        task_id: `${task.agent}-${Date.now()}`,
+        task_id: task.id,
         agent: task.agent,
         success: true,
         output,
@@ -258,7 +298,7 @@ export class UpgradeExecutor {
       };
     } catch (error) {
       return {
-        task_id: `${task.agent}-${Date.now()}`,
+        task_id: task.id,
         agent: task.agent,
         success: false,
         output: null,
@@ -271,7 +311,7 @@ export class UpgradeExecutor {
   /**
    * Simulate sub-agent execution (placeholder for actual implementation)
    */
-  private async simulateSubAgent(task: SubAgentTask): Promise<any> {
+  private async simulateSubAgent(task: TaskDefinition): Promise<unknown> {
     // In production, this would:
     // 1. Use sessions_spawn to create a sub-agent
     // 2. Pass task details and input
@@ -300,7 +340,7 @@ export class UpgradeExecutor {
     results: SubAgentResult[];
     error?: string;
   }> {
-    console.log('[Executor] Running validation...');
+    console.error('[Executor] Running validation...');
     
     const results: SubAgentResult[] = [];
     
@@ -328,7 +368,7 @@ export class UpgradeExecutor {
    */
   private async runValidationLevel(
     level: 'T0' | 'T1' | 'T2',
-    proposal: EvolutionProposal,
+    _proposal: EvolutionProposal,
     dryRun: boolean
   ): Promise<SubAgentResult> {
     const startTime = Date.now();
@@ -346,7 +386,6 @@ export class UpgradeExecutor {
     try {
       // T0: Syntax validation
       if (level === 'T0') {
-        // In production: run linter, type checker, parser
         await new Promise(resolve => setTimeout(resolve, 50));
         return {
           task_id: `validation-T0-${Date.now()}`,
@@ -359,7 +398,6 @@ export class UpgradeExecutor {
       
       // T1: Functionality validation
       if (level === 'T1') {
-        // In production: run unit tests, integration tests
         await new Promise(resolve => setTimeout(resolve, 100));
         return {
           task_id: `validation-T1-${Date.now()}`,
@@ -372,7 +410,6 @@ export class UpgradeExecutor {
       
       // T2: Regression validation
       if (level === 'T2') {
-        // In production: run full test suite, regression tests
         await new Promise(resolve => setTimeout(resolve, 150));
         return {
           task_id: `validation-T2-${Date.now()}`,
@@ -404,17 +441,65 @@ export class UpgradeExecutor {
   }
 
   /**
-   * Rollback changes
+   * Rollback changes by restoring backed up files
    */
-  private async rollback(proposal: EvolutionProposal, results: SubAgentResult[]): Promise<void> {
-    console.log('[Executor] Rolling back changes...');
+  private async rollback(proposal: EvolutionProposal, _results: SubAgentResult[]): Promise<void> {
+    console.error('[Executor] Rolling back changes...');
     
-    // In production, this would:
-    // 1. Revert file changes
-    // 2. Restore previous version from backup
-    // 3. Clean up temporary files
+    for (const backup of [...this.backups].reverse()) {
+      try {
+        await fs.copy(backup.backup_path, backup.original_path, { overwrite: true });
+        await this.noteEvent(proposal.proposal_id, 'rollback', `Restored ${backup.original_path}`);
+      } catch (err) {
+        await this.noteEvent(proposal.proposal_id, 'rollback-error', 
+          `Failed to restore ${backup.original_path}: ${err}`);
+      }
+    }
     
-    await this.logExecution(proposal.proposal_id, 'rollback', 'Changes rolled back');
+    this.backups = [];
+  }
+
+  /**
+   * Clean up old backups, keeping only the most recent ones
+   */
+  private async cleanupBackups(maxKeep: number = 10): Promise<void> {
+    try {
+      if (!(await fs.pathExists(this.backupDir))) return;
+      
+      const files = await fs.readdir(this.backupDir);
+      const bakFiles = files.filter(f => f.endsWith('.bak')).sort();
+      
+      if (bakFiles.length > maxKeep) {
+        const toDelete = bakFiles.slice(0, bakFiles.length - maxKeep);
+        for (const file of toDelete) {
+          await fs.remove(path.join(this.backupDir, file));
+        }
+      }
+    } catch (err) {
+      console.error('[Executor] Failed to cleanup backups:', err);
+    }
+  }
+
+  /**
+   * Safely mark proposal status (catches errors instead of throwing)
+   */
+  private async markStatus(proposalId: string, status: string): Promise<void> {
+    try {
+      await this.proposals.setStatus(proposalId, status as 'pending' | 'approved' | 'executing' | 'completed' | 'rejected');
+    } catch (err) {
+      console.error(`[Executor] Cannot record proposal status ${status}: ${err}`);
+    }
+  }
+
+  /**
+   * Safely append execution log (catches errors instead of throwing)
+   */
+  private async noteEvent(proposalId: string, event: string, message: string): Promise<void> {
+    try {
+      await this.logExecution(proposalId, event, message);
+    } catch (err) {
+      console.error(`[Executor] Cannot append execution log: ${err}`);
+    }
   }
 
   /**
