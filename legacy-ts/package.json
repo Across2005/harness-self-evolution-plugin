@@ -1,13 +1,14 @@
 {
   "name": "harness-self-evolution",
-  "version": "1.0.0",
-  "description": "DeepSeek Harness 全盘自进化升级插件",
+  "version": "2.0.0",
+  "description": "DeepSeek Harness 全盘自进化升级插件（Legacy TypeScript 参考实现）",
   "keywords": [
     "harness",
     "evolution",
     "self-improvement",
     "matt-pocock",
-    "hermes"
+    "hermes",
+    "mcp"
   ],
   "license": "MIT",
   "author": "AI Agent Designer <Across2005@users.noreply.github.com>",
@@ -24,24 +25,23 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "jest",
+    "test": "jest --coverage",
+    "test:ci": "jest --ci --coverage --forceExit",
     "lint": "eslint src --ext .ts",
-    "clean": "rimraf dist",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "clean": "rimraf dist coverage",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "fs-extra": "^11.2.0",
     "glob": "^10.3.0",
-    "json5": "^2.2.3",
-    "uuid": "^9.0.0",
-    "zod": "^4.0"
+    "zod": "^3.22.0"
   },
   "devDependencies": {
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^29.5.11",
     "@types/node": "^20.11.0",
-    "@types/uuid": "^9.0.7",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
     "eslint": "^8.56.0",
@@ -62,7 +62,10 @@
       "execute_evolution",
       "list_proposals",
       "approve_proposal",
-      "reject_proposal"
+      "reject_proposal",
+      "analyze_plugins",
+      "evolve_plugin",
+      "manage_config"
     ],
     "events": [
       "on_plugin_call",
