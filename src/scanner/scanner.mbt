@@ -26,8 +26,12 @@ pub struct ScanConfig {
 }
 
 ///|
-/// 默认扫描根。逐字对齐 legacy-ts scanner L21-26：
+/// 默认扫描根。兼容多种 harness 平台，首打 DeepSeek Harness：
 /// ```text
+/// ~/.deepseek/harness/plugins/          # DeepSeek Harness 插件（首打）
+/// ~/.deepseek/harness/extensions/       # DeepSeek Harness 扩展
+/// ~/.minimax/plugins/                   # Minimax Code 插件
+/// ~/.minimax/extensions/                # Minimax Code 扩展
 /// ~/.zcode/cli/plugins/cache/zcode-plugins-official
 /// ~/.zcode/plugins
 /// ~/.agents/plugins
@@ -37,11 +41,15 @@ pub struct ScanConfig {
 /// `.zcode-plugin/plugin.json` 的 `scan_targets` 段（6 个路径，含
 /// `~/.deepseek/harness/plugins/`、`~/.agents/skills/` 等）经
 /// `ScanConfig::from_plugin_json` 解析，在 `main.mbt` 装配时替换默认根；
-/// 未配置时回退到这里的 3 个硬编码根（与 legacy-ts scanner L21-26 逐字对齐）。
+/// 未配置时回退到这里的 7 个硬编码根。
 /// 接通它会**改变发现哪些插件** —— 这是 2.2.0 经用户「全面升级」授权后
 /// 做出的显式行为变更， rationale 与回退语义见 `from_plugin_json`。
 pub fn default_scan_roots() -> Array[String] {
   [
+    @util.expand_home("~/.deepseek/harness/plugins/"),
+    @util.expand_home("~/.deepseek/harness/extensions/"),
+    @util.expand_home("~/.minimax/plugins/"),
+    @util.expand_home("~/.minimax/extensions/"),
     @util.expand_home("~/.zcode/cli/plugins/cache/zcode-plugins-official"),
     @util.expand_home("~/.zcode/plugins"),
     @util.expand_home("~/.agents/plugins"),

@@ -1,6 +1,8 @@
 # Harness Self-Evolution Plugin
 
-> 让 DeepSeek Harness 的插件生态持续自我进化 —— 扫描 → 监控 → 识别 → 提案 → 人工审批 → 真实升级。
+> 让多种 Harness 平台的插件生态持续自我进化 —— 扫描 → 监控 → 识别 → 提案 → 人工审批 → 真实升级。
+> 
+> 支持：DeepSeek Harness（首打）/ Minimax Code / ZCode / Claude Code / OpenClaw
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
 [![Version: 2.4.0](https://img.shields.io/badge/version-2.4.0-1f6feb.svg)](.zcode-plugin/plugin.json)
@@ -17,7 +19,7 @@
 
 ### 一句话定位
 
-挂在 DeepSeek Harness 上的自进化插件。用户全程只介入一处：看提案，点同意或不同意。
+挂在多种 Harness 平台上的自进化插件（首打 DeepSeek Harness）。用户全程只介入一处：看提案，点同意或不同意。
 
 ### 最新进展（v2.4.0，2026-09-09）
 
@@ -43,14 +45,31 @@
 - **执行验证**：状态机 `pending → approved → executing → completed`，非 `approved` 拒绝执行。
 - **子 Agent 工厂（v2.1）**：3 个 MCP 工具（`create_sub_agent` / `list_sub_agents` / `delete_sub_agent`）管理两个作用域的 Markdown + YAML frontmatter 定义文件；路径 A 出厂模板、路径 B 动态管理均已上线，路径 C（OCR 触发真实派发）待平台回调。
 
+### 兼容性
+
+本插件兼容多种 Harness 平台：
+- **DeepSeek Harness**：支持 DeepSeek Harness 的插件扫描、监控、进化全流程
+- **Minimax Code**：支持 Minimax Code 的插件扫描、监控、进化全流程
+- **ZCode**：支持 ZCode CLI 的插件管理（`zcode plugin link` / `zcode plugin list`等）
+- **Claude Code**：作为 MCP 服务器，可被 OpenClaw 等开源 AI 平台调用
+- **OpenClaw**：作为 MCP 服务器，可被 OpenClaw 等开源 AI 平台调用
+### 多宿主支持
+
+| 平台 | 宿主标识 | 配置路径 |
+|------|------|------|
+| DeepSeek Harness | `~/.deepseek/harness/plugins/`, `~/.deepseek/harness/extensions/` |
+| Minimax Code | `~/.minimax/plugins/`, `~/.minimax/extensions/` |
+| ZCode | `~/.zcode/cli/plugins/`, `~/.zcode/skills/` |
+| Claude Code | OpenClaw 等开源 AI 平台 |
+| OpenClaw | `~/.openclaw/` |
 ### 架构
 
 ```mermaid
 flowchart TB
     subgraph 宿主
-        Client["ZCode / Harness 客户端"]
+        Client["DeepSeek Harness / Minimax Code / ZCode / Claude Code"]
     end
-
+    
     subgraph "harness-self-evolution（MCP server, stdio JSON-RPC）"
         direction TB
         HE["harness_evolution/<br/>装配与启动"]
@@ -64,7 +83,7 @@ flowchart TB
         TY["types/<br/>19 张 wire 表 · 词汇表单一事实来源"]
         UT["util/<br/>路径 / 时间 / 日志 / 4 个零依赖 Deep Module"]
     end
-
+    
     Client -- "scan_plugins / propose_evolution /<br/>approve_proposal / execute_evolution /<br/>create_sub_agent ..." --> MCP
     HE --> MCP
     MCP --> ENG
@@ -101,7 +120,11 @@ flowchart TB
 
 - **MoonBit 工具链**（`moon`）。
 - **Windows**：Visual Studio 的 C++ 生成工具（`cl.exe`）+ Windows SDK。native 后端把 MoonBit 编译成 C 再用 MSVC 链接，`build.ps1` 会自动探测并注入 `INCLUDE` / `LIB` / `PATH`，**不需要**手工跑 `vcvars64.bat`。
-- DeepSeek Harness 或 ZCode CLI。
+- **宿主环境**（任选其一）：
+  - DeepSeek Harness
+  - Minimax Code CLI（`mcode`）
+  - ZCode CLI
+  - Claude Code / OpenClaw（作为 MCP 服务器）
 
 运行时**不需要 Node.js** —— 产物是独立的 native 可执行文件。
 
@@ -124,6 +147,85 @@ zcode plugin link .
 > **为什么锁死 `async@0.20.1`**：0.21.x 开始使用 `noraise + nocancel` 效果注解语法，而当前工具链（moon 0.1.20260819）解析它会报 `[3002] Parse error, unexpected token '+'`。升级到能解析该语法的 moon 版本后方可放开约束。
 >
 > **关于 `moon.lock`**：本机工具链**不产生**模块根的 `moon.lock`（`moon mod tidy` 是独立插件 `moon-mod`，未安装时直接报错；`.mooncakes/.moon-lock` 实测为空）。可复现构建靠的是 `moon.mod` 里**写死的精确版本**而不是范围，并由架构守卫 G6 机器化钉住。用 `moon tree` 可随时核对实际解析结果（应为 `moonbitlang/async@0.20.1`）。
+
+### 快速开始
+
+#### 1. 环境准备
+
+确保已安装以下工具：
+
+- **MoonBit 工具链**（`moon`）：从 [MoonBit 官网](https://www.moonbitlang.com/) 下载安装
+- **Windows 用户**：Visual Studio 的 C++ 生成工具（`cl.exe`）+ Windows SDK（`build.ps1` 会自动探测）
+- **宿主环境**（任选其一）：
+  - DeepSeek Harness
+  - Minimax Code CLI：`npm install -g mmx-cli`
+  - ZCode CLI
+  - Claude Code / OpenClaw（作为 MCP 服务器）
+
+#### 2. 获取与构建
+
+```powershell
+# 克隆仓库（任选一）
+git clone https://github.com/Across2005/harness-self-evolution-plugin.git
+cd harness-self-evolution-plugin
+
+# 完整构建（检查 + 测试 + 构建）
+.uild.ps1 all
+```
+
+构建成功后，产物位于 `bin/harness-evolution.exe`。
+
+#### 3. 链接到宿主（ZCode）
+
+```powershell
+# 将插件链接到 ZCode（使宿主能发现并加载插件）
+zcode plugin link .
+```
+
+#### 4. 启动插件
+
+插件作为 MCP 服务器运行，由宿主自动启动。启动流程：
+
+1. **宿主（ZCode）读取** `.zcode-plugin/plugin.json` 配置
+2. **宿主启动** `bin/harness-evolution.exe` 进程
+3. **插件通过 stdio JSON-RPC** 与宿主通信
+4. **插件自动扫描** 配置的插件目录（`scan_targets`）
+5. **监控开始**，记录性能事件和进化信号
+
+#### 5. 验证运行
+
+```powershell
+# 检查插件是否正常运行
+zcode plugin list
+```
+
+应该能看到 `harness-self-evolution (v2.4.0) - Active`。
+
+#### 6. 使用插件功能
+
+通过宿主调用 MCP 工具：
+
+```javascript
+// 扫描所有插件
+const result = await callMcpTool('scan_plugins', {});
+
+// 获取插件性能指标
+const metrics = await callMcpTool('get_plugin_metrics', { plugin_id: 'browser-use-0.4.1' });
+
+// 生成进化提案
+const proposal = await callMcpTool('propose_evolution', { plugin_id: 'browser-use-0.4.1' });
+```
+
+#### 手动测试（可选）
+
+如需手动测试 MCP 服务器，可使用 MCP 客户端工具：
+
+```powershell
+# 启动插件（手动模式）
+echo '{"jsonrpc":"2.0","method":"initialize","params":{},"id":1}' | .in\harness-evolution.exe
+
+# 应该收到 JSON-RPC 响应
+```
 
 ### `build.ps1` 子命令
 
@@ -254,7 +356,15 @@ metrics.jsonl       # 性能事件（monitor 写，受 max_log_bytes 约束）
 signals.jsonl       # 进化信号（monitor 写 / engine 读，受 max_log_bytes 约束）
 proposals.jsonl     # 进化提案（ProposalStore 唯一读写口，**不裁剪**）
 execution.log       # 执行日志（executor，**不裁剪**）
-agents/             # 子 Agent 定义（factory 写，scope=plugin；scope=user 写到宿主 ~/.zcode/agents/）
+agents/             # 子 Agent 定义（factory 写，scope=plugin；scope=user 写到宿主用户目录）
+```
+
+子 Agent 用户目录（scope=user）按宿主类型区分：
+- DeepSeek Harness：`~/.deepseek/harness/agents/`
+- Minimax Code：`~/.minimax/agents/`
+- ZCode：`~/.zcode/agents/`
+
+可通过环境变量 `HARNESS_EVOLUTION_HOST` 切换宿主类型。
 ```
 
 数据根目录的默认值只在 `store/paths.mbt` 一处定义，并由 `mcp/architecture_test.mbt` 的 G4 守卫机器化地防止它再次扩散（1.0 版把它散落在 4 个文件里）。
@@ -322,7 +432,9 @@ npx jest          # 37 个用例
 
 - [`CONTEXT.md`](CONTEXT.md) —— 设计上下文、缺陷清单、配置来源、架构守卫、Matt Pocock 原则 ↔ 进化类型映射
 - [`DESIGN.md`](DESIGN.md) —— 详细设计、模块边界、调用链
+- [`DSH_INTEGRATION.md`](DSH_INTEGRATION.md) —— DSH Sub-Agent 集成指南
 - [`docs/subagent-factory.md`](docs/subagent-factory.md) —— 子 Agent 工厂的设计与研究结论
+- [`specs/minimax-code-support.md`](specs/minimax-code-support.md) —— Minimax Code 扫描支持规格
 - [`legacy-ts/`](legacy-ts) —— 1.0（TypeScript）版的完整工程，作为移植正确性的客观参照
 
 ### 贡献
@@ -339,7 +451,9 @@ npx jest          # 37 个用例
 
 ### What is this
 
-A self-evolution plugin for the [DeepSeek Harness](https://github.com/deepseek-ai) ecosystem. It scans plugins, monitors performance, detects signals, drafts upgrade proposals, and (only after explicit human approval) executes the upgrade. The user touches it in exactly one place: reviewing proposals.
+A self-evolution plugin for multiple Harness platforms (primary: [DeepSeek Harness](https://github.com/deepseek-ai)). It scans plugins, monitors performance, detects signals, drafts upgrade proposals, and (only after explicit human approval) executes the upgrade. The user touches it in exactly one place: reviewing proposals.
+
+Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw
 
 ### Latest (v2.4.0, 2026-09-09)
 
@@ -352,10 +466,62 @@ A self-evolution plugin for the [DeepSeek Harness](https://github.com/deepseek-a
 
 ### Quickstart
 
+#### 1. Prerequisites
+
+- **MoonBit toolchain** (`moon`): download from [MoonBit website](https://www.moonbitlang.com/)
+- **Windows**: Visual Studio C++ Build Tools (`cl.exe`) + Windows SDK (auto-detected by `build.ps1`)
+- **Host environment** (choose one):
+  - DeepSeek Harness
+  - Minimax Code CLI: `npm install -g mmx-cli`
+  - ZCode CLI
+  - Claude Code / OpenClaw (as MCP server)
+
+#### 2. Clone and Build
+
 ```powershell
 git clone https://github.com/Across2005/harness-self-evolution-plugin.git
 cd harness-self-evolution-plugin
+
+# Full build: check + test + build
 .\build.ps1 all
+```
+
+The output binary is at `bin/harness-evolution.exe`.
+
+#### 3. Link to Host (ZCode)
+
+```powershell
+zcode plugin link .
+```
+
+#### 4. Run
+
+The plugin runs as an MCP server, automatically started by the host:
+
+1. Host reads `.zcode-plugin/plugin.json` configuration
+2. Host launches `bin/harness-evolution.exe`
+3. Plugin communicates via stdio JSON-RPC
+4. Plugin auto-scans configured plugin directories (`scan_targets`)
+5. Monitoring begins, recording performance events and evolution signals
+
+#### 5. Verify
+
+```powershell
+zcode plugin list
+# Should show: harness-self-evolution (v2.4.0) - Active
+```
+
+#### 6. Use Plugin Features
+
+```javascript
+// Scan all plugins
+const result = await callMcpTool('scan_plugins', {});
+
+// Get plugin metrics
+const metrics = await callMcpTool('get_plugin_metrics', { plugin_id: 'browser-use-0.4.1' });
+
+// Generate evolution proposal
+const proposal = await callMcpTool('propose_evolution', { plugin_id: 'browser-use-0.4.1' });
 ```
 
 ### Documentation

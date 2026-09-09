@@ -94,12 +94,22 @@ pub fn DataPaths::agent_defs(self : DataPaths) -> String {
 
 ///|
 /// 宿主的用户级子 Agent 定义目录（v2.1）。**跨出插件数据根**：
-/// `~/.zcode/agents/` 是 ZCode loader 约定的用户级 agent 目录，
-/// scope=user 的定义写在这里，宿主会在后续会话中发现并加载。
-/// `~/.zcode/agents` 字面量同址单点定义；测试经 `AgentFactory::with_dirs`
-/// 注入临时目录，绝不触碰真实的用户 home。
+/// 根据宿主类型选择不同的路径，支持多种 harness 平台：
+/// - DeepSeek Harness: `~/.deepseek/harness/agents/`（首打）
+/// - Minimax Code: `~/.minimax/agents/`
+/// - ZCode: `~/.zcode/agents/`
+/// 默认使用 DeepSeek Harness 路径，可通过环境变量 `HARNESS_EVOLUTION_HOST` 覆盖。
+/// 测试经 `AgentFactory::with_dirs` 注入临时目录，绝不触碰真实的用户 home。
 pub fn user_agents_dir() -> String {
-  @util.expand_home("~/.zcode/agents")
+  let host = match @env.get_env_var("HARNESS_EVOLUTION_HOST") {
+    Some(h) if h.length() > 0 => h
+    _ => "deepseek-harness"
+  }
+  match host {
+    "zcode" => @util.expand_home("~/.zcode/agents")
+    "minimax-code" => @util.expand_home("~/.minimax/agents/")
+    _ => @util.expand_home("~/.deepseek/harness/agents/")
+  }
 }
 
 ///|

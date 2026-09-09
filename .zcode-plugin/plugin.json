@@ -49,6 +49,8 @@
   "dependencies": {},
   "devDependencies": {},
   "engines": {
+    "deepseek-harness": ">=1.0.0",
+    "minimax-code": ">=1.0.0",
     "zcode": ">=0.5.0"
   },
   "evolution_config": {
@@ -65,6 +67,8 @@
   "scan_targets": [
     "~/.deepseek/harness/plugins/",
     "~/.deepseek/harness/extensions/",
+    "~/.minimax/plugins/",
+    "~/.minimax/extensions/",
     "~/.zcode/cli/plugins/",
     "~/.zcode/skills/",
     "~/.agents/skills/",
