@@ -1,0 +1,34 @@
+{
+  "name": "@across2005/harness-self-evolution",
+  "version": "2.4.0",
+  "description": "Benchmark-driven self-evolution plugin for DeepSeek Harness: iterate on a frozen benchmark, accept only when strictly better, roll back deterministically from verified snapshots.",
+  "author": {
+    "name": "Across2005",
+    "email": "Across2005@users.noreply.github.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Across2005/harness-self-evolution-plugin.git"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "harness",
+    "evolution",
+    "self-improvement",
+    "mcp",
+    "moonbit"
+  ],
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "deepseek-harness": ">=1.0.0"
+  }
+}

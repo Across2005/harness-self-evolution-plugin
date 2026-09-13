@@ -735,3 +735,149 @@ async test "AgentDefStore lists nothing when the directory cannot be read" {
   assert_true(@fs.exists(store.path_of("alpha")))
   assert_eq(blocked.list(), [])
 }
+
+// ============================================================================
+// JSONL 存储边界情况测试
+// ============================================================================
+
+///|
+/// 测试 JSONL 存储对空文件的处理：空文件应该返回空数组。
+async test "Jsonl::load on an empty file yields an empty array" {
+  let dir = @fs.tmpdir(prefix="evo-jsonl-boundary-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = "\{dir}/empty.jsonl"
+  @fs.write_file(path, "", create_mode=CreateOrTruncate)
+
+  let store = Jsonl::new(path)
+  let rows : Array[@types.EvolutionProposal] = store.load()
+  assert_eq(rows.length(), 0)
+}
+
+///|
+/// 测试 JSONL 存储对只有空白行的文件的处理：应该返回空数组。
+async test "Jsonl::load on file with only blank lines yields an empty array" {
+  let dir = @fs.tmpdir(prefix="evo-jsonl-boundary-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = "\{dir}/blank-lines.jsonl"
+  @fs.write_file(path, "\n  \n\t\n", create_mode=CreateOrTruncate)
+
+  let store = Jsonl::new(path)
+  let rows : Array[@types.EvolutionProposal] = store.load()
+  assert_eq(rows.length(), 0)
+}
+
+///|
+/// 测试 JSONL 存储对单行有效数据的处理：应该返回一个元素的数组。
+async test "Jsonl::load on single valid line yields one element" {
+  let dir = @fs.tmpdir(prefix="evo-jsonl-boundary-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = "\{dir}/single.jsonl"
+  let proposal = make_proposal(proposal_id="p-single")
+  let line = ToJson::to_json(proposal).stringify()
+  @fs.write_file(path, line, create_mode=CreateOrTruncate)
+
+  let store = Jsonl::new(path)
+  let rows : Array[@types.EvolutionProposal] = store.load()
+  assert_eq(rows.length(), 1)
+  assert_eq(rows[0].proposal_id, "p-single")
+}
+
+///|
+/// 测试 JSONL 存储对多行有效数据的处理：应该返回正确数量的元素。
+async test "Jsonl::load on multiple valid lines yields correct count" {
+  let dir = @fs.tmpdir(prefix="evo-jsonl-boundary-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = "\{dir}/multiple.jsonl"
+
+  let proposals : Array[@types.EvolutionProposal] = []
+  let mut i = 0
+  while i < 10 {
+    proposals.push(make_proposal(proposal_id="p-\{i}"))
+    i += 1
+  }
+
+  let mut content = ""
+  for p in proposals {
+    content = "\{content}\{ToJson::to_json(p).stringify()}\n"
+  }
+  @fs.write_file(path, content, create_mode=CreateOrTruncate)
+
+  let store = Jsonl::new(path)
+  let rows : Array[@types.EvolutionProposal] = store.load()
+  assert_eq(rows.length(), 10)
+  assert_eq(rows[0].proposal_id, "p-0")
+  assert_eq(rows[9].proposal_id, "p-9")
+}
+
+///|
+/// 测试 JSONL 存储对损坏行的处理：损坏行应该被跳过，其他行正常加载。
+async test "Jsonl::load skips corrupt lines and loads valid ones" {
+  let dir = @fs.tmpdir(prefix="evo-jsonl-boundary-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = "\{dir}/mixed.jsonl"
+
+  let good1 = make_proposal(proposal_id="p-good1")
+  let good2 = make_proposal(proposal_id="p-good2")
+  let bad_syntax = "{invalid json"
+  let bad_vocab = "{\"proposal_id\":\"p-bad\",\"status\":\"invalid\"}"
+
+  let content = "\{ToJson::to_json(good1).stringify()}\n\{bad_syntax}\n\{bad_vocab}\n\{ToJson::to_json(good2).stringify()}\n"
+  @fs.write_file(path, content, create_mode=CreateOrTruncate)
+
+  let store = Jsonl::new(path)
+  let rows : Array[@types.EvolutionProposal] = store.load()
+  // 只有两行有效
+  assert_eq(rows.length(), 2)
+  assert_eq(rows[0].proposal_id, "p-good1")
+  assert_eq(rows[1].proposal_id, "p-good2")
+}
+
+///|
+/// 测试 JSONL 存储的 append 操作：追加的数据应该能被正确读取。
+async test "Jsonl::append adds data that can be read back" {
+  let dir = @fs.tmpdir(prefix="evo-jsonl-boundary-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = "\{dir}/append.jsonl"
+  let store = Jsonl::new(path)
+
+  // 初始状态应该为空
+  let rows1 : Array[@types.EvolutionProposal] = store.load()
+  assert_eq(rows1.length(), 0)
+
+  // 追加一条数据
+  let proposal = make_proposal(proposal_id="p-appended")
+  store.append(proposal)
+
+  // 读取应该返回一条数据
+  let rows2 : Array[@types.EvolutionProposal] = store.load()
+  assert_eq(rows2.length(), 1)
+  assert_eq(rows2[0].proposal_id, "p-appended")
+}
+
+///|
+/// 测试 JSONL 存储的 append_many 操作：批量追加的数据应该能被正确读取。
+async test "Jsonl::append_many adds multiple data that can be read back" {
+  let dir = @fs.tmpdir(prefix="evo-jsonl-boundary-")
+  defer @fs.rmdir(dir, recursive=true)
+  let path = "\{dir}/append-many.jsonl"
+  let store = Jsonl::new(path)
+
+  // 初始状态应该为空
+  let rows1 : Array[@types.EvolutionProposal] = store.load()
+  assert_eq(rows1.length(), 0)
+
+  // 批量追加数据
+  let proposals : Array[@types.EvolutionProposal] = []
+  let mut i = 0
+  while i < 5 {
+    proposals.push(make_proposal(proposal_id="p-batch-\{i}"))
+    i += 1
+  }
+  store.append_many(proposals)
+
+  // 读取应该返回所有数据
+  let rows2 : Array[@types.EvolutionProposal] = store.load()
+  assert_eq(rows2.length(), 5)
+  assert_eq(rows2[0].proposal_id, "p-batch-0")
+  assert_eq(rows2[4].proposal_id, "p-batch-4")
+}

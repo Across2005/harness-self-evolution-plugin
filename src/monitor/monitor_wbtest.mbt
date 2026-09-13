@@ -1033,3 +1033,113 @@ async test "a trim failure neither raises nor disturbs the flush path" {
   assert_eq(events.length(), 1)
   assert_eq(events[0].payload.tool_name(), Some("click"))
 }
+
+// ============================================================================
+// 边界情况测试
+// ============================================================================
+
+///|
+/// 测试信号缓冲区溢出行为：当信号数量超过 max_buffered_signals 时，最旧的信号应被丢弃。
+/// 直接测试 enqueue_signal 函数的溢出处理。
+async test "signal buffer overflow drops oldest signals" {
+  let dir = @fs.tmpdir(prefix="evo-mon-boundary-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  // 添加超过 max_buffered_signals 的信号
+  let total = max_buffered_signals + 50
+  let mut i = 0
+  while i < total {
+    // 直接调用 enqueue_signal 添加信号
+    mon.enqueue_signal({
+      plugin_id: "p-1",
+      ts: i.to_int64(),
+      category: @types.SignalCategory::Correction,
+      strength: @types.SignalStrength::Strong,
+      description: "signal \{i}",
+      evidence: @types.Evidence::UserManual,
+      count: None,
+      tool: None,
+      decay_factor: 1.0,
+    })
+    i += 1
+  }
+
+  // 验证缓冲区大小应该被限制在 max_buffered_signals
+  assert_eq(mon.signal_buffer.length(), max_buffered_signals)
+
+  // 验证保留的是最新的信号（最旧的被丢弃）
+  assert_true(mon.signal_buffer[0].description.contains("50"))
+  assert_true(mon.signal_buffer[max_buffered_signals - 1].description.contains("\{total - 1}"))
+}
+
+///|
+/// 测试 correction 信号的生成机制：同一插件的多次负面反馈应该产生多条 correction 信号。
+/// 注意：correction 信号没有去重机制，每次负面反馈都会产生一条新的信号。
+async test "correction signal generation for multiple feedbacks" {
+  let dir = @fs.tmpdir(prefix="evo-mon-dedup-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  // 记录一次工具调用
+  mon.record_tool_call("p-1", "a", Json::empty_object(), 10, true)
+
+  // 发送多次负面反馈
+  mon.record_user_feedback("p-1", @types.UserFeedback::Negative, context=Some("first error"))
+  mon.record_user_feedback("p-1", @types.UserFeedback::Negative, context=Some("second error"))
+  mon.record_user_feedback("p-1", @types.UserFeedback::Negative, context=Some("third error"))
+
+  mon.shutdown()
+
+  let signals = load_signals(dir)
+  let corrections : Array[@types.EvolutionSignal] = []
+  for s in signals {
+    if s.category == @types.SignalCategory::Correction {
+      corrections.push(s)
+    }
+  }
+
+  // 应该有三条 correction 信号（每次反馈都产生一条）
+  assert_eq(corrections.length(), 3)
+  // 信号描述应该包含每次反馈的内容
+  assert_true(corrections[0].description.contains("first error"))
+  assert_true(corrections[1].description.contains("second error"))
+  assert_true(corrections[2].description.contains("third error"))
+}
+
+///|
+/// 测试极端高并发信号：快速生成大量信号，验证缓冲区行为。
+async test "rapid signal generation does not crash" {
+  let dir = @fs.tmpdir(prefix="evo-mon-rapid-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  // 快速生成大量工具调用
+  let mut i = 0
+  while i < 1000 {
+    mon.record_tool_call("p-1", "tool-\{i % 10}", Json::empty_object(), 10, true)
+    i += 1
+  }
+
+  // 验证监控器没有崩溃，大部分事件被记录（允许少量异步边界效应）
+  assert_true(mon.pending_event_count() >= 990)
+
+  // flush 应该正常工作
+  mon.shutdown()
+  assert_eq(mon.pending_event_count(), 0)
+}
+
+///|
+/// 测试空数据集的统计计算保护：当没有事件时，统计应该返回零值。
+async test "statistics for empty dataset returns zero values" {
+  let dir = @fs.tmpdir(prefix="evo-mon-empty-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  let stats = mon.get_statistics("nonexistent-plugin")
+  assert_eq(stats.total_calls, 0)
+  assert_eq(stats.success_rate, 0.0)
+  assert_eq(stats.avg_latency_ms, 0.0)
+  assert_eq(stats.total_tokens, 0)
+  assert_eq(stats.loop_detected, false)
+}

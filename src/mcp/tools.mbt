@@ -1,10 +1,11 @@
 ///|
-/// 10 个 MCP 工具的定义、派发与集中式错误处理。
+/// 13 个 MCP 工具的定义、派发与集中式错误处理。
 /// 取代 legacy-ts/src/mcp/server.ts L57-290。
 ///
 /// 前 7 个与 legacy-ts/package.json 的 `mcp.tools` 逐项同序；
 /// 后 3 个（create / list / delete_sub_agent）是 v2.1 子 Agent 工厂新增，
-/// 无 legacy 对应物（见 docs/subagent-factory.md）。
+/// 无 legacy 对应物（见 docs/subagent-factory.md）；
+/// 再后 3 个（analyze_plugins / evolve_plugin / manage_sub_agent）是 v2.3 合并工具。
 ///
 /// **CONTEXT.md 不变量④在此落地**：工具 handler 内部**一个 try/catch 都不写**，
 /// 错误统一由 `call_tool` 这一处包装器转成标准的 `isError` 响应。
@@ -262,8 +263,8 @@ pub async fn call_tool(state : ServerState, tool : Tool, args : Json) -> Json {
 }
 
 // ----------------------------------------------------------------------------
-// 10 个工具（前 7 个与 legacy-ts/package.json mcp.tools 逐项同序，
-// 后 3 个为 2.1 子 Agent 工厂新增）
+// 13 个工具（前 7 个与 legacy-ts/package.json mcp.tools 逐项同序，
+// 后 3 个为 2.1 子 Agent 工厂新增，再后 3 个为 2.3 合并工具）
 // ----------------------------------------------------------------------------
 
 ///|
@@ -355,7 +356,7 @@ pub fn tools() -> Array[Tool] {
 }
 
 ///|
-/// 按名字找工具。O(n) 但 n == 10，比维护一张 Map 更直白。
+/// 按名字找工具。O(n) 但 n == 13，比维护一张 Map 更直白。
 pub fn find_tool(name : String) -> Tool? {
   for t in tools() {
     if t.name == name {
@@ -366,7 +367,7 @@ pub fn find_tool(name : String) -> Tool? {
 }
 
 ///|
-/// `tools/list` 的响应体。不分页（省略 `nextCursor`）—— 10 个工具远小于任何客户端的页大小。
+/// `tools/list` 的响应体。不分页（省略 `nextCursor`）—— 13 个工具远小于任何客户端的页大小。
 pub fn tools_list_result() -> Json {
   let list : Array[Json] = []
   for t in tools() {

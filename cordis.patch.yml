@@ -1,0 +1,77 @@
+# cordis.patch.yml — DSH 生态标准 manifest
+# 将 .zcode-plugin/plugin.json 翻译为 YAML 数组格式
+# 文档要求：顶层 YAML 数组，- insert: / - replace: 开头，name 字段为 npm 包名
+
+- insert:
+    name: "@across2005/harness-self-evolution"
+    version: "2.4.0"
+    description: "Benchmark-driven self-evolution plugin for DeepSeek Harness: iterate on a frozen benchmark, accept only when strictly better, roll back deterministically from verified snapshots."
+    author:
+      name: "Across2005"
+      email: "Across2005@users.noreply.github.com"
+    license: "MIT"
+    keywords:
+      - "dsh-plugin"
+      - "deepseek-harness"
+      - "harness"
+      - "evolution"
+      - "self-improvement"
+      - "mcp"
+      - "moonbit"
+    repository:
+      type: "git"
+      url: "git+https://github.com/Across2005/harness-self-evolution-plugin.git"
+    main: "./bin/harness-evolution.exe"
+    skills: "./skills"
+    agents: "./agents"
+    capabilities:
+      - "plugin_scanning"
+      - "performance_monitoring"
+      - "evolution_engine"
+      - "upgrade_execution"
+      - "sub_agent_orchestration"
+    mcp:
+      transport: "stdio"
+      protocolVersion: "2024-11-05"
+      tools:
+        - "scan_plugins"
+        - "get_plugin_metrics"
+        - "propose_evolution"
+        - "execute_evolution"
+        - "list_proposals"
+        - "approve_proposal"
+        - "reject_proposal"
+        - "create_sub_agent"
+        - "list_sub_agents"
+        - "delete_sub_agent"
+    engines:
+      deepseek-harness: ">=1.0.0"
+      minimax-code: ">=1.0.0"
+      zcode: ">=0.5.0"
+    evolution_config:
+      intensity: "50%"
+      auto_approve: false
+      cooldown_hours: 24
+      max_log_bytes: 33554432
+      signal_thresholds:
+        consecutive_failures: 3
+        loop_detection: 5
+        latency_regression: 0.2
+    scan_targets:
+      - "~/.deepseek/harness/plugins/"
+      - "~/.deepseek/harness/extensions/"
+      - "~/.minimax/plugins/"
+      - "~/.minimax/extensions/"
+      - "~/.zcode/cli/plugins/"
+      - "~/.zcode/skills/"
+      - "~/.agents/skills/"
+      - "~/.openclaw-autoclaw/skills/"
+    monitoring:
+      enabled: true
+      sample_rate: 1.0
+      metrics:
+        - "latency"
+        - "success_rate"
+        - "token_usage"
+        - "retry_count"
+        - "user_feedback"
