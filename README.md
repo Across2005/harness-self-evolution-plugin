@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
 [![Version: 2.4.0](https://img.shields.io/badge/version-2.4.0-1f6feb.svg)](.zcode-plugin/plugin.json)
 [![Runtime: MoonBit native](https://img.shields.io/badge/runtime-MoonBit%20native-ff7a18.svg)](moon.mod)
-[![Total tests: 377/377](https://img.shields.io/badge/tests-377%2F377-22cc22.svg)](CONTEXT.md)
+[![Total tests: 377/377](https://img.shields.io/badge/tests-377%2F377-22cc22.svg)](CONTEXT.md)[![Sandbox: enabled](https://img.shields.io/badge/sandbox-enabled-22cc22.svg)](#安全沙箱)
 [![Gate: 0/0](https://img.shields.io/badge/gate-%20%E2%9C%93%20passing-22cc22.svg)](build.ps1)
 [![Platform: Windows / Linux / macOS](https://img.shields.io/badge/platform-win%20%7C%20linux%20%7C%20macos-informational.svg)]()
 
@@ -53,6 +53,7 @@
 - **DSH 集成**：与 DeepSeek Harness 的 `subagent` 工具对接，支持任务 DAG 编排
 - **DSH Watcher 集成**：可选的只读会话观察插件，可视化进化执行过程、模型推理时间和工具调用链路
 - **学术写作进化**：支持学术写作规范化、反 AI 写作检测、引用规范化三类进化，基于 AI 痕迹检测和学术规范检查
+- **安全沙箱**：executor 写操作前置防护 — 6 类敏感数据扫描（API Key/Token/Password/PrivateKey/EnvAssignment/AuthHeader）、路径边界检查、文件级自动备份与回滚；所有 I/O 沉淀到 `store/sandbox_store.mbt`，满足架构守卫 G3
 
 ### DSH 生态提报证据（L1–L3）
 
@@ -103,7 +104,7 @@ flowchart TB
         HE["harness_evolution/<br/>装配与启动"]
         MCP["mcp/<br/>13 工具 · stdio JSON-RPC"]
         ENG["engine/<br/>决策树 + 风险评估"]
-        EXE["executor/<br/>DAG 分层 + Sub-Agent 编排"]
+        EXE["executor/<br/>DAG 分层 + Sub-Agent 编排 + 安全沙箱"]
         FAC["factory/<br/>子 Agent 定义管理"]
         SCN["scanner/<br/>插件发现 + 信息提取"]
         MON["monitor/<br/>性能采集 + 信号检测"]
@@ -329,7 +330,7 @@ const proposal = await callMcpTool('propose_evolution', { plugin_id: 'browser-us
 
 ```
 harness-self-evolution-plugin/
-├── src/                          # MoonBit 源代码（69 个 .mbt 文件）
+├── src/                          # MoonBit 源代码（71 个 .mbt 文件）
 │   ├── engine/                   # 进化引擎：决策树 + 风险评估
 │   │   ├── engine.mbt            # 进化引擎核心
 │   │   ├── planning.mbt          # 提案规划（含学术写作变更生成）
@@ -338,7 +339,8 @@ harness-self-evolution-plugin/
 │   ├── executor/                 # 执行器：DAG 分层 + Sub-Agent 编排
 │   │   ├── dag.mbt               # 拓扑排序
 │   │   ├── executor.mbt          # 执行器核心
-│   │   └── runner.mbt            # 任务执行器（模拟/真实）
+│   │   ├── runner.mbt            # 任务执行器（模拟/真实）
+│   │   └── sandbox.mbt           # 安全沙箱：敏感数据扫描 + 边界检查 + 备份回滚
 │   ├── planner/                  # 计划生成模块
 │   │   └── planner.mbt           # 计划生成与清理
 │   ├── factory/                  # 子 Agent 工厂
@@ -367,7 +369,8 @@ harness-self-evolution-plugin/
 │   │   ├── exec_log.mbt          # 执行日志
 │   │   ├── jsonl.mbt             # JSONL 读写
 │   │   ├── paths.mbt             # 数据路径
-│   │   └── proposals.mbt         # 提案存储
+│   │   ├── proposals.mbt         # 提案存储
+│   │   └── sandbox_store.mbt     # 沙箱文件 I/O（备份/读写/恢复/清理）
 │   ├── types/                    # 类型定义：19 张 wire 表
 │   │   ├── agent_scope.mbt
 │   │   ├── change.mbt
@@ -458,6 +461,7 @@ flowchart LR
 ├── signals.jsonl       # 进化信号（monitor 写 / engine 读，受 max_log_bytes 约束）
 ├── proposals.jsonl     # 进化提案（ProposalStore 唯一读写口，不裁剪）
 ├── execution.log       # 执行日志（executor，不裁剪）
+├── sandbox/            # 沙箱备份目录（executor 进入沙箱时自动创建，退出后清理）
 └── agents/             # 子 Agent 定义（factory 写，scope=plugin）
 ```
 
@@ -478,6 +482,18 @@ flowchart LR
 
 每条守卫都做过**负向探针**验证（人为引入违规确认会变红），否则「永远通过的测试」只是装饰。
 
+### 安全沙箱
+
+executor 执行进化提案时，所有写操作经过安全沙箱预处理：
+
+1. **前置扫描**（`sandbox_pre_check`）：扫描目标文件是否包含 6 类敏感数据（API Key / Token / Password / Private Key / 环境变量赋值 / Auth Header），发现则中止执行
+2. **路径边界**（`is_within_boundary`）：确保写操作不超出数据根目录（`~/.harness-evolution/`），防止路径穿越
+3. **文件备份**（`backup_file`）：执行前自动备份每个目标文件到沙箱目录
+4. **后置验证**（`sandbox_post_verify`）：执行后验证敏感数据未被破坏、路径未越界
+5. **回滚机制**（`sandbox_restore_all`）：验证失败时自动从备份恢复所有文件
+
+沙箱纯逻辑层在 `src/executor/sandbox.mbt`（6 个函数），文件 I/O 层在 `src/store/sandbox_store.mbt`（7 个方法），严格遵守架构守卫 G3（`@fs` 写操作只在 `store/`）。
+
 ### 风险缓解
 
 - **只读扫描**：Scanner 不修改任何插件代码
@@ -486,6 +502,7 @@ flowchart LR
 - **信号缓冲有界**：`signal_buffer` 上限 500 条（`max_buffered_signals`），溢出丢最旧
 - **数值防御**：`num_field` 拒绝 `NaN` / `Infinity`，回落默认值并点名告警
 - **观测日志有界**：`metrics.jsonl` / `signals.jsonl` 受 `max_log_bytes` 约束，超限保留最新完整行
+- **安全沙箱**：executor 写操作前扫描敏感数据、验证路径边界、自动备份；执行后验证完整性；失败自动回滚
 
 ### 文档
 
@@ -525,6 +542,7 @@ Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / Ope
 - **Sub-Agent factory**: 3 MCP tools manage two scopes of Markdown + YAML frontmatter definition files
 - **DSH integration**: Integrates with DeepSeek Harness's `subagent` tool for task DAG orchestration
 - **DSH Watcher integration**: Optional read-only session observation plugin for visualizing evolution execution
+- **Safety sandbox**: Pre-execution protection for executor write operations — 6-category sensitive data scanning (API Key/Token/Password/PrivateKey/EnvAssignment/AuthHeader), path boundary checks, file-level auto-backup and rollback; all I/O delegated to `store/sandbox_store.mbt`, satisfying architecture guard G3
 
 ### DSH Ecosystem Submission Evidence (L1–L3)
 
@@ -655,6 +673,18 @@ The plugin provides 13 MCP tools:
 | `analyze_plugins` | Composite: scan and/or get metrics | v2.3 |
 | `evolve_plugin` | Composite: generate or execute proposal | v2.3 |
 | `manage_sub_agent` | Composite: manage sub-agent definitions | v2.3 |
+
+### Safety Sandbox
+
+When executing evolution proposals, all executor write operations pass through a safety sandbox:
+
+1. **Pre-scan** (`sandbox_pre_check`): Scans target files for 6 categories of sensitive data (API Key / Token / Password / Private Key / Environment variable assignment / Auth Header); aborts if found
+2. **Path boundary** (`is_within_boundary`): Ensures writes stay within the data root (`~/.harness-evolution/`), preventing path traversal
+3. **File backup** (`backup_file`): Auto-backs up each target file to the sandbox directory before execution
+4. **Post-verify** (`sandbox_post_verify`): Validates sensitive data integrity and path boundaries after execution
+5. **Rollback** (`sandbox_restore_all`): Auto-restores all files from backup on verification failure
+
+The sandbox logic layer lives in `src/executor/sandbox.mbt` (6 functions), and the file I/O layer in `src/store/sandbox_store.mbt` (7 methods), strictly observing architecture guard G3 (`@fs` writes only in `store/`).
 
 ### Documentation
 
