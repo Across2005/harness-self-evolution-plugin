@@ -81,8 +81,10 @@ pub async fn PerformanceMonitor::flush_buffers(
   if !signals_ok {
     requeue_into(signals, self.signal_buffer, "signals")
   }
-  // 清除脏标记
-  self.buffers_dirty.val = false
+  // 清除脏标记：仅当 buffer 确实清空时才清除。
+  // 修复：原逻辑无条件 false，若 events_ok/signals_ok 为 false 且数据已 requeue，
+  // 脏标记被误清，requeue 数据可能延迟落盘直到下次 record_* 调用。
+  self.buffers_dirty.val = self.event_buffer.length() > 0 || self.signal_buffer.length() > 0
 }
 
 ///|

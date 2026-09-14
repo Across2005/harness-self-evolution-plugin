@@ -5,6 +5,7 @@ import {
   "Across2005/harness-self-evolution/types",
   "Across2005/harness-self-evolution/util",
   "moonbitlang/core/json",
+  "moonbitlang/core/math",
 }
 
 import {

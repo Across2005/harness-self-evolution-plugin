@@ -209,13 +209,14 @@ async fn UpgradeExecutor::run_pipeline(
       )
       self.rollback(proposal)
       self.mark_status(proposal.proposal_id, @types.ProposalStatus::Pending)
-      let all = results.copy()
+      // 合并已执行层的结果 + 验证失败结果（不含尚未执行的层）
+      let results_with_validation = results.copy()
       for r in validation {
-        all.push(r)
+        results_with_validation.push(r)
       }
       return {
         success: false,
-        results: all,
+        results: results_with_validation,
         error: Some("\{label} validation failed: \{detail}"),
       }
     }

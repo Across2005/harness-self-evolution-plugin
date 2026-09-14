@@ -232,8 +232,8 @@ test "non-object input returns default config" {
   assert_eq(cfg.cooldown_hours, defaults.cooldown_hours)
   assert_eq(cfg.auto_approve, defaults.auto_approve)
   assert_eq(cfg.max_log_bytes, defaults.max_log_bytes)
-  // 不应产生告警
-  assert_eq(warnings.length(), 0)
+  // 非对象输入会产生一条告警（BUG-06 修复：原来是静默返回默认值）
+  assert_eq(warnings.length(), 1)
 }
 
 ///|

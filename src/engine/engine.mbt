@@ -332,9 +332,10 @@ fn calculate_decay_factor(
   let age_ms = current_ts - signal_ts
   let age_hours = @util.ms_to_hours(age_ms)
   let exponent = age_hours / half_life_hours
-  // 使用近似计算：0.5^x ≈ 1.0 / (1.0 + x * ln(2)) for small x
-  // 更精确的衰减：exp(-x * ln(2))
-  let decay_factor = 1.0 / (1.0 + exponent * 0.693147)
+  // 精确衰减：0.5^x = exp(-x * ln(2))
+  // 历史注释：曾用 1/(1+x·ln2) 近似，但 x=24 时误差 ~955 倍（0.057 vs 0.00006），
+  // 导致老信号权重被严重高估。改用 @math.exp 保证数学正确性。
+  let decay_factor = @math.exp(-exponent * 0.693147)
   // 限制衰减因子在 [0.01, 1.0] 范围内
   if decay_factor < 0.01 {
     0.01

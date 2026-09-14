@@ -33,10 +33,12 @@ pub(all) struct EngineConfig {
   intensity : Intensity
   /// 同一插件两次提案之间的最短间隔（小时）。默认 24（engine L47）
   cooldown_hours : Int
-  /// **目前没有消费方**：1.0 只在 `types/index.ts:295` 声明了它、从未读过
-  /// （2.0 忠实移植了这个孤岛）。人工审批是本插件压住「自动改代码失控」
-  /// 这条最大风险的唯一闸门，所以这里刻意**不接通**它 —— 但也不再静默
-  /// 采纳：`from_json_checked` 遇到 true 会告警并回落 false（见 H2 同款处理）。
+  /// **死代码 — 没有消费方**：1.0 只在 `types/index.ts:295` 声明了它、从未读过
+  /// （2.0 忠实移植了这个孤岛）。`executor.execute()` 无条件要求
+  /// `status == Approved`，此字段从未被检查。人工审批是本插件压住
+  /// 「自动改代码失控」这条最大风险的唯一闸门，所以这里刻意**不接通**它
+  /// —— 但也不再静默采纳：`from_json_checked` 遇到 true 会告警并回落 false。
+  /// 保留字段是为了 JSON 兼容性（`derive(ToJson, @json.FromJson)`），不删除。
   /// 默认 false。
   auto_approve : Bool
   thresholds : SignalThresholds
@@ -127,7 +129,10 @@ pub fn EngineConfig::from_json_checked(
   let defaults = EngineConfig::default()
   let root = match json {
     Object(o) => o
-    _ => return (defaults, warn)
+    _ => {
+      warn.push("Config JSON is not an object, using all defaults")
+      return (defaults, warn)
+    }
   }
   // 允许传入整个 plugin.json：自动下钻到 evolution_config
   let cfg = match obj_field(root, "evolution_config") {

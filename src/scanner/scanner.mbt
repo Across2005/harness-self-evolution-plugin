@@ -243,7 +243,12 @@ pub async fn PluginScanner::scan_all(
   }
 
   self.reset()
-  // 并行扫描多个根目录以提升性能
+  // 并行扫描多个根目录以提升性能。
+  // **单线程协作式调度假设**：所有 spawned task 共享同一个 `self`，
+  // 通过 `absorb()` 写入 `self.profiles` / `self.index`。
+  // 当前安全是因为 MoonBit async 是单线程协作式——task 只在 await 点让出，
+  // absorb() 内无 await，不存在真正的并发写入。
+  // 若未来运行时引入多线程执行器，此处需改为「每 root 独立结果 + 最后 merge」。
   @async.with_task_group() <| group => {
     for root in self.cfg.roots {
       let _ = group.spawn(allow_failure=true, () => {
