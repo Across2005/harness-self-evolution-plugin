@@ -1,0 +1,83 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/engine"
+
+import {
+  "Across2005/harness-self-evolution/monitor",
+  "Across2005/harness-self-evolution/store",
+  "Across2005/harness-self-evolution/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn aggregate_signals(ArrayView[@types.EvolutionSignal], Int64) -> Array[@types.EvolutionSignal]
+
+pub fn assess_risks(ArrayView[@types.Change]) -> @types.RiskAssessment
+
+pub fn detect_signal_patterns(ArrayView[@types.EvolutionSignal]) -> Array[String]
+
+pub fn determine_confidence(ArrayView[@types.EvolutionSignal]) -> @types.Confidence
+
+pub fn estimate_migration_effort(ArrayView[@types.Change]) -> @types.MigrationEffort
+
+pub fn filter_by_intensity(ArrayView[@types.EvolutionSignal], @types.Intensity) -> Array[@types.EvolutionSignal]
+
+pub fn generate_signature(String, @types.EvolutionType) -> String
+
+pub fn has_breaking_changes(ArrayView[@types.Change]) -> Bool
+
+pub fn is_backward_compatible(ArrayView[@types.Change]) -> Bool
+
+pub fn plan_changes(@types.PluginMetadata, @types.EvolutionType, ArrayView[@types.EvolutionSignal]) -> Array[@types.Change]
+
+pub fn plan_validation(@types.EvolutionType, @types.PluginMetadata) -> @types.ValidationPlan
+
+// Errors
+
+// Types and methods
+pub struct AcademicProposal {
+  evolution_type : @types.EvolutionType
+  changes : Array[String]
+  expected_benefits : Map[String, Double]
+  priority : Int
+} derive(Eq, @debug.Debug)
+
+pub struct AcademicWritingEngine {
+  rewrite_suggestions : RewriteSuggestionLibrary
+}
+pub fn AcademicWritingEngine::generate_proposal(Self, String, @types.SkillDomain) -> AcademicProposal?
+pub fn AcademicWritingEngine::new() -> Self
+
+pub struct EvolutionEngine {
+  monitor : @monitor.PerformanceMonitor
+  proposals : @store.ProposalStore
+  signals : @store.Jsonl
+  config : @types.EngineConfig
+}
+pub async fn EvolutionEngine::generate_proposal(Self, @types.PluginMetadata, signals? : Array[@types.EvolutionSignal]?) -> ProposalOutcome
+pub fn EvolutionEngine::new(@monitor.PerformanceMonitor, @store.ProposalStore, @store.Jsonl, @types.EngineConfig) -> Self
+
+pub(all) enum ProposalOutcome {
+  Created(@types.EvolutionProposal)
+  AlreadyPending(@types.EvolutionProposal)
+  Duplicate(@types.EvolutionProposal)
+  Disabled
+  NoSignals
+  InCooldown
+} derive(Eq, @debug.Debug)
+pub fn ProposalOutcome::proposal(Self) -> @types.EvolutionProposal?
+pub fn ProposalOutcome::reason(Self) -> String
+
+pub struct RewriteSuggestionLibrary {
+  ai_vocabulary_replacements : Map[String, String]
+  syntax_templates : Array[SyntaxTemplate]
+}
+
+pub struct SyntaxTemplate {
+  pattern : String
+  suggestion : String
+  context : String
+} derive(Eq, @debug.Debug)
+
+// Type aliases
+
+// Traits

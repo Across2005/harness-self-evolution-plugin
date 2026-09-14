@@ -1,0 +1,58 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/executor"
+
+import {
+  "Across2005/harness-self-evolution/store",
+  "Across2005/harness-self-evolution/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn critical_path_len(ArrayView[Array[Int]]) -> Int
+
+pub fn decompose_tasks(@types.EvolutionProposal) -> Array[@types.SubAgentTask]
+
+pub async fn dry_run_task(@types.SubAgentTask) -> Json
+
+pub async fn dry_run_validation(@types.ValidationLevelTag, @types.EvolutionProposal) -> (Bool, String)
+
+pub async fn failing_task(@types.SubAgentTask) -> Json
+
+pub async fn failing_validation(@types.ValidationLevelTag, @types.EvolutionProposal) -> (Bool, String)
+
+pub async fn hanging_task(@types.SubAgentTask) -> Json
+
+pub async fn process_task(@types.SubAgentTask) -> Json
+
+pub async fn real_validation(@types.ValidationLevelTag, @types.EvolutionProposal) -> (Bool, String)
+
+pub async fn simulated_task(@types.SubAgentTask) -> Json
+
+pub async fn simulated_validation(@types.ValidationLevelTag, @types.EvolutionProposal) -> (Bool, String)
+
+pub fn task_count(ArrayView[Array[Int]]) -> Int
+
+pub fn topo_layers(ArrayView[@types.SubAgentTask]) -> Array[Array[Int]] raise
+
+// Errors
+
+// Types and methods
+pub(all) struct ExecutionResult {
+  success : Bool
+  results : Array[@types.SubAgentResult]
+  error : String?
+} derive(Eq, ToJson, @debug.Debug)
+
+pub struct UpgradeExecutor {
+  proposals : @store.ProposalStore
+  log : @store.ExecutionLog
+  run_task : async (@types.SubAgentTask) -> Json
+  validate_level : async (@types.ValidationLevelTag, @types.EvolutionProposal) -> (Bool, String)
+  max_parallel : Int
+}
+pub async fn UpgradeExecutor::execute(Self, String, dry_run? : Bool) -> ExecutionResult
+pub fn UpgradeExecutor::new(@store.ProposalStore, @store.ExecutionLog, run_task? : async (@types.SubAgentTask) -> Json, validate_level? : async (@types.ValidationLevelTag, @types.EvolutionProposal) -> (Bool, String), max_parallel? : Int) -> Self
+
+// Type aliases
+
+// Traits

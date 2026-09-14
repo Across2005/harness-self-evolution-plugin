@@ -1,0 +1,122 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/scanner"
+
+import {
+  "Across2005/harness-self-evolution/store",
+  "Across2005/harness-self-evolution/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn classify_domain(Array[String]) -> @types.SkillDomain
+
+pub fn compute_metrics(Int?, Int, Int) -> @types.PluginMetrics
+
+pub fn compute_text_metrics(String, @types.SkillDomain) -> TextQualityMetrics
+
+pub fn default_scan_roots() -> Array[String]
+
+pub fn detect_ai_fingerprints(String) -> AIScore
+
+pub async fn discover_plugins(String, max_depth? : Int) -> Array[DiscoveredPlugin]
+
+pub fn extract_from_skill_text(String) -> Extracted
+
+pub fn extract_from_skill_text_enhanced(String) -> Extracted
+
+pub fn extract_tools_from_source_text(String, Array[String]) -> Unit
+
+pub async fn find_manifest(String) -> String?
+
+pub fn generate_diagnostic_report(AIScore) -> String
+
+pub fn is_ai_generated(AIScore) -> Bool
+
+pub fn is_pruned(String) -> Bool
+
+pub fn is_source_file(String) -> Bool
+
+pub async fn list_files_recursive(String, (String) -> Bool) -> Array[String]
+
+pub async fn list_skill_and_source_files(String) -> (Array[String], Array[String])
+
+pub async fn list_skill_files(String) -> Array[String]
+
+pub async fn list_source_files(String) -> Array[String]
+
+pub let manifest_priority : Array[String]
+
+pub let max_discovery_depth : Int
+
+pub let max_files_depth : Int
+
+pub let pruned_dirs : Array[String]
+
+pub async fn read_entries(String) -> Array[(String, Bool)]
+
+pub async fn read_manifest_meta(String, String) -> (String, String, Array[String])
+
+pub async fn read_text_or_none(String) -> String?
+
+// Errors
+
+// Types and methods
+pub struct AIDetector {
+  threshold : Double
+} derive(Eq, @debug.Debug)
+pub fn AIDetector::detect(Self, String) -> AIScore
+pub fn AIDetector::new() -> Self
+
+pub struct AIScore {
+  total : Double
+  vocabulary : Double
+  syntax : Double
+  paragraph : Double
+  discourse : Double
+} derive(Eq, @debug.Debug)
+
+pub struct DiscoveredPlugin {
+  dir : String
+  manifest : String
+  depth : Int
+} derive(Eq, @debug.Debug)
+
+pub struct Extracted {
+  capabilities : Array[String]
+  tools : Array[String]
+}
+
+pub struct PluginScanner {
+  cfg : ScanConfig
+  cache : @store.PluginCache
+  profiles : Array[@types.PluginMetadata]
+  index : Map[String, Int]
+}
+pub fn PluginScanner::all(Self) -> Array[@types.PluginMetadata]
+pub fn PluginScanner::count(Self) -> Int
+pub fn PluginScanner::get(Self, String) -> @types.PluginMetadata?
+pub fn PluginScanner::new(ScanConfig) -> Self
+pub async fn PluginScanner::scan_all(Self, force_rescan? : Bool) -> Unit
+pub async fn PluginScanner::scan_plugin_dir(Self, DiscoveredPlugin, @types.PluginKind, cache_by_dir? : Map[String, @store.CachedProfile]) -> Unit
+pub async fn PluginScanner::scan_root(Self, String, @types.PluginKind, cache_by_dir? : Map[String, @store.CachedProfile]) -> Unit
+
+pub struct ScanConfig {
+  roots : Array[String]
+  cache_path : String
+  max_depth : Int
+}
+pub fn ScanConfig::at(@store.DataPaths) -> Self
+pub fn ScanConfig::custom(Array[String], String, max_depth? : Int) -> Self
+pub fn ScanConfig::from_plugin_json(Json, String) -> (Self, Array[String])
+pub fn ScanConfig::with_cache(String) -> Self
+
+pub struct TextQualityMetrics {
+  humanization_score : Double
+  academic_compliance : Double
+  text_diversity : Double
+  citation_quality : Double
+} derive(Eq, @debug.Debug)
+
+// Type aliases
+
+// Traits

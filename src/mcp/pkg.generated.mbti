@@ -1,0 +1,209 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/mcp"
+
+import {
+  "Across2005/harness-self-evolution/engine",
+  "Across2005/harness-self-evolution/executor",
+  "Across2005/harness-self-evolution/factory",
+  "Across2005/harness-self-evolution/monitor",
+  "Across2005/harness-self-evolution/scanner",
+  "Across2005/harness-self-evolution/store",
+  "Across2005/harness-self-evolution/types",
+  "moonbitlang/async",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/json",
+}
+
+// Values
+pub fn analyze_plugins_schema() -> Json
+
+pub async fn call_tool(ServerState, Tool, Json) -> Json
+
+pub let code_internal_error : Int
+
+pub let code_invalid_params : Int
+
+pub let code_invalid_request : Int
+
+pub let code_method_not_found : Int
+
+pub let code_parse_error : Int
+
+pub fn create_sub_agent_schema() -> Json
+
+pub let default_dry_run : Bool
+
+pub let default_force_rescan : Bool
+
+pub let default_limit : Int
+
+pub let default_protocol_version : String
+
+pub let default_sub_agent_overwrite : Bool
+
+pub let default_sub_agent_scope : @types.AgentScope
+
+pub let default_time_range : @types.TimeRange
+
+pub fn delete_sub_agent_schema() -> Json
+
+pub fn error_msg(Json?, Int, String) -> Json
+
+pub fn evolve_plugin_schema() -> Json
+
+pub fn execute_evolution_schema() -> Json
+
+pub fn find_tool(String) -> Tool?
+
+pub fn get_metrics_schema() -> Json
+
+pub async fn handle_message(ServerState, RpcRequest) -> Json?
+
+pub fn initialize_result(Json) -> Json
+
+pub fn json_error(String) -> Json
+
+pub fn json_ok(Json) -> Json
+
+pub let jsonrpc_version : String
+
+pub fn list_proposals_schema() -> Json
+
+pub fn list_sub_agents_schema() -> Json
+
+pub fn manage_sub_agent_schema() -> Json
+
+pub fn parse_message(Json) -> RpcRequest?
+
+pub fn proposal_id_schema() -> Json
+
+pub fn propose_evolution_schema() -> Json
+
+pub fn result_msg(Json?, Json) -> Json
+
+pub fn scan_plugins_schema() -> Json
+
+pub async fn serve_stdio(ServerState) -> Unit
+
+pub let server_name : String
+
+pub let server_version : String
+
+pub fn tools() -> Array[Tool]
+
+pub fn tools_list_result() -> Json
+
+// Errors
+
+// Types and methods
+pub(all) struct AnalyzePluginsArgs {
+  mode : String
+  plugin_id : String?
+  force_rescan : Bool?
+  target_paths : Array[String]?
+  time_range : @types.TimeRange?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct CreateSubAgentArgs {
+  name : String
+  description : String
+  system_prompt : String
+  tools : Array[String]?
+  color : String?
+  scope : @types.AgentScope?
+  overwrite : Bool?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct DeleteSubAgentArgs {
+  name : String
+  scope : @types.AgentScope?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct EvolvePluginArgs {
+  action : String
+  plugin_id : String?
+  proposal_id : String?
+  signals : Array[String]?
+  dry_run : Bool?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct ExecuteEvolutionArgs {
+  proposal_id : String
+  dry_run : Bool?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct GetMetricsArgs {
+  plugin_id : String
+  time_range : @types.TimeRange?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct ListProposalsArgs {
+  status : @types.ProposalStatus?
+  plugin_id : String?
+  limit : Int?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct ListSubAgentsArgs {
+  scope : @types.AgentScope?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct ManageSubAgentArgs {
+  action : String
+  name : String?
+  description : String?
+  system_prompt : String?
+  scope : @types.AgentScope?
+  overwrite : Bool?
+  color : String?
+  tools : Array[String]?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct ProposalIdArgs {
+  proposal_id : String
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct ProposeEvolutionArgs {
+  plugin_id : String
+  signals : Array[String]?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct RpcRequest {
+  id : Json?
+  method_name : String
+  params : Json
+} derive(Eq, @debug.Debug)
+pub fn RpcRequest::is_notification(Self) -> Bool
+
+pub(all) struct ScanPluginsArgs {
+  force_rescan : Bool?
+  target_paths : Array[String]?
+} derive(@debug.Debug, @json.FromJson)
+
+pub struct ServerState {
+  paths : @store.DataPaths
+  scanner : @scanner.PluginScanner
+  monitor : @monitor.PerformanceMonitor
+  engine : @engine.EvolutionEngine
+  executor : @executor.UpgradeExecutor
+  proposals : @store.ProposalStore
+  factory : @factory.AgentFactory
+  registry : Array[@types.PluginMetadata]
+  registry_index : Map[String, Int]
+}
+pub fn ServerState::at(@store.DataPaths, config? : @types.EngineConfig) -> Self
+pub fn ServerState::find_plugin(Self, String) -> @types.PluginMetadata?
+pub fn ServerState::run_background_tasks(Self, @async.TaskGroup[Unit]) -> @async.Task[Unit]
+pub async fn ServerState::shutdown(Self) -> Unit
+pub fn ServerState::with_harness_config(@store.DataPaths, @scanner.ScanConfig, @types.HarnessConfig) -> Self
+pub fn ServerState::with_scan_config(@store.DataPaths, @scanner.ScanConfig, config? : @types.EngineConfig) -> Self
+
+pub struct Tool {
+  name : String
+  description : String
+  schema : Json
+  handler : async (ServerState, Json) -> Json
+}
+
+// Type aliases
+
+// Traits

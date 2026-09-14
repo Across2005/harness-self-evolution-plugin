@@ -1,0 +1,58 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/util"
+
+import {
+  "moonbitlang/core/json",
+}
+
+// Values
+pub fn date_utc(Int64) -> String
+
+pub fn elapsed_ms(Int64) -> Int64
+
+pub fn expand_home(String) -> String
+
+pub fn home_dir() -> String
+
+pub fn hours_to_ms(Int) -> Int64
+
+pub fn iso_utc(Int64) -> String
+
+pub async fn log_error(String, StringView) -> Unit
+
+pub async fn log_info(String, StringView) -> Unit
+
+pub async fn log_warn(String, StringView) -> Unit
+
+pub fn ms_to_hours(Int64) -> Double
+
+pub fn now_ms() -> Int64
+
+pub fn path_basename(String) -> String
+
+pub fn path_depth_from(String, String) -> Int
+
+pub fn path_dirname(String) -> String
+
+pub fn path_extname(String) -> String
+
+pub fn path_join(String, String) -> String
+
+pub fn path_normalize(String) -> String
+
+// Errors
+
+// Types and methods
+pub struct WireEnum[T] {
+  table : Array[(String, T)]
+}
+pub fn[T] WireEnum::decode(Self[T], Json, @json.JsonPath) -> T raise @json.JsonDecodeError
+pub fn[T : Eq] WireEnum::encode(Self[T], T) -> Json
+pub fn[T] WireEnum::find_by_name(Self[T], String) -> T?
+pub fn[T : Eq] WireEnum::name_of(Self[T], T) -> String
+pub fn[T] WireEnum::names(Self[T]) -> Array[String]
+pub fn[T] WireEnum::of(Array[(String, T)]) -> Self[T]
+
+// Type aliases
+
+// Traits

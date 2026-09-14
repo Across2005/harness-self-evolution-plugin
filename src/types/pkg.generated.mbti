@@ -1,0 +1,597 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/types"
+
+import {
+  "Across2005/harness-self-evolution/util",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/json",
+}
+
+// Values
+pub let agent_scope_wire : @util.WireEnum[AgentScope]
+
+pub let agent_type_wire : @util.WireEnum[AgentType]
+
+pub let change_kind_wire : @util.WireEnum[ChangeKind]
+
+pub fn changes_kinds(ArrayView[Change]) -> Array[ChangeKind]
+
+pub let confidence_wire : @util.WireEnum[Confidence]
+
+pub fn dedup_ordered(ArrayView[String]) -> Array[String]
+
+pub let default_max_log_bytes : Int
+
+pub let error_kind_wire : @util.WireEnum[ErrorKind]
+
+pub let evolution_type_wire : @util.WireEnum[EvolutionType]
+
+pub let intensity_wire : @util.WireEnum[Intensity]
+
+pub let max_max_log_bytes : Int
+
+pub let migration_effort_wire : @util.WireEnum[MigrationEffort]
+
+pub let min_max_log_bytes : Int
+
+pub let optimization_kind_wire : @util.WireEnum[OptimizationKind]
+
+pub let plugin_kind_wire : @util.WireEnum[PluginKind]
+
+pub let principle_wire : @util.WireEnum[MattPocockPrinciple]
+
+pub let proposal_status_wire : @util.WireEnum[ProposalStatus]
+
+pub let rollback_complexity_wire : @util.WireEnum[RollbackComplexity]
+
+pub let signal_category_wire : @util.WireEnum[SignalCategory]
+
+pub let signal_strength_wire : @util.WireEnum[SignalStrength]
+
+pub let skill_domain_wire : @util.WireEnum[SkillDomain]
+
+pub let time_range_wire : @util.WireEnum[TimeRange]
+
+pub let usage_frequency_wire : @util.WireEnum[UsageFrequency]
+
+pub let user_feedback_wire : @util.WireEnum[UserFeedback]
+
+pub let validation_level_wire : @util.WireEnum[ValidationLevelTag]
+
+// Errors
+
+// Types and methods
+pub(all) enum AgentScope {
+  Plugin
+  User
+} derive(Eq, @debug.Debug)
+pub fn AgentScope::wire_name(Self) -> String
+pub impl ToJson for AgentScope
+pub impl @json.FromJson for AgentScope
+
+pub(all) enum AgentType {
+  CodeGenerator
+  TestWriter
+  DocWriter
+  Integration
+  Validator
+} derive(Eq, @debug.Debug)
+pub fn AgentType::wire_name(Self) -> String
+pub impl ToJson for AgentType
+pub impl @json.FromJson for AgentType
+
+pub(all) struct CapabilityAddition {
+  capability_name : String
+  description : String
+  implementation : String
+  dependencies : Array[String]
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct CapabilityData {
+  capability : String
+  operation : String
+  duration_ms : Int
+  success : Bool
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum Change {
+  MergeTools(Array[ToolMerge])
+  SimplifyParams(Array[ParamSimplification])
+  AddMiddleware(Array[MiddlewareAddition])
+  OptimizeFlow(Array[FlowOptimization])
+  UpdateDocumentation(Array[DocumentationUpdate])
+  AddCapability(Array[CapabilityAddition])
+  ImproveErrorHandling(Array[ErrorHandlingImprovement])
+} derive(Eq, @debug.Debug)
+pub fn Change::is_empty(Self) -> Bool
+pub fn Change::kind(Self) -> ChangeKind
+pub impl ToJson for Change
+pub impl @json.FromJson for Change
+
+pub(all) enum ChangeKind {
+  MergeTools
+  SimplifyParams
+  AddMiddleware
+  OptimizeFlow
+  UpdateDocumentation
+  AddCapability
+  ImproveErrorHandling
+} derive(Eq, @debug.Debug)
+pub fn ChangeKind::wire_name(Self) -> String
+pub impl ToJson for ChangeKind
+pub impl @json.FromJson for ChangeKind
+
+pub(all) enum Confidence {
+  High
+  Medium
+  Low
+} derive(Eq, @debug.Debug)
+pub fn Confidence::wire_name(Self) -> String
+pub impl ToJson for Confidence
+pub impl @json.FromJson for Confidence
+
+pub(all) struct DependencyEdge {
+  from_plugin : String
+  to_plugin : String
+  dep_type : DependencyType
+} derive(Eq, @debug.Debug)
+
+pub(all) struct DependencyGraph {
+  edges : Array[DependencyEdge]
+  index : Map[String, Array[Int]]
+} derive(Eq, @debug.Debug)
+pub fn DependencyGraph::analyze_version_conflicts(Self, ArrayView[PluginMetadata]) -> Array[(String, String, String)]
+pub fn DependencyGraph::detect_cycles(Self) -> Array[Array[String]]
+pub fn DependencyGraph::get_dependencies(Self, String) -> Array[String]
+pub fn DependencyGraph::get_dependents(Self, String) -> Array[String]
+pub fn DependencyGraph::identify_co_evolution_opportunities(Self, String) -> Array[String]
+pub fn DependencyGraph::new(ArrayView[PluginMetadata]) -> Self
+
+pub(all) enum DependencyType {
+  Required
+  Optional
+} derive(Eq, @debug.Debug)
+
+pub(all) struct DocumentationUpdate {
+  file : String
+  section : String
+  new_content : String
+  reason : String
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct EngineConfig {
+  intensity : Intensity
+  cooldown_hours : Int
+  auto_approve : Bool
+  thresholds : SignalThresholds
+  max_log_bytes : Int
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+pub fn EngineConfig::default() -> Self
+pub fn EngineConfig::from_json(Json) -> Self
+pub fn EngineConfig::from_json_checked(Json) -> (Self, Array[String])
+
+pub(all) struct ErrorData {
+  error_kind : ErrorKind
+  message : String
+  stack_trace : String?
+  recovery_attempted : Bool
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct ErrorHandlingImprovement {
+  error_type : String
+  current_behavior : String
+  improved_behavior : String
+  user_message : String
+  recovery_strategy : String
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum ErrorKind {
+  Timeout
+  ParameterError
+  PermissionError
+  NotFound
+  RuntimeError
+  Unknown
+} derive(Eq, @debug.Debug)
+pub fn ErrorKind::classify(String) -> Self
+pub fn ErrorKind::wire_name(Self) -> String
+pub impl ToJson for ErrorKind
+pub impl @json.FromJson for ErrorKind
+
+pub(all) struct EventContext {
+  task_type : String?
+  user_feedback : UserFeedback?
+  conversation_turn : Int
+  related_tools : Array[String]?
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct EventFiredData {
+  event_name : String
+  payload : Json
+  processing_time_ms : Int
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum EventPayload {
+  ToolCall(ToolCallData)
+  EventFired(EventFiredData)
+  CapabilityUsed(CapabilityData)
+  Failed(ErrorData)
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+pub fn EventPayload::duration_ms(Self) -> Int?
+pub fn EventPayload::succeeded(Self) -> Bool?
+pub fn EventPayload::tool_name(Self) -> String?
+
+pub(all) enum Evidence {
+  Session(String)
+  Metrics(String)
+  UserManual
+  FilePath(String)
+} derive(Eq, @debug.Debug)
+pub impl ToJson for Evidence
+pub impl @json.FromJson for Evidence
+
+pub(all) struct EvolutionProposal {
+  proposal_id : String
+  plugin_id : String
+  status : ProposalStatus
+  created_at : Int64
+  trigger_signals : Array[EvolutionSignal]
+  evolution_type : EvolutionType
+  matt_pocock_principle : MattPocockPrinciple
+  proposed_changes : Array[Change]
+  expected_benefits : ExpectedBenefits
+  validation_plan : ValidationPlan
+  risk_assessment : RiskAssessment
+  signature : String
+  confidence : Confidence
+  plan : ExecutionPlan?
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct EvolutionSignal {
+  strength : SignalStrength
+  category : SignalCategory
+  description : String
+  evidence : Evidence
+  ts : Int64
+  plugin_id : String
+  count : Int?
+  tool : String?
+  decay_factor : Double
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum EvolutionType {
+  InterfaceSimplification
+  BehaviorOptimization
+  PerformanceTuning
+  DocumentationEnhancement
+  CapabilityExtension
+  ErrorHandlingImprovement
+  SecurityHardening
+  AccessibilityImprovement
+  AcademicWritingEnhancement
+  AntiAIDetection
+  CitationNormalization
+} derive(Eq, @debug.Debug)
+pub fn EvolutionType::expected_benefits(Self) -> ExpectedBenefits
+pub fn EvolutionType::extra_scenarios(Self) -> Array[String]
+pub fn EvolutionType::principle(Self) -> MattPocockPrinciple
+pub fn EvolutionType::wire_name(Self) -> String
+pub impl ToJson for EvolutionType
+pub impl @json.FromJson for EvolutionType
+
+pub(all) struct ExecutionPlan {
+  plan_id : String
+  proposal_id : String
+  steps : Array[PlanStep]
+  estimated_duration_ms : Int64
+  created_at : Int64
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct ExpectedBenefits {
+  latency_improvement : String?
+  token_reduction : String?
+  user_satisfaction : String?
+  success_rate : String?
+  error_reduction : String?
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct FlowOptimization {
+  tool : String
+  optimization : OptimizationKind
+  implementation : String
+  expected_improvement : String
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub struct HarnessConfig {
+  engine : EngineConfig
+  monitoring : MonitoringConfig
+} derive(Eq, @debug.Debug)
+pub fn HarnessConfig::default() -> Self
+pub fn HarnessConfig::from_json(Json) -> Self
+pub fn HarnessConfig::from_json_checked(Json) -> (Self, Array[String])
+
+pub(all) enum Intensity {
+  Full
+  Half
+  Off
+} derive(Eq, @debug.Debug)
+pub fn Intensity::wire_name(Self) -> String
+pub impl ToJson for Intensity
+pub impl @json.FromJson for Intensity
+
+pub(all) enum MattPocockPrinciple {
+  AlignFirst
+  VerticalSlice
+  TightFeedback
+  DeepModule
+  RegularScan
+  VocabularyAsDocs
+} derive(Eq, @debug.Debug)
+pub fn MattPocockPrinciple::wire_name(Self) -> String
+pub impl ToJson for MattPocockPrinciple
+pub impl @json.FromJson for MattPocockPrinciple
+
+pub(all) struct MiddlewareAddition {
+  name : String
+  target_tool : String?
+  target_event : String?
+  threshold : Int?
+  intervention : String
+  priority : Int
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum MigrationEffort {
+  Low
+  Medium
+  High
+} derive(Eq, @debug.Debug)
+pub fn MigrationEffort::rollback_complexity(Self) -> RollbackComplexity
+pub fn MigrationEffort::wire_name(Self) -> String
+pub impl ToJson for MigrationEffort
+pub impl @json.FromJson for MigrationEffort
+
+pub(all) struct MonitoringConfig {
+  enabled : Bool
+  sample_rate : Double
+  metrics : Array[String]
+} derive(Eq, @debug.Debug)
+pub fn MonitoringConfig::default() -> Self
+pub fn MonitoringConfig::from_json(Json) -> Self
+pub fn MonitoringConfig::from_json_obj(Map[String, Json]) -> Self
+
+pub(all) struct NewToolInterface {
+  params : Array[String]
+  description : String
+  defaults : Json?
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum OptimizationKind {
+  Caching
+  Parallelization
+  LazyLoading
+  Batching
+} derive(Eq, @debug.Debug)
+pub fn OptimizationKind::wire_name(Self) -> String
+pub impl ToJson for OptimizationKind
+pub impl @json.FromJson for OptimizationKind
+
+pub(all) struct ParamSimplification {
+  tool : String
+  remove_params : Array[String]
+  defaults : Json
+  reason : String
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct PerformanceEvent {
+  session_id : String
+  plugin_id : String
+  ts : Int64
+  payload : EventPayload
+  context : EventContext
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct PlanStep {
+  step_id : String
+  agent_type : AgentType
+  description : String
+  dependencies : Array[String]
+  input : Json
+  timeout_ms : Int
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum PluginKind {
+  Official
+  Community
+  Custom
+} derive(Eq, @debug.Debug)
+pub fn PluginKind::wire_name(Self) -> String
+pub impl ToJson for PluginKind
+pub impl @json.FromJson for PluginKind
+
+pub(all) struct PluginMetadata {
+  plugin_id : String
+  name : String
+  version : String
+  kind : PluginKind
+  domain : SkillDomain
+  capabilities : Array[String]
+  tools : Array[String]
+  events : Array[String]
+  dependencies : Array[String]
+  scanned_at : Int64
+  path : String
+  initial_metrics : PluginMetrics
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct PluginMetrics {
+  complexity_score : Double
+  interface_clarity : Double
+  documentation_quality : Double
+  usage_frequency : UsageFrequency?
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum ProposalStatus {
+  Pending
+  Approved
+  Rejected
+  Executing
+  Completed
+} derive(Eq, @debug.Debug)
+pub fn ProposalStatus::can_transition_to(Self, Self) -> Bool
+pub fn ProposalStatus::wire_name(Self) -> String
+pub impl ToJson for ProposalStatus
+pub impl @json.FromJson for ProposalStatus
+
+pub(all) struct RiskAssessment {
+  breaking_changes : Bool
+  backward_compatible : Bool
+  migration_effort : MigrationEffort
+  affected_users : Int
+  rollback_complexity : RollbackComplexity
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum RollbackComplexity {
+  Simple
+  Moderate
+  Complex
+} derive(Eq, @debug.Debug)
+pub fn RollbackComplexity::wire_name(Self) -> String
+pub impl ToJson for RollbackComplexity
+pub impl @json.FromJson for RollbackComplexity
+
+pub(all) enum SignalCategory {
+  Correction
+  Preference
+  Workflow
+  Struggle
+  Pattern
+  Loop
+} derive(Eq, @debug.Debug)
+pub fn SignalCategory::wire_name(Self) -> String
+pub impl ToJson for SignalCategory
+pub impl @json.FromJson for SignalCategory
+
+pub(all) enum SignalStrength {
+  Strong
+  Medium
+  Weak
+} derive(Eq, @debug.Debug)
+pub fn SignalStrength::wire_name(Self) -> String
+pub impl ToJson for SignalStrength
+pub impl @json.FromJson for SignalStrength
+
+pub(all) struct SignalThresholds {
+  consecutive_failures : Int
+  loop_detection : Int
+  latency_regression : Double
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+pub fn SignalThresholds::default() -> Self
+
+pub(all) enum SkillDomain {
+  Programming
+  TextGeneration
+  Academic
+  Mixed
+} derive(Eq, @debug.Debug)
+pub fn SkillDomain::wire_name(Self) -> String
+pub impl ToJson for SkillDomain
+pub impl @json.FromJson for SkillDomain
+
+pub(all) struct SubAgentResult {
+  task_id : String
+  agent : AgentType
+  success : Bool
+  output : Json?
+  error : String?
+  duration_ms : Int64
+} derive(Eq, ToJson, @debug.Debug)
+
+pub(all) struct SubAgentTask {
+  id : String
+  agent : AgentType
+  task : String
+  input : Json
+  deps : Array[String]
+  timeout_ms : Int
+} derive(Eq, ToJson, @debug.Debug)
+
+pub(all) enum TimeRange {
+  LastHour
+  LastDay
+  LastWeek
+  All
+} derive(Eq, @debug.Debug)
+pub fn TimeRange::cutoff_ms(Self, Int64) -> Int64
+pub fn TimeRange::span_ms(Self) -> Int64
+pub fn TimeRange::wire_name(Self) -> String
+pub impl ToJson for TimeRange
+pub impl @json.FromJson for TimeRange
+
+pub(all) struct TokenUsage {
+  input : Int
+  output : Int
+  total : Int
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct ToolCallData {
+  tool : String
+  params : Json
+  latency_ms : Int
+  success : Bool
+  token_usage : TokenUsage?
+  retry_count : Int
+  error_message : String?
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct ToolMerge {
+  new_tool : String
+  merged_from : Array[String]
+  new_interface : NewToolInterface
+  backward_compatible : Bool
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum UsageFrequency {
+  High
+  Medium
+  Low
+  Idle
+} derive(Eq, @debug.Debug)
+pub fn UsageFrequency::wire_name(Self) -> String
+pub impl ToJson for UsageFrequency
+pub impl @json.FromJson for UsageFrequency
+
+pub(all) enum UserFeedback {
+  Positive
+  Negative
+  Neutral
+} derive(Eq, @debug.Debug)
+pub fn UserFeedback::wire_name(Self) -> String
+pub impl ToJson for UserFeedback
+pub impl @json.FromJson for UserFeedback
+
+pub(all) struct ValidationLevel {
+  level : ValidationLevelTag
+  description : String
+  automated : Bool
+  timeout_ms : Int?
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum ValidationLevelTag {
+  T0
+  T1
+  T2
+} derive(Eq, @debug.Debug)
+pub fn ValidationLevelTag::wire_name(Self) -> String
+pub impl ToJson for ValidationLevelTag
+pub impl @json.FromJson for ValidationLevelTag
+
+pub(all) struct ValidationPlan {
+  test_scenarios : Array[String]
+  success_criteria : String
+  rollback_strategy : String
+  validation_levels : Array[ValidationLevel]
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+// Type aliases
+
+// Traits

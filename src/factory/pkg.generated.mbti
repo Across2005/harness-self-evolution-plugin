@@ -1,0 +1,41 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/factory"
+
+import {
+  "Across2005/harness-self-evolution/store",
+  "Across2005/harness-self-evolution/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn parse(String) -> AgentDefinition?
+
+pub fn render(AgentDefinition) -> String
+
+pub fn validate_template(String) -> Result[Unit, String]
+
+// Errors
+
+// Types and methods
+pub(all) struct AgentDefinition {
+  name : String
+  description : String
+  system_prompt : String
+  tools : Array[String]
+  color : String?
+} derive(Eq, @debug.Debug)
+pub fn AgentDefinition::validate(Self) -> Unit raise Failure
+
+pub struct AgentFactory {
+  plugin_scope : @store.AgentDefStore
+  user_scope : @store.AgentDefStore
+}
+pub fn AgentFactory::at(@store.DataPaths) -> Self
+pub async fn AgentFactory::create(Self, AgentDefinition, @types.AgentScope, overwrite? : Bool) -> (String, Bool)
+pub async fn AgentFactory::delete(Self, String, @types.AgentScope) -> String
+pub async fn AgentFactory::list(Self, @types.AgentScope?) -> Array[(@types.AgentScope, AgentDefinition, String)]
+pub fn AgentFactory::with_dirs(String, String) -> Self
+
+// Type aliases
+
+// Traits

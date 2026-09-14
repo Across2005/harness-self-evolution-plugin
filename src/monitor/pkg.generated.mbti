@@ -1,0 +1,73 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/monitor"
+
+import {
+  "Across2005/harness-self-evolution/store",
+  "Across2005/harness-self-evolution/types",
+  "moonbitlang/async",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/deque",
+  "moonbitlang/core/ref",
+}
+
+// Values
+pub fn detect_loops(ArrayView[@types.ToolCallData]) -> Bool
+
+pub fn new_session_id() -> String
+
+pub fn summarize(ArrayView[@types.ToolCallData]) -> Statistics
+
+// Errors
+
+// Types and methods
+pub struct PerformanceMonitor {
+  metrics : @store.Jsonl
+  signals : @store.Jsonl
+  session_id : String
+  event_buffer : Array[@types.PerformanceEvent]
+  signal_buffer : Array[@types.EvolutionSignal]
+  session_events : @deque.Deque[@types.PerformanceEvent]
+  trailing : Map[String, TrailingState]
+  loop_reported : @ref.Ref[Map[String, Unit]]
+  struggle_reported : @ref.Ref[Map[String, Unit]]
+  last_deep_check_at : Map[String, Int64]
+  thresholds : @types.SignalThresholds
+  max_log_bytes : Int
+  buffers_dirty : @ref.Ref[Bool]
+}
+pub fn PerformanceMonitor::at(@store.DataPaths, config? : @types.EngineConfig) -> Self
+pub async fn PerformanceMonitor::flush_buffers(Self) -> Unit
+pub async fn PerformanceMonitor::get_metrics(Self, String, time_range? : @types.TimeRange) -> Array[@types.PerformanceEvent]
+pub async fn PerformanceMonitor::get_statistics(Self, String, time_range? : @types.TimeRange) -> Statistics
+pub fn PerformanceMonitor::new(String, String) -> Self
+pub fn PerformanceMonitor::pending_event_count(Self) -> Int
+pub async fn PerformanceMonitor::record_tool_call(Self, String, String, Json, Int, Bool, token_usage? : @types.TokenUsage?, retry_count? : Int, error_message? : String?, context? : @types.EventContext?) -> Unit
+pub fn PerformanceMonitor::record_user_feedback(Self, String, @types.UserFeedback, context? : String?) -> Unit
+pub fn PerformanceMonitor::run_flush_loop(Self, @async.TaskGroup[Unit]) -> @async.Task[Unit]
+pub fn PerformanceMonitor::session_id(Self) -> String
+pub async fn PerformanceMonitor::shutdown(Self) -> Unit
+pub fn PerformanceMonitor::with_thresholds(String, String, @types.SignalThresholds, max_log_bytes? : Int) -> Self
+
+pub(all) struct Statistics {
+  total_calls : Int
+  success_rate : Double
+  avg_latency_ms : Double
+  total_tokens : Int
+  avg_retry_count : Double
+  error_types : Array[(String, Int)]
+  loop_detected : Bool
+} derive(Eq, @debug.Debug)
+pub fn Statistics::empty() -> Self
+pub fn Statistics::error_types_object(Self) -> Json
+
+pub(all) struct TrailingState {
+  mut consecutive_failures : Int
+  mut last_tool : String
+  mut same_tool_run : Int
+}
+pub fn TrailingState::new() -> Self
+pub fn TrailingState::observe(Self, String, Bool) -> Unit
+
+// Type aliases
+
+// Traits

@@ -1,0 +1,19 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/planner"
+
+import {
+  "Across2005/harness-self-evolution/types",
+}
+
+// Values
+pub fn cleanup_completed_plan(@types.EvolutionProposal) -> @types.EvolutionProposal
+
+pub fn generate_plan(@types.EvolutionProposal) -> @types.ExecutionPlan
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

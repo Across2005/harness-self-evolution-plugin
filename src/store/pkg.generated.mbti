@@ -1,0 +1,135 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "Across2005/harness-self-evolution/store"
+
+import {
+  "Across2005/harness-self-evolution/types",
+  "Across2005/harness-self-evolution/util",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/json",
+}
+
+// Values
+pub let exec_event_wire : @util.WireEnum[ExecEvent]
+
+pub async fn fingerprint_of(String) -> DirFingerprint?
+
+pub async fn read_json(String) -> Json?
+
+pub fn user_agents_dir() -> String
+
+pub async fn write_json_atomic(String, Json) -> Unit
+
+// Errors
+
+// Types and methods
+pub struct AgentDefStore {
+  dir : String
+}
+pub fn AgentDefStore::at(String) -> Self
+pub async fn AgentDefStore::ensure_dir(Self) -> Unit
+pub async fn AgentDefStore::exists(Self, String) -> Bool
+pub async fn AgentDefStore::list(Self) -> Array[String]
+pub fn AgentDefStore::path_of(Self, String) -> String raise Failure
+pub async fn AgentDefStore::read(Self, String) -> String
+pub async fn AgentDefStore::remove(Self, String) -> Unit
+pub async fn AgentDefStore::write(Self, String, String, overwrite? : Bool) -> Bool
+
+type CacheFile derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) struct CachedProfile {
+  profile : @types.PluginMetadata
+  fingerprint : DirFingerprint
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub struct DataPaths {
+  root : String
+}
+pub fn DataPaths::agent_defs(Self) -> String
+pub fn DataPaths::at(String) -> Self
+pub fn DataPaths::default() -> Self
+pub async fn DataPaths::ensure_root(Self) -> Unit
+pub fn DataPaths::execution_log(Self) -> String
+pub fn DataPaths::metrics(Self) -> String
+pub fn DataPaths::plugin_cache(Self) -> String
+pub fn DataPaths::proposals(Self) -> String
+pub fn DataPaths::root(Self) -> String
+pub fn DataPaths::signals(Self) -> String
+pub async fn DataPaths::warn_on_legacy_v1(Self) -> Unit
+
+pub(all) struct DirFingerprint {
+  mtime_sec : Int64
+  mtime_nsec : Int
+  entry_count : Int
+  child_mtime_ns : Int64
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
+pub(all) enum ExecEvent {
+  Start
+  Progress
+  Error
+  Complete
+  Rollback
+} derive(Eq, @debug.Debug)
+pub fn ExecEvent::wire_name(Self) -> String
+
+pub struct ExecutionLog {
+  path : String
+}
+pub async fn ExecutionLog::append(Self, String, ExecEvent, String) -> Unit
+pub fn ExecutionLog::at(DataPaths) -> Self
+pub fn ExecutionLog::new(String) -> Self
+pub async fn ExecutionLog::read(Self) -> Array[String]
+
+pub struct Jsonl {
+  path : String
+}
+pub async fn[T : ToJson] Jsonl::append(Self, T) -> Unit
+pub async fn[T : ToJson] Jsonl::append_many(Self, ArrayView[T]) -> Unit
+pub async fn Jsonl::exists(Self) -> Bool
+pub async fn[T : @json.FromJson] Jsonl::load(Self) -> Array[T]
+pub async fn[T : @json.FromJson] Jsonl::load_since(Self, Int64) -> Array[T]
+pub async fn Jsonl::mtime(Self) -> (Int64, Int)?
+pub fn Jsonl::new(String) -> Self
+pub fn Jsonl::path(Self) -> String
+pub async fn Jsonl::trim_to(Self, Int) -> Bool
+
+pub struct PluginCache {
+  path : String
+}
+pub fn PluginCache::at(DataPaths) -> Self
+pub async fn PluginCache::load(Self) -> Array[CachedProfile]
+pub fn PluginCache::new(String) -> Self
+pub async fn PluginCache::save(Self, ArrayView[CachedProfile]) -> Unit
+pub async fn PluginCache::validate(CachedProfile) -> Bool
+
+pub(all) struct ProposalFilter {
+  status : @types.ProposalStatus?
+  plugin_id : String?
+  limit : Int?
+}
+pub fn ProposalFilter::all() -> Self
+
+pub struct ProposalStore {
+  jsonl : Jsonl
+  items : Array[@types.EvolutionProposal]
+  by_id : Map[String, Int]
+  by_plugin : Map[String, Array[Int]]
+  by_signature : Map[String, Int]
+  mut loaded_mtime : (Int64, Int)?
+}
+pub fn ProposalStore::at(DataPaths) -> Self
+pub async fn ProposalStore::count(Self) -> Int
+pub async fn ProposalStore::find(Self, String) -> @types.EvolutionProposal?
+pub async fn ProposalStore::find_duplicate(Self, String) -> @types.EvolutionProposal?
+pub async fn ProposalStore::find_pending_for_plugin(Self, String) -> @types.EvolutionProposal?
+pub async fn ProposalStore::list(Self, ProposalFilter) -> Array[@types.EvolutionProposal]
+pub fn ProposalStore::new(String) -> Self
+pub fn ProposalStore::path(Self) -> String
+pub async fn ProposalStore::recent_for_plugin(Self, String, Int64) -> Array[@types.EvolutionProposal]
+pub async fn ProposalStore::refresh(Self) -> Unit
+pub async fn ProposalStore::save(Self, @types.EvolutionProposal) -> Unit
+pub async fn ProposalStore::set_status(Self, String, @types.ProposalStatus) -> Bool
+
+// Type aliases
+
+// Traits
