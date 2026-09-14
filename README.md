@@ -234,8 +234,14 @@ zcode plugin list
 通过宿主调用 MCP 工具：
 
 ```javascript
-// 扫描所有插件
+// 全量扫描（默认模式）
 const result = await callMcpTool('scan_plugins', {});
+
+// 定向重扫（只扫描指定插件的目录，其他插件保留不变）
+const result = await callMcpTool('scan_plugins', { plugin_ids: ['browser-use'] });
+
+// 路径重定向（自定义扫描路径）
+const result = await callMcpTool('scan_plugins', { target_paths: ['/custom/path'] });
 
 // 获取插件性能指标
 const metrics = await callMcpTool('get_plugin_metrics', { plugin_id: 'browser-use-0.4.1' });
@@ -302,7 +308,7 @@ const proposal = await callMcpTool('propose_evolution', { plugin_id: 'browser-us
 
 | 工具 | 作用 | 版本 |
 |------|------|------|
-| `scan_plugins` | 扫描所有插件（按 `scan_targets` 段） | v1.0 |
+| `scan_plugins` | 扫描插件（支持定向重扫/路径重定向/全量扫描三种模式） | v2.4 |
 | `get_plugin_metrics` | 获取插件性能指标 | v1.0 |
 | `propose_evolution` | 生成进化提案（可带手动 `signals`） | v1.0 |
 | `approve_proposal` | 批准提案（必经环节） | v1.0 |
@@ -632,8 +638,14 @@ zcode plugin list
 #### 6. Use Plugin Features
 
 ```javascript
-// Scan all plugins
+// Full scan (default mode)
 const result = await callMcpTool('scan_plugins', {});
+
+// Incremental rescan (only scan directories of specified plugins, keep others unchanged)
+const result = await callMcpTool('scan_plugins', { plugin_ids: ['browser-use'] });
+
+// Path redirect (custom scan paths)
+const result = await callMcpTool('scan_plugins', { target_paths: ['/custom/path'] });
 
 // Get plugin metrics
 const metrics = await callMcpTool('get_plugin_metrics', { plugin_id: 'browser-use-0.4.1' });
@@ -650,7 +662,7 @@ The plugin provides 13 MCP tools:
 
 | Tool | Description | Version |
 |------|-------------|--------|
-| `scan_plugins` | Scan all plugins (per `scan_targets`) | v1.0 |
+| `scan_plugins` | Scan plugins (incremental rescan / path redirect / full scan) | v2.4 |
 | `get_plugin_metrics` | Get plugin performance metrics | v1.0 |
 | `propose_evolution` | Generate evolution proposal | v1.0 |
 | `approve_proposal` | Approve proposal (required step) | v1.0 |

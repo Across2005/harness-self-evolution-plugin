@@ -198,6 +198,15 @@ pub fn PluginScanner::get(
 }
 
 ///|
+/// 读取缓存条目（用于定向重扫时查找 plugin_id → 目录映射）。
+/// 不触发完整扫描，只读缓存文件。
+pub async fn PluginScanner::cache_entries(
+  self : PluginScanner,
+) -> Array[@store.CachedProfile] {
+  self.cache.load()
+}
+
+///|
 /// 清空已发现的档案。
 fn PluginScanner::reset(self : PluginScanner) -> Unit {
   self.profiles.clear()

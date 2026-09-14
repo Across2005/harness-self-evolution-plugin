@@ -124,7 +124,7 @@ fn enum_prop(description : String, values : Array[String]) -> Json {
 // ----------------------------------------------------------------------------
 
 ///|
-/// `scan_plugins`（TS L27-30）。两个参数都非必填。
+/// `scan_plugins`（TS L27-30）。三个参数都非必填。
 pub fn scan_plugins_schema() -> Json {
   object_schema(
     {
@@ -132,6 +132,9 @@ pub fn scan_plugins_schema() -> Json {
         "强制重新扫描，即使已有缓存", default_force_rescan,
       ),
       "target_paths": string_array_prop("自定义扫描路径（可选）"),
+      "plugin_ids": string_array_prop(
+        "定向重扫指定插件 ID（可选）。只扫描包含这些插件的目录，不影响其他已缓存的插件。",
+      ),
     },
     [],
   )
@@ -296,6 +299,7 @@ pub fn delete_sub_agent_schema() -> Json {
 pub(all) struct ScanPluginsArgs {
   force_rescan : Bool?
   target_paths : Array[String]?
+  plugin_ids : Array[String]?
 } derive(Debug, @json.FromJson)
 
 ///|
@@ -376,6 +380,8 @@ pub(all) struct AnalyzePluginsArgs {
   force_rescan : Bool?
   /// 自定义扫描路径（scan/both 模式可选）
   target_paths : Array[String]?
+  /// 定向重扫指定插件 ID（scan/both 模式可选）
+  plugin_ids : Array[String]?
   /// 时间范围（metrics/both 模式可选）
   time_range : @types.TimeRange?
 } derive(Debug, @json.FromJson)
@@ -394,6 +400,9 @@ pub fn analyze_plugins_schema() -> Json {
       "plugin_id": str_prop("插件 ID（metrics/both 模式必填）"),
       "force_rescan": bool_prop("强制重新扫描（scan/both 模式可选）", default_force_rescan),
       "target_paths": string_array_prop("自定义扫描路径（scan/both 模式可选）"),
+      "plugin_ids": string_array_prop(
+        "定向重扫指定插件 ID（scan/both 模式可选）。只扫描包含这些插件的目录，不影响其他已缓存的插件。",
+      ),
       "time_range": {
         "type": "string",
         "description": "时间范围（metrics/both 模式可选）",

@@ -614,9 +614,9 @@ async test "G5: MoonBit test suite has sufficient coverage" {
 async test "G5b: MoonBit test suite maintains minimum size" {
   let root = module_root()
   let mb_names = moonbit_test_names(root)
-  // 硬编码的 377 —— 当前 MoonBit 测试用例数。
+  // 硬编码的 378 —— 当前 MoonBit 测试用例数。
   // 这个数字变了说明测试被删除，必须重新核对。
-  assert_eq(mb_names.length(), 377)
+  assert_eq(mb_names.length(), 378)
 }
 
 ///|

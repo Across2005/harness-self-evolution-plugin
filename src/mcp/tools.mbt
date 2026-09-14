@@ -158,7 +158,7 @@ pub async fn ServerState::shutdown(self : ServerState) -> Unit {
 }
 
 ///|
-/// 用扫描结果重建注册表。
+/// 用扫描结果重建注册表（全量替换）。
 fn ServerState::adopt(
   self : ServerState,
   profiles : ArrayView[@types.PluginMetadata],
@@ -169,6 +169,30 @@ fn ServerState::adopt(
     let i = self.registry.length()
     self.registry.push(p)
     self.registry_index.set(p.plugin_id, i)
+  }
+}
+
+///|
+/// 合并扫描结果到注册表（增量更新）。
+/// 已存在的 plugin_id 被更新，不存在的被追加。
+/// 用于 `plugin_ids` 定向重扫场景：只更新命中的插件，不影响其他已缓存的。
+fn ServerState::merge(
+  self : ServerState,
+  profiles : ArrayView[@types.PluginMetadata],
+) -> Unit {
+  for p in profiles {
+    match self.registry_index.get(p.plugin_id) {
+      Some(i) => {
+        // 更新已有条目
+        self.registry[i] = p
+      }
+      None => {
+        // 追加新条目
+        let i = self.registry.length()
+        self.registry.push(p)
+        self.registry_index.set(p.plugin_id, i)
+      }
+    }
   }
 }
 
@@ -275,7 +299,7 @@ pub fn tools() -> Array[Tool] {
   [
     {
       name: "scan_plugins",
-      description: "扫描所有 harness 插件并建立档案。返回发现的插件列表及其元数据。",
+      description: "扫描 harness 插件并建立档案。支持三种模式：定向重扫（plugin_ids 只扫描指定插件的目录）、路径重定向（target_paths 自定义扫描路径）、全量扫描（默认扫描所有配置的根目录）。返回发现的插件列表及其元数据。",
       schema: scan_plugins_schema(),
       handler: handle_scan_plugins,
     },
@@ -336,7 +360,7 @@ pub fn tools() -> Array[Tool] {
     // v2.3 合并工具（推荐使用）
     {
       name: "analyze_plugins",
-      description: "分析插件：扫描并/或获取性能指标。mode=scan 仅扫描，mode=metrics 仅获取指标，mode=both 两者都做。",
+      description: "分析插件：扫描并/或获取性能指标。mode=scan 仅扫描，mode=metrics 仅获取指标，mode=both 两者都做。支持 plugin_ids 定向重扫和 target_paths 路径重定向。",
       schema: analyze_plugins_schema(),
       handler: handle_analyze_plugins,
     },
@@ -387,24 +411,86 @@ pub fn tools_list_result() -> Json {
 ///|
 /// `scan_plugins`（对应 server.ts L126-147）。
 ///
-/// ★ 修掉一处配置孤岛：TS 的 schema 声明了 `target_paths`（L29），
-/// 但 handler 只把 `force_rescan` 传给 scanner（L131），`target_paths` 从未生效。
-/// 新版在提供了 `target_paths` 时用它们替换默认扫描根。
+/// 三种扫描模式（用户自主决策，非硬编码全盘扫描）：
+/// 1. **定向重扫**（`plugin_ids`）：只扫描包含指定插件的目录，其他已缓存插件保留
+/// 2. **路径重定向**（`target_paths`）：扫描指定路径替换默认扫描根
+/// 3. **全量扫描**（默认）：扫描所有配置的根目录
+///
+/// `force_rescan` 控制缓存行为：
+/// - `false`（默认）：利用缓存跳过未变化的插件
+/// - `true`：忽略缓存，强制完整重扫
 async fn handle_scan_plugins(state : ServerState, args : Json) -> Json {
   let a : ScanPluginsArgs = @json.from_json(args)
   let force = a.force_rescan.unwrap_or(default_force_rescan)
 
-  match a.target_paths {
-    Some(custom) if !custom.is_empty() => {
+  // 模式 1：定向重扫 —— 只扫描包含指定 plugin_ids 的目录
+  match a.plugin_ids {
+    Some(ids) if !ids.is_empty() => {
+      // 从注册表和缓存中查找 plugin_id → 目录的映射
+      let target_dirs : Array[String] = []
+      for pid in ids {
+        let mut found = false
+        for entry in state.registry {
+          if entry.plugin_id == pid {
+            target_dirs.push(entry.path)
+            found = true
+            break
+          }
+        }
+        if !found {
+          // 注册表里没有，尝试从缓存查找
+          for entry in state.scanner.cache_entries() {
+            if entry.profile.plugin_id == pid {
+              target_dirs.push(entry.profile.path)
+              found = true
+              break
+            }
+          }
+        }
+        if !found {
+          @util.log_warn("Scanner", "插件 \{pid} 不在注册表或缓存中，跳过定向重扫")
+        }
+      }
+
+      if target_dirs.is_empty() {
+        return {
+          "success": Json::boolean(true),
+          "message": Json::string("所有指定的 plugin_ids 均未找到，无目录可扫描"),
+          "plugin_count": Json::number(state.registry.length().to_double()),
+          "plugins": Json::array([]),
+        }
+      }
+
+      // 用独立 scanner 扫描目标目录（不影响主缓存）
+      let tmp_cache = "\{state.paths.plugin_cache()}.incremental"
       let scanner = @scanner.PluginScanner::new(
-        @scanner.ScanConfig::custom(custom, state.paths.plugin_cache()),
+        @scanner.ScanConfig::custom(target_dirs, tmp_cache),
       )
-      scanner.scan_all(force_rescan=force)
-      state.adopt(scanner.all())
+      scanner.scan_all(force_rescan=true)
+      // merge 模式：不清除已有注册表条目，只更新命中的插件
+      state.merge(scanner.all())
+
+      @util.log_info(
+        "Scanner",
+        "Incremental rescan: \{ids.length()} plugin_ids → \{target_dirs.length()} dirs → \{scanner.count()} plugins",
+      )
     }
     _ => {
-      state.scanner.scan_all(force_rescan=force)
-      state.adopt(state.scanner.all())
+      // 模式 2：路径重定向
+      match a.target_paths {
+        Some(custom) if !custom.is_empty() => {
+          let scanner = @scanner.PluginScanner::new(
+            @scanner.ScanConfig::custom(custom, state.paths.plugin_cache()),
+          )
+          scanner.scan_all(force_rescan=force)
+          state.adopt(scanner.all())
+        }
+        _ => {
+          // 模式 3：全量扫描
+          state.scanner.scan_all(force_rescan=force)
+          state.adopt(state.scanner.all())
+        }
+      }
     }
   }
 
@@ -743,8 +829,34 @@ async fn handle_analyze_plugins(state : ServerState, args : Json) -> Json {
 
   // scan 模式或 both 模式：委托给 handle_scan_plugins
   if mode == "scan" || mode == "both" {
-    let scan_args : Json = {
-      "force_rescan": Json::boolean(a.force_rescan.unwrap_or(default_force_rescan)),
+    let force_val = a.force_rescan.unwrap_or(default_force_rescan)
+    // 按参数组合构建 scan_args
+    let has_ids = match a.plugin_ids {
+      Some(ids) if !ids.is_empty() => true
+      _ => false
+    }
+    let has_paths = match a.target_paths {
+      Some(ps) if !ps.is_empty() => true
+      _ => false
+    }
+    let scan_args : Json = if has_ids && has_paths {
+      {
+        "force_rescan": Json::boolean(force_val),
+        "plugin_ids": Json::array(a.plugin_ids.unwrap().map(fn(s) { Json::string(s) })),
+        "target_paths": Json::array(a.target_paths.unwrap().map(fn(s) { Json::string(s) })),
+      }
+    } else if has_ids {
+      {
+        "force_rescan": Json::boolean(force_val),
+        "plugin_ids": Json::array(a.plugin_ids.unwrap().map(fn(s) { Json::string(s) })),
+      }
+    } else if has_paths {
+      {
+        "force_rescan": Json::boolean(force_val),
+        "target_paths": Json::array(a.target_paths.unwrap().map(fn(s) { Json::string(s) })),
+      }
+    } else {
+      { "force_rescan": Json::boolean(force_val) }
     }
     ignore(handle_scan_plugins(state, scan_args))
   }

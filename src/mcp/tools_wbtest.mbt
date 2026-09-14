@@ -983,6 +983,40 @@ async test "scanning an empty or missing root succeeds with zero plugins" {
 }
 
 ///|
+/// 定向重扫（plugin_ids）：先全量扫描建立注册表，再用 plugin_ids 只重扫一个插件。
+/// 验证：重扫后该插件仍在注册表中，且 plugin_count 正确。
+async test "scan_plugins with plugin_ids performs incremental rescan" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let paths = @store.DataPaths::at(tmp)
+  seed_plugin(tmp)
+  let state = ServerState::with_scan_config(
+    paths,
+    @scanner.ScanConfig::custom([tmp], paths.plugin_cache()),
+  )
+  // 先全量扫描建立注册表
+  let full = send(state, call_line(1, "scan_plugins", Json::empty_object()))
+  assert_false(is_tool_error(full))
+  assert_eq(obj(tool_payload(full)).get("plugin_count"), Some(Json::number(1.0)))
+
+  // 用 plugin_ids 定向重扫
+  let incr = send(
+    state,
+    call_line(
+      2,
+      "scan_plugins",
+      { "plugin_ids": ["demo-plugin"] },
+    ),
+  )
+  assert_false(is_tool_error(incr))
+  let body = obj(tool_payload(incr))
+  // 定向重扫结果应包含该插件
+  assert_true(body.contains("plugins"))
+  assert_true(body.contains("plugin_count"))
+  assert_eq(body.get("plugin_count"), Some(Json::number(1.0)))
+}
+
+///|
 /// `list_proposals` 的 `limit` 参数真的生效，且**过滤顺序是 status → plugin_id → limit**
 /// （limit 最后，对齐 legacy store/index.ts L118-124）。
 ///
