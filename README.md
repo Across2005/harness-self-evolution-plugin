@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
 [![Version: 2.4.0](https://img.shields.io/badge/version-2.4.0-1f6feb.svg)](.zcode-plugin/plugin.json)
 [![Runtime: MoonBit native](https://img.shields.io/badge/runtime-MoonBit%20native-ff7a18.svg)](moon.mod)
-[![Total tests: 422/422](https://img.shields.io/badge/tests-422%2F422-22cc22.svg)](CONTEXT.md)
+[![Total tests: 377/377](https://img.shields.io/badge/tests-377%2F377-22cc22.svg)](CONTEXT.md)
 [![Gate: 0/0](https://img.shields.io/badge/gate-%20%E2%9C%93%20passing-22cc22.svg)](build.ps1)
 [![Platform: Windows / Linux / macOS](https://img.shields.io/badge/platform-win%20%7C%20linux%20%7C%20macos-informational.svg)]()
 
@@ -56,9 +56,9 @@
 
 ### DSH 生态提报证据（L1–L3）
 
-> **L1 仓库**：https://github.com/Across2005/harness-self-evolution-plugin — 公开，2026-09-09 发布 v2.4.0，MoonBit native，MIT。
+> **L1 仓库**：https://github.com/Across2005/harness-self-evolution-plugin（GitHub）/ https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin（GitLink 镜像）— 公开，2026-09-09 发布 v2.4.0，MoonBit native，MIT。
 >
-> **L2 manifest**：`package.json` 声明 `dsh.bundle`（指向 `.zcode-plugin/plugin.json`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。377 测试全过、11 条架构守卫 G1–G6 机器化卡死。
+> **L2 manifest**：`package.json` 声明 `dsh.bundle`（指向 `.zcode-plugin/plugin.json`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。377 测试全过（0 失败）、11 条架构守卫 G1–G6 机器化卡死。
 >
 > **L3 安装规范**：
 > ```bash
@@ -329,7 +329,7 @@ const proposal = await callMcpTool('propose_evolution', { plugin_id: 'browser-us
 
 ```
 harness-self-evolution-plugin/
-├── src/                          # MoonBit 源代码（63 个 .mbt 文件）
+├── src/                          # MoonBit 源代码（69 个 .mbt 文件）
 │   ├── engine/                   # 进化引擎：决策树 + 风险评估
 │   │   ├── engine.mbt            # 进化引擎核心
 │   │   ├── planning.mbt          # 提案规划（含学术写作变更生成）
@@ -528,9 +528,9 @@ Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / Ope
 
 ### DSH Ecosystem Submission Evidence (L1–L3)
 
-> **L1 Repository**: https://github.com/Across2005/harness-self-evolution-plugin — public, released 2026-09-09, MoonBit native, MIT.
+> **L1 Repository**: https://github.com/Across2005/harness-self-evolution-plugin (GitHub) / https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin (GitLink 镜像) — public, released 2026-09-09, MoonBit native, MIT.
 >
-> **L2 Manifest**: `package.json` declares `dsh.bundle` (pointing at `.zcode-plugin/plugin.json`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 377 tests passing, 11 architecture guards G1–G6 enforced by machine.
+> **L2 Manifest**: `package.json` declares `dsh.bundle` (pointing at `.zcode-plugin/plugin.json`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 377 tests passing (0 failures), 11 architecture guards G1–G6 enforced by machine.
 >
 > **L3 Install Spec**:
 > ```bash
@@ -575,7 +575,11 @@ Switch host type via environment variable `HARNESS_EVOLUTION_HOST`.
 #### 2. Clone and Build
 
 ```powershell
+# Clone (either one)
 git clone https://github.com/Across2005/harness-self-evolution-plugin.git
+# or
+git clone https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin.git
+
 cd harness-self-evolution-plugin
 
 # Full build: check + test + build
