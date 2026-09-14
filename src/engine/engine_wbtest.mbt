@@ -20,6 +20,7 @@ fn mock_plugin() -> @types.PluginMetadata {
     name: "test-plugin",
     version: "1.0.0",
     kind: @types.PluginKind::Community,
+    domain: @types.SkillDomain::Programming,
     capabilities: ["navigate", "click", "type"],
     tools: ["navigate", "click", "type"],
     events: [],
@@ -622,6 +623,7 @@ async test "preference branch splits on interface_clarity" {
     name: clear_plugin.name,
     version: clear_plugin.version,
     kind: clear_plugin.kind,
+    domain: clear_plugin.domain,
     capabilities: clear_plugin.capabilities,
     tools: clear_plugin.tools,
     events: clear_plugin.events,
@@ -845,6 +847,7 @@ fn completed_proposal(
     },
     signature: "prior-signature",
     confidence: @types.Confidence::Medium,
+    plan: None,
   }
 }
 

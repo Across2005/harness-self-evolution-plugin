@@ -200,6 +200,7 @@ pub async fn EvolutionEngine::generate_proposal(
     risk_assessment: assess_risks(changes),
     signature,
     confidence: determine_confidence(filtered),
+    plan: None,
   }
 
   self.proposals.save(proposal)

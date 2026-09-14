@@ -37,6 +37,7 @@ fn make_proposal(
     },
     signature: "test-plugin-interface-simplification",
     confidence: @types.Confidence::Medium,
+    plan: None,
   }
 }
 

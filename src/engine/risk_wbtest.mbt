@@ -353,6 +353,7 @@ fn plugin_with(
     name: "p",
     version: "1.0.0",
     kind: @types.PluginKind::Official,
+    domain: @types.SkillDomain::Programming,
     capabilities: ["alpha", "beta", "gamma", "delta"],
     tools,
     events: [],

@@ -46,6 +46,7 @@ fn make_proposal(
     },
     signature,
     confidence: @types.Confidence::Medium,
+    plan: None,
   }
 }
 
@@ -394,6 +395,7 @@ fn make_profile(plugin_id : String, path : String) -> @types.PluginMetadata {
     name: plugin_id,
     version: "0.1.0",
     kind: @types.PluginKind::Official,
+    domain: @types.SkillDomain::Programming,
     capabilities: [],
     tools: [],
     events: [],

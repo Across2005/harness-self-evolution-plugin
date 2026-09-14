@@ -218,7 +218,8 @@ fn declared_edges() -> Array[(String, Array[String])] {
     ("store", ["types", "util"]),
     ("scanner", ["store", "types", "util"]),
     ("monitor", ["store", "types", "util"]),
-    ("engine", ["monitor", "store", "types", "util"]),
+    ("engine", ["monitor", "scanner", "store", "types", "util"]),
+    ("planner", ["types", "util"]),
     ("executor", ["store", "types", "util"]),
     // v2.1 新增：子 Agent 工厂。与 engine/executor 同层 —— 只向下依赖
     // store/types/util（fs 写全在 store，G3），被 mcp 依赖。
@@ -226,7 +227,7 @@ fn declared_edges() -> Array[(String, Array[String])] {
     (
       "mcp",
       [
-        "engine", "executor", "factory", "monitor", "scanner", "store", "types",
+        "engine", "executor", "factory", "monitor", "planner", "scanner", "store", "types",
         "util",
       ],
     ),
@@ -251,9 +252,11 @@ fn layer_of(pkg : String) -> Int {
     "scanner" => 3
     "monitor" => 3
     // engine 要读 monitor 的统计，executor / factory（v2.1）不读，但同层（互不依赖）
+    // planner 依赖 types/util，与 engine/executor/factory 同层
     "engine" => 4
     "executor" => 4
     "factory" => 4
+    "planner" => 4
     "mcp" => 5
     "harness_evolution" => 6
     _ => abort("undeclared package: \{pkg}")

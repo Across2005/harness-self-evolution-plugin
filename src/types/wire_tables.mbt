@@ -45,6 +45,9 @@ pub let evolution_type_wire : @util.WireEnum[EvolutionType] = @util.WireEnum::of
     ("error_handling_improvement", EvolutionType::ErrorHandlingImprovement),
     ("security_hardening", EvolutionType::SecurityHardening),
     ("accessibility_improvement", EvolutionType::AccessibilityImprovement),
+    ("academic_writing_enhancement", EvolutionType::AcademicWritingEnhancement),
+    ("anti_ai_detection", EvolutionType::AntiAIDetection),
+    ("citation_normalization", EvolutionType::CitationNormalization),
   ],
 )
 
@@ -441,6 +444,30 @@ pub impl @json.FromJson for PluginKind with fn from_json(json, path) {
 ///|
 pub fn PluginKind::wire_name(self : PluginKind) -> String {
   plugin_kind_wire.name_of(self)
+}
+
+///|
+/// Skill 领域分类。
+pub let skill_domain_wire : @util.WireEnum[SkillDomain] = @util.WireEnum::of([
+  ("programming", SkillDomain::Programming),
+  ("text_generation", SkillDomain::TextGeneration),
+  ("academic", SkillDomain::Academic),
+  ("mixed", SkillDomain::Mixed),
+])
+
+///|
+pub impl ToJson for SkillDomain with fn to_json(self) {
+  skill_domain_wire.encode(self)
+}
+
+///|
+pub impl @json.FromJson for SkillDomain with fn from_json(json, path) {
+  skill_domain_wire.decode(json, path)
+}
+
+///|
+pub fn SkillDomain::wire_name(self : SkillDomain) -> String {
+  skill_domain_wire.name_of(self)
 }
 
 ///|

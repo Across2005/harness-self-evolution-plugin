@@ -21,6 +21,19 @@ pub(all) enum UsageFrequency {
 } derive(Eq, Debug)
 
 ///|
+/// Skill 领域分类。用于区分不同类型的 Skill，以便针对性地评估质量。
+pub(all) enum SkillDomain {
+  /// 编程类：工具注册、MCP 调用、源码分析
+  Programming
+  /// 文本生成类：写作、翻译、摘要
+  TextGeneration
+  /// 学术类：论文写作、文献综述、学术规范化
+  Academic
+  /// 混合类：同时包含编程和文本能力
+  Mixed
+} derive(Eq, Debug)
+
+///|
 /// 一份插件档案。对应 legacy-ts 的 `PluginMetadata`（types L14-26）。
 ///
 /// `capabilities` / `tools` / `events` 保持 `Array[String]` 而非 `Set`：
@@ -36,6 +49,8 @@ pub(all) struct PluginMetadata {
   name : String
   version : String
   kind : PluginKind
+  /// Skill 领域分类
+  domain : SkillDomain
   capabilities : Array[String]
   tools : Array[String]
   events : Array[String]

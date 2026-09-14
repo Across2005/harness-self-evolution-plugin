@@ -1084,6 +1084,7 @@ fn seed_proposal(
     },
     signature: "demo-plugin-interface-simplification",
     confidence: @types.Confidence::Medium,
+    plan: None,
   }
 }
 

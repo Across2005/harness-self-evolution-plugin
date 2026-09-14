@@ -508,6 +508,7 @@ test "EvolutionProposal round-trips through JSONL-shaped JSON" {
     },
     signature: "browser-use-behavior-optimization",
     confidence: Confidence::Medium,
+    plan: None,
   }
 
   let text = ToJson::to_json(p).stringify()

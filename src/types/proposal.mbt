@@ -55,6 +55,12 @@ pub(all) enum EvolutionType {
   SecurityHardening
   /// 可访问性改进（v2.3新增）
   AccessibilityImprovement
+  /// 学术写作规范化（v2.5新增）
+  AcademicWritingEnhancement
+  /// 反 AI 写作检测（v2.5新增）
+  AntiAIDetection
+  /// 引用规范化（v2.5新增）
+  CitationNormalization
 } derive(Eq, Debug)
 
 ///|
@@ -95,6 +101,9 @@ pub fn EvolutionType::principle(self : EvolutionType) -> MattPocockPrinciple {
     ErrorHandlingImprovement => TightFeedback
     SecurityHardening => AlignFirst
     AccessibilityImprovement => VerticalSlice
+    AcademicWritingEnhancement => VocabularyAsDocs
+    AntiAIDetection => TightFeedback
+    CitationNormalization => VocabularyAsDocs
   }
 }
 
@@ -173,6 +182,30 @@ pub fn EvolutionType::expected_benefits(
         success_rate: Some("+5-10%"),
         error_reduction: None,
       }
+    AcademicWritingEnhancement =>
+      {
+        latency_improvement: None,
+        token_reduction: None,
+        user_satisfaction: Some("+15-25%"),
+        success_rate: None,
+        error_reduction: None,
+      }
+    AntiAIDetection =>
+      {
+        latency_improvement: None,
+        token_reduction: None,
+        user_satisfaction: Some("+20-30%"),
+        success_rate: None,
+        error_reduction: None,
+      }
+    CitationNormalization =>
+      {
+        latency_improvement: None,
+        token_reduction: None,
+        user_satisfaction: Some("+10-20%"),
+        success_rate: None,
+        error_reduction: None,
+      }
   }
 }
 
@@ -190,6 +223,9 @@ pub fn EvolutionType::extra_scenarios(self : EvolutionType) -> Array[String] {
     ErrorHandlingImprovement => []
     SecurityHardening => ["安全扫描测试", "漏洞检测测试"]
     AccessibilityImprovement => ["可访问性测试", "WCAG合规测试"]
+    AcademicWritingEnhancement => ["学术写作规范测试", "引用格式测试"]
+    AntiAIDetection => ["AI痕迹检测测试", "文本自然度测试"]
+    CitationNormalization => ["引用规范性测试", "DOI格式测试"]
   }
 }
 
@@ -225,6 +261,10 @@ pub(all) struct EvolutionProposal {
   /// 去重签名，形如 `<plugin-id>-<evolution-type>`（含版本段）
   signature : String
   confidence : Confidence
+  /// 执行计划（v2.5 新增）
+  /// 提案批准后由 Planner 生成，存储在 proposals.jsonl 中。
+  /// 完成后自动清除，避免残留上下文被反复读取。
+  plan : ExecutionPlan?
 } derive(Eq, Debug, ToJson, @json.FromJson)
 
 ///|

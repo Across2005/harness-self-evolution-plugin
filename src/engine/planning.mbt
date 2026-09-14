@@ -113,6 +113,19 @@ pub fn plan_changes(
       }
       changes
     }
+    // 学术写作进化类型：基于领域分类生成文档更新变更
+    @types.EvolutionType::AcademicWritingEnhancement => {
+      let docs = plan_academic_writing_docs(plugin, signals)
+      if docs.is_empty() { [] } else { [@types.Change::UpdateDocumentation(docs)] }
+    }
+    @types.EvolutionType::AntiAIDetection => {
+      let docs = plan_anti_ai_detection_docs(plugin, signals)
+      if docs.is_empty() { [] } else { [@types.Change::UpdateDocumentation(docs)] }
+    }
+    @types.EvolutionType::CitationNormalization => {
+      let docs = plan_citation_normalization_docs(plugin, signals)
+      if docs.is_empty() { [] } else { [@types.Change::UpdateDocumentation(docs)] }
+    }
   }
 }
 
@@ -359,12 +372,16 @@ fn plan_flow_optimization(
     None => []
     Some(signal) => {
       let tool = signal.tool.unwrap_or("unknown")
+      let count_desc = match signal.count {
+        Some(n) => "减少 \{n} 次独立调用为单次批量操作"
+        None => "将多次独立调用合并为单次批量操作"
+      }
       [
         {
           tool,
           optimization: @types.OptimizationKind::Batching,
           implementation: "检测到循环调用，建议使用批量操作替代重复单次调用",
-          expected_improvement: "减少 \{signal.count.unwrap_or(0)} 次独立调用为单次批量操作",
+          expected_improvement: count_desc,
         },
       ]
     }
@@ -469,4 +486,97 @@ fn plan_accessibility_capability(
         },
       ]
   }
+}
+
+// ============================================================================
+// 学术写作相关变更生成函数
+// ============================================================================
+
+///|
+/// 学术写作规范化文档建议。
+/// 当 domain 为 Academic 时，生成学术写作规范化的文档更新建议。
+fn plan_academic_writing_docs(
+  plugin : @types.PluginMetadata,
+  signals : ArrayView[@types.EvolutionSignal],
+) -> Array[@types.DocumentationUpdate] {
+  let updates : Array[@types.DocumentationUpdate] = []
+  // 学术写作规范化需要详细的使用示例
+  if plugin.initial_metrics.documentation_quality < 8.0 {
+    updates.push({
+      file: "SKILL.md",
+      section: "Academic Writing Guidelines",
+      new_content: "添加学术写作规范，包括引用格式、术语使用和结构化要求",
+      reason: "提升学术写作质量，符合学术规范",
+    })
+  }
+  // 检查是否有 workflow 信号，添加学术工作流文档
+  for signal in signals {
+    if signal.category == @types.SignalCategory::Workflow {
+      updates.push({
+        file: "SKILL.md",
+        section: "Academic Workflow",
+        new_content: "记录学术写作工作流：\{signal.description}",
+        reason: "用户形成了可复用的学术写作工作流模式",
+      })
+    }
+  }
+  updates
+}
+
+///|
+/// 反 AI 写作检测文档建议。
+/// 当检测到 AI 写作痕迹时，生成反 AI 检测的文档更新建议。
+fn plan_anti_ai_detection_docs(
+  plugin : @types.PluginMetadata,
+  signals : ArrayView[@types.EvolutionSignal],
+) -> Array[@types.DocumentationUpdate] {
+  let updates : Array[@types.DocumentationUpdate] = []
+  // 反 AI 检测需要详细的改写指南
+  updates.push({
+    file: "SKILL.md",
+    section: "Anti-AI Detection Guidelines",
+    new_content: "添加反 AI 写作检测指南，包括词汇替换、句式转换和段落结构调整",
+    reason: "降低 AI 写作痕迹，提高文本自然度",
+  })
+  // 检查是否有 correction 信号，添加用户偏好文档
+  for signal in signals {
+    if signal.category == @types.SignalCategory::Correction {
+      updates.push({
+        file: "SKILL.md",
+        section: "User Preferences",
+        new_content: "记录用户对写作风格的偏好：\{signal.description}",
+        reason: "用户提供了写作风格的纠正和偏好",
+      })
+    }
+  }
+  updates
+}
+
+///|
+/// 引用规范化文档建议。
+/// 当引用质量不足时，生成引用规范化的文档更新建议。
+fn plan_citation_normalization_docs(
+  plugin : @types.PluginMetadata,
+  signals : ArrayView[@types.EvolutionSignal],
+) -> Array[@types.DocumentationUpdate] {
+  let updates : Array[@types.DocumentationUpdate] = []
+  // 引用规范化需要详细的引用格式指南
+  updates.push({
+    file: "SKILL.md",
+    section: "Citation Format Guidelines",
+    new_content: "添加引用格式规范，包括 DOI、URL、年份和作者格式要求",
+    reason: "提升引用规范性，符合学术出版要求",
+  })
+  // 检查是否有 workflow 信号，添加引用工作流文档
+  for signal in signals {
+    if signal.category == @types.SignalCategory::Workflow {
+      updates.push({
+        file: "SKILL.md",
+        section: "Citation Workflow",
+        new_content: "记录引用管理的工作流：\{signal.description}",
+        reason: "用户形成了可复用的引用管理工作流模式",
+      })
+    }
+  }
+  updates
 }

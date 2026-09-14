@@ -52,6 +52,7 @@
 - **子 Agent 工厂**：3 个 MCP 工具管理两个作用域的 Markdown + YAML frontmatter 定义文件
 - **DSH 集成**：与 DeepSeek Harness 的 `subagent` 工具对接，支持任务 DAG 编排
 - **DSH Watcher 集成**：可选的只读会话观察插件，可视化进化执行过程、模型推理时间和工具调用链路
+- **学术写作进化**：支持学术写作规范化、反 AI 写作检测、引用规范化三类进化，基于 AI 痕迹检测和学术规范检查
 
 ### DSH 生态提报证据（L1–L3）
 
@@ -330,13 +331,16 @@ const proposal = await callMcpTool('propose_evolution', { plugin_id: 'browser-us
 harness-self-evolution-plugin/
 ├── src/                          # MoonBit 源代码（63 个 .mbt 文件）
 │   ├── engine/                   # 进化引擎：决策树 + 风险评估
-│   │   ├── engine.mbt
-│   │   ├── planning.mbt          # 提案规划
+│   │   ├── engine.mbt            # 进化引擎核心
+│   │   ├── planning.mbt          # 提案规划（含学术写作变更生成）
+│   │   ├── academic_writing.mbt  # 学术写作进化引擎
 │   │   └── risk.mbt              # 风险评估
 │   ├── executor/                 # 执行器：DAG 分层 + Sub-Agent 编排
 │   │   ├── dag.mbt               # 拓扑排序
-│   │   ├── executor.mbt
+│   │   ├── executor.mbt          # 执行器核心
 │   │   └── runner.mbt            # 任务执行器（模拟/真实）
+│   ├── planner/                  # 计划生成模块
+│   │   └── planner.mbt           # 计划生成与清理
 │   ├── factory/                  # 子 Agent 工厂
 │   │   └── factory.mbt
 │   ├── harness_evolution/        # 入口：装配与启动

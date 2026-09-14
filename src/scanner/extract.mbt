@@ -65,17 +65,43 @@ let re_tool_ref : @string.Regex = @string.Regex::unsafe_from_string(
 
 ///|
 let re_register_tool : @string.Regex = @string.Regex::unsafe_from_string(
-  "registerTool[ \t\n\r]*\\([ \t\n\r]*['\"`]([^'\"`]+)['\"`]",
+  "registerTool[ \t\n\r]*\\([ \t\n\r]*['\"` ]([^'\"`]+)['\"` ]",
 )
 
 ///|
 let re_dot_tool : @string.Regex = @string.Regex::unsafe_from_string(
-  "\\.tool[ \t\n\r]*\\([ \t\n\r]*['\"`]([^'\"`]+)['\"`]",
+  "\\.tool[ \t\n\r]*\\([ \t\n\r]*['\"` ]([^'\"`]+)['\"` ]",
 )
 
 ///|
 let re_name_field : @string.Regex = @string.Regex::unsafe_from_string(
-  "name:[ \t\n\r]*['\"`]([^'\"`]+)['\"`]",
+  "name:[ \t\n\r]*['\"` ]([^'\"`]+)['\"` ]",
+)
+
+// R10-R13：文本/学术写作能力模式。用于识别文本生成、学术写作、人机辨识等领域。
+
+///|
+/// 写作能力模式：识别 write/compose/draft/author 等动词
+let re_writing : @string.Regex = @string.Regex::unsafe_from_string(
+  "(?i:can[ \t\n\r]+(?:write|compose|draft|author)[ \t\n\r]+([A-Za-z0-9_]+))",
+)
+
+///|
+/// 学术写作模式：识别 academic/scholarly/research + writing/paper/article
+let re_academic : @string.Regex = @string.Regex::unsafe_from_string(
+  "(?i:(?:academic|scholarly|research)[ \t\n\r]+(?:writing|paper|article|literature))",
+)
+
+///|
+/// 人机辨识模式：识别 humanize/anti-ai/natural + text/writing/style
+let re_humanize : @string.Regex = @string.Regex::unsafe_from_string(
+  "(?i:(?:humanize|anti.?ai|natural|human)[ \t\n\r]+(?:text|writing|style|language))",
+)
+
+///|
+/// 格式规范模式：识别 format/style/template + apa/mla/chicago/ieee
+let re_format : @string.Regex = @string.Regex::unsafe_from_string(
+  "(?i:(?:format|style|template|citation)[ \t\n\r]+(?:apa|mla|chicago|ieee|vancouver))",
 )
 
 ///|
@@ -121,6 +147,68 @@ pub fn extract_from_skill_text(text : String) -> Extracted {
   // R5：工具引用。**不**转小写（对齐 TS L218）
   let tools = capture1(re_tool_ref, text)
   { capabilities, tools }
+}
+
+///|
+/// 从 SKILL.md 全文抽取 capabilities 与 tools，包含文本/学术写作能力识别。
+/// 这是 `extract_from_skill_text` 的增强版本，支持识别文本生成、学术写作、
+/// 人机辨识、格式规范等领域的能力。
+///
+/// **使用场景**：当需要识别文本/学术类 Skill 时使用此函数；
+/// 纯编程类 Skill 仍可用原函数以保持向后兼容。
+pub fn extract_from_skill_text_enhanced(text : String) -> Extracted {
+  let base = extract_from_skill_text(text)
+  let text_capabilities : Array[String] = []
+  
+  // R10-R13：文本/学术写作能力模式
+  for re in [re_writing, re_academic, re_humanize, re_format] {
+    for cap in capture1(re, text) {
+      text_capabilities.push(cap.to_lower())
+    }
+  }
+  
+  // 合并并去重（保持首次出现顺序）
+  let all_capabilities = base.capabilities
+  for c in text_capabilities {
+    all_capabilities.push(c)
+  }
+  
+  { capabilities: all_capabilities, tools: base.tools }
+}
+
+///|
+/// 根据提取的能力自动判断 Skill 领域分类。
+/// 用于在扫描时自动识别 Skill 的领域。
+pub fn classify_domain(capabilities : Array[String]) -> @types.SkillDomain {
+  let mut has_programming = false
+  let mut has_text = false
+  let mut has_academic = false
+  
+  for cap in capabilities {
+    // 检查是否包含编程类能力
+    if cap.contains("tool") || cap.contains("mcp") || cap.contains("code") {
+      has_programming = true
+    }
+    // 检查是否包含文本生成类能力
+    if cap.contains("write") || cap.contains("text") || cap.contains("compose") {
+      has_text = true
+    }
+    // 检查是否包含学术类能力
+    if cap.contains("academic") || cap.contains("research") || cap.contains("citation") {
+      has_academic = true
+    }
+  }
+  
+  // 根据能力组合判断领域
+  if has_programming && (has_text || has_academic) {
+    @types.SkillDomain::Mixed
+  } else if has_academic {
+    @types.SkillDomain::Academic
+  } else if has_text {
+    @types.SkillDomain::TextGeneration
+  } else {
+    @types.SkillDomain::Programming
+  }
 }
 
 ///|

@@ -190,7 +190,7 @@ test "every string enum round-trips through its wire table" {
 
 ///|
 test "every wire table is complete and has no duplicate names" {
-  check_table("evolution_type_wire", evolution_type_wire, 8)
+  check_table("evolution_type_wire", evolution_type_wire, 11)
   check_table("proposal_status_wire", proposal_status_wire, 5)
   check_table("principle_wire", principle_wire, 6)
   check_table("confidence_wire", confidence_wire, 3)
@@ -261,6 +261,7 @@ test "wire names match the CONTEXT.md vocabulary verbatim" {
   json_inspect(evolution_type_wire.names(), content=[
     "interface_simplification", "behavior_optimization", "performance_tuning", "documentation_enhancement",
     "capability_extension", "error_handling_improvement", "security_hardening", "accessibility_improvement",
+    "academic_writing_enhancement", "anti_ai_detection", "citation_normalization",
   ])
   // CONTEXT.md L40-49 的「应用原则」列。注意 behavior_optimization 与
   // error_handling_improvement 都映射到「紧反馈环 > 盲目试错」。

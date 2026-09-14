@@ -329,7 +329,8 @@ pub async fn PluginScanner::scan_plugin_dir(
           // （详见 metrics.mbt 的 compute_metrics 文档注释与 metrics_wbtest 的回归用例）
           root_skill_len = Some(text.length())
         }
-        let extracted = extract_from_skill_text(text)
+        // 使用增强版提取函数，支持文本/学术写作能力识别
+        let extracted = extract_from_skill_text_enhanced(text)
         for c in extracted.capabilities {
           capabilities.push(c)
         }
@@ -349,6 +350,9 @@ pub async fn PluginScanner::scan_plugin_dir(
     }
   }
 
+  // 根据提取的能力自动判断 Skill 领域分类
+  let domain = classify_domain(capabilities)
+
   // 指标用**未去重**的计数（对齐 TS L132 传入 calculateMetrics 的数组），
   // 档案里存**去重后**的数组（对齐 TS L140-142 的 [...new Set(...)]）。
   // 这两个时机必须分开：合并它们会静默改变 complexity_score，
@@ -364,6 +368,7 @@ pub async fn PluginScanner::scan_plugin_dir(
     name,
     version,
     kind,
+    domain,
     capabilities: @types.dedup_ordered(capabilities),
     tools: @types.dedup_ordered(tools),
     // TS 的 events 数组声明于 L97 但从未被 push，恒为空。原样保留。
@@ -377,7 +382,7 @@ pub async fn PluginScanner::scan_plugin_dir(
     // 对齐 TS L150 的日志：里面用的是**未去重**的计数
     @util.log_info(
       "Scanner",
-      "Found plugin: \{plugin_id} (\{tools.length()} tools, \{capabilities.length()} capabilities)",
+      "Found plugin: \{plugin_id} (\{domain.wire_name()}, \{tools.length()} tools, \{capabilities.length()} capabilities)",
     )
   }
 }

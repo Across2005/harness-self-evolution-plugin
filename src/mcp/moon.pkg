@@ -3,6 +3,7 @@ import {
   "Across2005/harness-self-evolution/executor",
   "Across2005/harness-self-evolution/factory",
   "Across2005/harness-self-evolution/monitor",
+  "Across2005/harness-self-evolution/planner",
   "Across2005/harness-self-evolution/scanner",
   "Across2005/harness-self-evolution/store",
   "Across2005/harness-self-evolution/types",
