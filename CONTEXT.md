@@ -31,7 +31,7 @@
 | **DAG Layer（DAG 层）** | Sub-Agent 任务按依赖拓扑排序后的分层，同层可并行 | `executor/dag.mbt` 的 `topo_layers` |
 | **Agent Definition（子 Agent 定义）** | Markdown + YAML frontmatter 的 agent 载体文件（name / description / 可选 color / tools，正文为系统提示词），工厂只产出定义文件——**创建 ≠ 派发** | `factory/factory.mbt` 的 `AgentDefinition` |
 | **Sub-Agent Factory（子 Agent 工厂）** | 校验、渲染、解析定义文件并管理两个作用域的工厂（v2.1 新增，`docs/subagent-factory.md`） | `factory/`、`store/agent_defs.mbt` |
-| **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主 `~/.zcode/agents/`，跨出数据根，宿主在后续会话加载） | `types/agent_scope.mbt`、wire 表 `agent_scope_wire` |
+| **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主的用户级 agents 目录，跨出数据根，宿主在后续会话加载；默认宿主 DeepSeek Harness 为 `~/.deepseek/harness/agents/`，ZCode 为 `~/.zcode/agents/`，经 `HARNESS_EVOLUTION_HOST` 切换） | `types/agent_scope.mbt`、`store/paths.mbt`、wire 表 `agent_scope_wire` |
 
 ## 提案状态机
 
@@ -158,7 +158,8 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 ├── proposals.jsonl     # 进化提案（ProposalStore 唯一读写口）
 ├── execution.log       # 执行日志（executor）
 └── agents/             # 子 Agent 定义（factory 写，scope=plugin）
-                        # scope=user 写宿主的 ~/.zcode/agents/（跨出数据根）
+                        # scope=user 写宿主的用户级 agents 目录（跨出数据根；
+                        # 默认宿主 DSH 为 ~/.deepseek/harness/agents/）
 ```
 
 **窗口裁剪（Retention）**：metrics / signals 两个 JSONL 是 append-only 的
@@ -548,7 +549,8 @@ tagged-array（`Add(Val("x"),Val("y"))` → `["Add",["Val","x"],["Val","y"]]`）
 
 ### 阶段 2：功能扩展与真实执行（2.1-2.4）
 - **2.1 真实执行能力**：进程型子 Agent 执行（占位实现）
-- **2.2 三级验证真实化**：eal_validation 函数已实现
+- **2.2 三级验证真实化**：
+eal_validation 函数已实现
 - **2.3 智能进化策略扩展**：新增 SecurityHardening 和 AccessibilityImprovement
 - **2.4 信号检测增强**：
   - struggle 信号去重机制（解决已知缺陷 #11）

@@ -260,7 +260,7 @@ pub fn create_sub_agent_schema() -> Json {
       ),
       "scope": {
         "type": "string",
-        "description": "写入位置：plugin 写入插件数据目录（默认）；user 会写入宿主的 ~/.zcode/agents/（跨出插件数据根，宿主会在后续会话加载该定义）",
+        "description": "写入位置：plugin 写入插件数据目录（默认）；user 会写入宿主的用户级 agents 目录（默认宿主 DeepSeek Harness 为 ~/.deepseek/harness/agents/，ZCode 为 ~/.zcode/agents/；跨出插件数据根，宿主会在后续会话加载该定义）",
         "enum": ToJson::to_json(@types.agent_scope_wire.names()),
         "default": Json::string(default_sub_agent_scope.wire_name()),
       },
@@ -293,7 +293,7 @@ pub fn delete_sub_agent_schema() -> Json {
     {
       "name": str_prop("要删除的子 Agent 名称（不含 .md 后缀）"),
       "scope": agent_scope_prop(
-        "在哪个作用域里删除：plugin（默认，插件数据目录）或 user（宿主的 ~/.zcode/agents/）",
+        "在哪个作用域里删除：plugin（默认，插件数据目录）或 user（宿主的用户级 agents 目录，默认宿主 DeepSeek Harness 为 ~/.deepseek/harness/agents/）",
       ),
     },
     ["name"],

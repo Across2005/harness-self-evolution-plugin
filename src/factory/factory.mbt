@@ -417,7 +417,8 @@ pub fn AgentFactory::with_dirs(
 
 ///|
 /// 生产构造：plugin 作用域 = 数据根下的 `agents/`，
-/// user 作用域 = 宿主的 `~/.zcode/agents/`（路径单点定义在 store/paths.mbt）。
+/// user 作用域 = 宿主的用户级 agents 目录（默认宿主 DeepSeek Harness，
+/// 路径单点定义在 store/paths.mbt）。
 pub fn AgentFactory::at(paths : @store.DataPaths) -> AgentFactory {
   AgentFactory::with_dirs(paths.agent_defs(), @store.user_agents_dir())
 }

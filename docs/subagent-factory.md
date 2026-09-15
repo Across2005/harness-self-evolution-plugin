@@ -88,8 +88,9 @@ agents/                  出厂 5 角色模板（Markdown，非 MoonBit，随 lo
 | `overwrite` | bool | — | 默认 `false`；同名已存在时报错而非覆盖 |
 
 - `scope=plugin` → 写入 `<数据根>/agents/<name>.md`（插件自管理，默认）。
-- `scope=user` → 写入 `~/.zcode/agents/<name>.md`（**跨出数据根**，宿主会加载；
-  这是刻意的显式选择，工具描述里向 LLM 说明影响面）。
+- `scope=user` → 写入宿主的用户级 agents 目录（**跨出数据根**，宿主会加载；
+  默认宿主 DeepSeek Harness 为 `~/.deepseek/harness/agents/<name>.md`，
+  经 `HARNESS_EVOLUTION_HOST` 切换宿主；这是刻意的显式选择，工具描述里向 LLM 说明影响面）。
 - 返回：`{success, path, name, scope, overwritten}`。
 - 错误：非法 name/description（`Failure`，经 `call_tool` 转 isError）、
   已存在且未 overwrite、目录创建失败。
@@ -108,7 +109,7 @@ agents/                  出厂 5 角色模板（Markdown，非 MoonBit，随 lo
 
 - 写路径全部在 `store/agent_defs.mbt`（G3：fs 写只在 store）。
 - 数据根新增 `agents/` 子目录，路径字面量仍只在 `store/paths.mbt`（G4）；
-  `~/.zcode/agents` 字面量同址定义。
+  各宿主的用户级 agents 目录字面量同址定义（`user_agents_dir`）。
 - `agent_scope` 是新的字符串枚举 → 一张 wire 表（不变量⑦），
   schema 的 `enum` 直接取 `names()`。
 - handler 不写 try/catch（不变量④），业务失败 `raise Failure`。

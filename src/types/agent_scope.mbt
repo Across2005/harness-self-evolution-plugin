@@ -3,8 +3,9 @@
 ///
 /// · `Plugin` = 插件自己的数据根下的 `agents/` 目录（`<数据根>/agents/`），
 ///   插件自管理，删除与重建都不影响宿主；
-/// · `User` = 宿主的用户级目录 `~/.zcode/agents/` —— **跨出插件数据根**，
-///   ZCode loader 会在后续会话中发现并加载那里的定义，
+/// · `User` = 宿主的用户级 agents 目录（单点定义在 `store/paths.mbt` 的
+///   `user_agents_dir`；默认宿主 DeepSeek Harness 为 `~/.deepseek/harness/agents/`）——
+///   **跨出插件数据根**，宿主会在后续会话中发现并加载那里的定义，
 ///   文件内容会成为可被调用的 agent 系统提示词。
 ///
 /// 后者是刻意的显式选择：MCP 协议里没有「请求宿主即时 spawn 一个子 agent
@@ -14,6 +15,6 @@
 pub(all) enum AgentScope {
   /// 插件数据目录内的定义（默认）
   Plugin
-  /// 宿主用户目录 `~/.zcode/agents/` 内的定义
+  /// 宿主用户级 agents 目录内的定义（默认宿主 DSH 为 ~/.deepseek/harness/agents/）
   User
 } derive(Eq, Debug)

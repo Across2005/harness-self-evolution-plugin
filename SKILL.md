@@ -137,7 +137,7 @@
 ### create_sub_agent / list_sub_agents / delete_sub_agent（v2.1 子 Agent 工厂）
 管理子 Agent 定义文件（Markdown + YAML frontmatter，ZCode 的 agent 载体格式）。
 
-- `create_sub_agent`：写入一个定义文件。`scope=plugin` 写入插件数据目录（默认）；`scope=user` 写入宿主的 `~/.zcode/agents/` —— 后者跨出插件数据根，宿主会在后续会话中加载该定义。创建只是产出定义文件，不等于立即派发执行。
+- `create_sub_agent`：写入一个定义文件。`scope=plugin` 写入插件数据目录（默认）；`scope=user` 写入宿主的用户级 agents 目录（默认宿主 DeepSeek Harness 为 `~/.deepseek/harness/agents/`，经 `HARNESS_EVOLUTION_HOST` 切换）—— 后者跨出插件数据根，宿主会在后续会话中加载该定义。创建只是产出定义文件，不等于立即派发执行。
 - `list_sub_agents`：列出定义，缺省同时列出两个作用域；解析失败的文件被跳过并告警。
 - `delete_sub_agent`：删除定义文件，只作用于上述两个可写目录；插件自带的 5 个出厂角色模板不在这两个目录内，天然不受影响。
 
