@@ -527,7 +527,7 @@ fn plan_academic_writing_docs(
 /// 反 AI 写作检测文档建议。
 /// 当检测到 AI 写作痕迹时，生成反 AI 检测的文档更新建议。
 fn plan_anti_ai_detection_docs(
-  plugin : @types.PluginMetadata,
+  _plugin : @types.PluginMetadata,
   signals : ArrayView[@types.EvolutionSignal],
 ) -> Array[@types.DocumentationUpdate] {
   let updates : Array[@types.DocumentationUpdate] = []
@@ -556,7 +556,7 @@ fn plan_anti_ai_detection_docs(
 /// 引用规范化文档建议。
 /// 当引用质量不足时，生成引用规范化的文档更新建议。
 fn plan_citation_normalization_docs(
-  plugin : @types.PluginMetadata,
+  _plugin : @types.PluginMetadata,
   signals : ArrayView[@types.EvolutionSignal],
 ) -> Array[@types.DocumentationUpdate] {
   let updates : Array[@types.DocumentationUpdate] = []

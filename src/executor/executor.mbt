@@ -147,6 +147,22 @@ async fn UpgradeExecutor::run_pipeline(
   let runner = if dry_run { dry_run_task } else { self.run_task }
   let validator = if dry_run { dry_run_validation } else { self.validate_level }
 
+  // M-2 修复：接入 planner。无论提案自带 plan 还是未带，执行前都先确保有一份
+  // ExecutionPlan，把它作为执行日志的可观测信息（计划 ID / 步数 / 预估耗时）。
+  // planner 只依赖 types/util，executor 4→planner 3 严格向下，不破坏 G1 分层。
+  // ★ 注：该 plan 仅用于日志可观测（observability only），**不回写**到 proposals.jsonl；
+  //   真正驱动执行的是下方的 decompose_tasks，二者无一致性契约。下游不得假设该
+  //   计划已被持久化（清理入口 planner.cleanup_completed_plan 因此暂不接线，见其注释）。
+  let plan = match proposal.plan {
+    Some(existing) => existing
+    None => @planner.generate_plan(proposal)
+  }
+  self.note_event(
+    proposal.proposal_id,
+    @store.ExecEvent::Progress,
+    "Plan generated: \{plan.plan_id} (\{plan.steps.length()} steps, est \{plan.estimated_duration_ms}ms)",
+  )
+
   let tasks = decompose_tasks(proposal)
   let layers = topo_layers(tasks)
 
@@ -378,6 +394,15 @@ fn first_failure(
 /// 那是有实际效果的部分。
 ///
 /// 将来接入真实 Sub-Agent 时，这里就是挂「恢复备份」逻辑的位置。
+///
+/// ★ M-4（v2.5）接线预告：本包已有的 `sandbox_restore_all(PreCheckResult)`
+/// 提供了完整的备份回滚能力，但它需要一个 `PreCheckResult`，而目前
+/// `run_pipeline` 从头到尾没有调用过 `sandbox_pre_check`（因为 runner
+/// 不真写文件）。接入真实 Sub-Agent 时的三步接线：
+///   1. `run_pipeline` 开头 `sandbox_pre_check`，拿到的 result 传递到 rollback 上下文；
+///   2. `rollback` 里 `sandbox_restore_all(result)`，将已写入的文件从备份恢复；
+///   3. 失败时验证链路不阻断（保留现有 note_event + 日志行为）。
+/// TODO(v2.5): wire `sandbox_pre_check` + `sandbox_restore_all` into executor pipeline.
 async fn UpgradeExecutor::rollback(
   self : UpgradeExecutor,
   proposal : @types.EvolutionProposal,

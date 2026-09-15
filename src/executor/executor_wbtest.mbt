@@ -685,7 +685,7 @@ async test "writes an execution log with the legacy line format" {
       progress += 1
     }
   }
-  assert_eq(progress, 3) // cg-merge / tw / integ 三层
+  assert_eq(progress, 4) // v2.5 M-2 后：plan generated + cg-merge / tw / integ 三层
 }
 
 ///|

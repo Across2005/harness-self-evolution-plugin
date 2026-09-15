@@ -52,8 +52,12 @@ pub(all) enum EvolutionType {
   CapabilityExtension
   ErrorHandlingImprovement
   /// 安全加固（v2.3新增）
+  /// ★ 预留接口：`plan_changes` 已实现变更逻辑，但 `determine_evolution_type`
+  ///   当前不自动产出本类型（无安全的领域信号可区分它与 ErrorHandlingImprovement）。
+  ///   预留待未来接入安全扫描信号后在决策树中补充分支。
   SecurityHardening
   /// 可访问性改进（v2.3新增）
+  /// ★ 预留接口：同上。当前只能由外部直接指定 etype 或将来接入 WCAG 扫描信号后启用。
   AccessibilityImprovement
   /// 学术写作规范化（v2.5新增）
   AcademicWritingEnhancement

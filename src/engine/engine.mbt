@@ -12,10 +12,12 @@
 ///    "insufficient signals, cooldown, or duplicate"。枚举把这个信息还原出来，
 ///    而映射回 TS 的 null/非 null 语义是完全确定的（见 `ProposalOutcome::proposal`）。
 ///
-/// 2. 决策树是一条**单一的 if-else 链**，7 个分支的优先级顺序与 TS L184-225
-///    逐行对应，每个分支上方保留 TS 的原英文注释。刻意不拆成多个 `match`：
-///    拆开之后就看不出「loop 优先于 struggle」这类跨分支的优先级关系，
-///    而这正是最容易在重构中被无意调换的东西。
+/// 2. 决策树是一条**单一的 if-else 链**，10 个分支（7 个与 TS L184-225 逐行
+///    对应的通用分支 + 3 个 v2.5 M-3 新增的写作领域分支）的优先级顺序不可重排。
+///    每个通用分支上方保留 TS 的原英文注释；写作领域分支不参与 TS 对照。
+///    刻意不拆成多个 `match`：拆开之后就看不出「loop 优先于 struggle」「写作
+///    领域优先于通用 correction」这类跨分支的优先级关系，而这正是最容易在
+///    重构中被无意调换的东西。
 
 ///|
 /// `generate_proposal` 的结果。
@@ -95,17 +97,18 @@ pub fn EvolutionEngine::new(
 ///|
 /// 生成进化提案。取代 TS L54-150。
 ///
-/// 7 道闸门的顺序与 TS **逐一对应**，不得重排：
+/// 8 道闸门的顺序与 TS **逐一对应**，不得重排：
 /// ① 强度为 0% → 短路（L60-63）
 /// ② 取信号（未提供则从 signals.jsonl 读该插件的）（L66-68）
-/// ③ 按强度过滤（L71）
-/// ④ 过滤后为空 → NoSignals（L74-77）
-/// ⑤ 已有 pending → **返回该 pending**（L80-84）
-/// ⑥ 冷却期命中 → InCooldown（L87-92）
-/// ⑦ 同签名重复 → **返回已存在的**（L120-126）
+/// ③ 信号聚合（时间衰减）—— 2.x 新增，TS 无对应闸门
+/// ④ 按强度过滤（L71）
+/// ⑤ 过滤后为空 → NoSignals（L74-77）
+/// ⑥ 已有 pending → **返回该 pending**（L80-84）
+/// ⑦ 冷却期命中 → InCooldown（L87-92）
+/// ⑧ 同签名重复 → **返回已存在的**（L120-126）
 /// 全过之后才构造提案并落盘（L129-149）。
 ///
-/// 注意 ⑤ 与 ⑦ 返回的是**已存在的提案**而不是 null —— 这是 TS 的既有语义，
+/// 注意 ⑥ 与 ⑧ 返回的是**已存在的提案**而不是 null —— 这是 TS 的既有语义，
 /// 也是最容易在移植时被「顺手统一成 null」而破坏的一处。
 /// `signals` 是 `Option` 而不是「空数组表示未提供」：TS 区分
 /// `undefined`（从 signals.jsonl 读）与 `[]`（明确告知没有信号），
@@ -255,9 +258,14 @@ pub fn filter_by_intensity(
 ///|
 /// 决定进化类型。取代 TS L179-226。
 ///
-/// **这是一条单一的 if-else 链，7 个分支的优先级顺序不可重排。**
-/// 每个分支上方保留 TS 的原英文注释，便于逐行 diff。
-/// 唯一分支间的依赖是「loop 优先于 struggle」「correction 优先于 preference」
+/// **这是一条单一的 if-else 链，10 个分支的优先级顺序不可重排。**
+/// 其中 7 个分支与 TS 逐行对应（loop → struggle+complexity → correction →
+/// preference → workflow → performance → 默认 documentation）；剩下 3 个是
+/// v2.5 M-3 新增的写作领域分支（仅对 domain 属于 Academic / TextGeneration
+/// 的插件生效，不含 Mixed），插在 struggle+complexity 与通用 correction 之间。
+/// 每个分支上方保留 TS 的原英文注释（新增分支除外），便于逐行 diff。
+/// 分支间的跨依赖：「loop 优先于 struggle」「写作领域优先于通用
+/// correction/preference/workflow」「correction 优先于 preference」
 /// ——拆开写就看不出来了，而这正是重构中最容易被无意调换的地方。
 async fn EvolutionEngine::determine_evolution_type(
   self : EvolutionEngine,
@@ -277,6 +285,32 @@ async fn EvolutionEngine::determine_evolution_type(
   // High complexity + struggle → interface simplification
   if has_struggle && plugin.initial_metrics.complexity_score > 7.0 {
     return @types.EvolutionType::InterfaceSimplification
+  }
+  // ★ v2.5 M-3 修复：纯写作类插件（Academic / TextGeneration）优先路由
+  // 到专属进化类型，避免被通用 correction/preference/workflow 分支提前抢占，
+  // 导致 `plan_changes` 中对应的学术写作分支不可达。
+  // loop 与 struggle+complexity 属于“行为异常”信号，无论领域都优先处理。
+  //
+  // ★ 不包含 Mixed：Mixed = “同时具备编程与文本能力”（types/plugin.mbt），
+  //   其 correction/preference/workflow 信号可能是编程向的（如参数命名纠正），
+  //   不能无条件归为写作领域。待未来能基于信号内容二次判别时再开启。
+  let domain = plugin.domain
+  let is_writing_domain =
+    domain == @types.SkillDomain::Academic ||
+      domain == @types.SkillDomain::TextGeneration
+  if is_writing_domain {
+    // 用户纠正写作风格 → 反 AI 痕迹
+    if has_correction {
+      return @types.EvolutionType::AntiAIDetection
+    }
+    // 用户偏好“引用风格” → 引用规范化
+    if has_preference {
+      return @types.EvolutionType::CitationNormalization
+    }
+    // 可复用的写作工作流 → 学术写作规范化
+    if has_workflow {
+      return @types.EvolutionType::AcademicWritingEnhancement
+    }
   }
   // User correction → error handling improvement
   if has_correction {

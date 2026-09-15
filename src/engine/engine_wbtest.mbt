@@ -970,3 +970,92 @@ async test "struggle signal deduplication prevents repeated signals" {
   }
   assert_eq(struggle_count, 1)
 }
+
+// ============================================================================
+// v2.5 M-3 新增：学术/写作类插件的领域路由
+// ============================================================================
+
+///|
+/// 造一份 Academic 领域的插件（拷贝 mock_plugin 后覆盖 domain）。
+fn academic_plugin() -> @types.PluginMetadata {
+  { ..mock_plugin(), domain: @types.SkillDomain::Academic }
+}
+
+///|
+/// Academic + Correction 信号 → AntiAIDetection（而非通用的 ErrorHandlingImprovement）
+async test "academic domain routes correction signal to AntiAIDetection" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  let (engine, _) = make_engine(dir, @types.Intensity::Half)
+
+  match engine.generate_proposal(academic_plugin(), signals=Some([strong_correction()])).proposal() {
+    Some(p) => assert_eq(p.evolution_type, @types.EvolutionType::AntiAIDetection)
+    None => abort("expected a proposal")
+  }
+}
+
+///|
+/// Academic + Preference 信号 → CitationNormalization
+async test "academic domain routes preference signal to CitationNormalization" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  let (engine, _) = make_engine(dir, @types.Intensity::Full)
+
+  let pref = signal(
+    @types.SignalStrength::Medium,
+    @types.SignalCategory::Preference,
+    "prefers IEEE citation format",
+  )
+  match engine.generate_proposal(academic_plugin(), signals=Some([pref])).proposal() {
+    Some(p) => assert_eq(p.evolution_type, @types.EvolutionType::CitationNormalization)
+    None => abort("expected a proposal")
+  }
+}
+
+///|
+/// Academic + Workflow 信号 → AcademicWritingEnhancement
+async test "academic domain routes workflow signal to AcademicWritingEnhancement" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  let (engine, _) = make_engine(dir, @types.Intensity::Full)
+
+  let wf = signal(
+    @types.SignalStrength::Medium,
+    @types.SignalCategory::Workflow,
+    "draft → cite → revise loop",
+  )
+  match engine.generate_proposal(academic_plugin(), signals=Some([wf])).proposal() {
+    Some(p) => assert_eq(p.evolution_type, @types.EvolutionType::AcademicWritingEnhancement)
+    None => abort("expected a proposal")
+  }
+}
+
+///|
+/// Regression：Programming 领域 + Correction 信号仍路由到 ErrorHandlingImprovement
+/// （验证 M-3 新分支只影响写作类插件，对现有领域无破坏）
+async test "programming domain still routes correction to ErrorHandlingImprovement" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  let (engine, _) = make_engine(dir, @types.Intensity::Half)
+
+  // mock_plugin 默认 domain = Programming
+  match engine.generate_proposal(mock_plugin(), signals=Some([strong_correction()])).proposal() {
+    Some(p) => assert_eq(p.evolution_type, @types.EvolutionType::ErrorHandlingImprovement)
+    None => abort("expected a proposal")
+  }
+}
+
+///|
+/// Regression：Mixed 领域**不**被写作分支抢占（Mixed 可能是编程向纠正），
+/// Correction 仍应走通用分支 → ErrorHandlingImprovement。
+async test "mixed domain is not claimed by writing routing" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  let (engine, _) = make_engine(dir, @types.Intensity::Half)
+
+  let mixed = { ..mock_plugin(), domain: @types.SkillDomain::Mixed }
+  match engine.generate_proposal(mixed, signals=Some([strong_correction()])).proposal() {
+    Some(p) => assert_eq(p.evolution_type, @types.EvolutionType::ErrorHandlingImprovement)
+    None => abort("expected a proposal")
+  }
+}

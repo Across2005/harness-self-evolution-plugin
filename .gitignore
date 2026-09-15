@@ -25,10 +25,11 @@ Thumbs.db
 
 # Local scratch / one-off tooling
 _*.py
+_*.txt
+.agnes/
 
 # Personal application docs (contain name + phone) and local evidence dumps
 项目申报书*.md
-_report*.txt
 
 # MoonBit
 # 构建产物实测落在 _build/（非 target/），由 build.ps1 复制出 bin/harness-evolution.exe

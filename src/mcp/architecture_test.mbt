@@ -220,14 +220,14 @@ fn declared_edges() -> Array[(String, Array[String])] {
     ("monitor", ["store", "types", "util"]),
     ("engine", ["monitor", "scanner", "store", "types", "util"]),
     ("planner", ["types", "util"]),
-    ("executor", ["store", "types", "util"]),
+    ("executor", ["planner", "store", "types", "util"]),
     // v2.1 新增：子 Agent 工厂。与 engine/executor 同层 —— 只向下依赖
     // store/types/util（fs 写全在 store，G3），被 mcp 依赖。
     ("factory", ["store", "types", "util"]),
     (
       "mcp",
       [
-        "engine", "executor", "factory", "monitor", "planner", "scanner", "store", "types",
+        "engine", "executor", "factory", "monitor", "scanner", "store", "types",
         "util",
       ],
     ),
@@ -248,15 +248,18 @@ fn layer_of(pkg : String) -> Int {
     "util" => 0
     "types" => 1
     "store" => 2
-    // scanner 与 monitor 同层：两者互不依赖，都只向下看
+    // scanner / monitor / planner 同层（互不依赖）：
+    // scanner / monitor 都是“向下看 store 的采集层”，
+    // planner 作为“将提案翻译为计划”的无状态预处层，
+    // 仅依赖 types/util，与上面两者同层，不引入横向边。
     "scanner" => 3
     "monitor" => 3
+    "planner" => 3
     // engine 要读 monitor 的统计，executor / factory（v2.1）不读，但同层（互不依赖）
-    // planner 依赖 types/util，与 engine/executor/factory 同层
+    // v2.5 将 planner 下沉到 3 层，executor 4 → planner 3 严格向下。
     "engine" => 4
     "executor" => 4
     "factory" => 4
-    "planner" => 4
     "mcp" => 5
     "harness_evolution" => 6
     _ => abort("undeclared package: \{pkg}")
@@ -614,9 +617,9 @@ async test "G5: MoonBit test suite has sufficient coverage" {
 async test "G5b: MoonBit test suite maintains minimum size" {
   let root = module_root()
   let mb_names = moonbit_test_names(root)
-  // 硬编码的 378 —— 当前 MoonBit 测试用例数。
+  // 硬编码的 383 —— 当前 MoonBit 测试用例数（v2.5 M-3 新增 4 个路由/回归 + 1 个 Mixed 回归）。
   // 这个数字变了说明测试被删除，必须重新核对。
-  assert_eq(mb_names.length(), 378)
+  assert_eq(mb_names.length(), 383)
 }
 
 ///|

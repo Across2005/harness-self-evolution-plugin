@@ -22,7 +22,7 @@
 | **Change（变更）** | 提案里的一项具体改动，7 个变体（合并工具/简化参数/加中间件/优化流程/更新文档/扩展能力/改进错误处理） | `types/change.mbt` 的 `Change` |
 | **Intensity（强度）** | 进化激进度：`100%` 响应全部信号 / `50%` **仅强信号** / `0%` 禁用 | `types/config.mbt` 的 `Intensity` |
 | **Cooldown（冷却期）** | 同一插件两次提案之间的最短间隔（默认 24h） | `EngineConfig.cooldown_hours` |
-| **Signature（签名）** | `plugin-名-进化类型` 的归一化串，用于提案去重 | `engine/risk.mbt` 的 `generate_signature` |
+| **Signature（签名）** | `plugin-名-进化类型` 的归一化串，用于提案去重（`find_duplicate` 只排除 rejected）。★ v2.5 M-3 迁移提醒：写作类领域的 correction/preference/workflow 改判为新进化类型后，同一插件旧提案的签名（如 `<pid>-error-handling-improvement`）与新签名（`<pid>-anti-ai-detection`）不同，历史已完成提案不再被识别为重复 → 同一信号可能重复产出一次类型不呼应的提案。无自动迁移；消费方可按 plugin_id 聚合去重 | `engine/risk.mbt` 的 `generate_signature` |
 | **Wire Table（wire 表）** | ★ 字符串枚举的**唯一**编解码表。一张表同时驱动三件事：JSONL 序列化、MCP `inputSchema.enum`、错误消息里的合法值列表 | `util/wire.mbt` + `types/wire_tables.mbt` |
 | **DirFingerprint（目录指纹）** | `mtime` + 直接子项数 + 子项 `mtime`，用于判定扫描缓存条目是否仍然有效 | `store/cache.mbt` |
 | **ProposalOutcome（提案结果）** | `generate_proposal` 的 6 个结果：`Created` / `AlreadyPending` / `Duplicate` / `Disabled` / `NoSignals` / `InCooldown` | `engine/engine.mbt` |
@@ -49,14 +49,32 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 
 ## 信号类别与进化类型映射
 
-| 信号类别 (category) | 触发条件示例 | 进化类型 (evolution_type) |
-|---------------------|--------------|--------------------------|
-| `loop` | 同一工具连续调用 ≥5 次 | `behavior_optimization` / `performance_tuning` |
-| `struggle` | 连续失败 ≥3 次 / 延迟回归 +20% | `interface_simplification`（高复杂度时） / `security_hardening` |
-| `correction` | 用户纠正 / 负面反馈 | `error_handling_improvement` / `security_hardening` |
-| `preference` | 用户重复偏好 | `documentation_enhancement` / `interface_simplification` |
-| `workflow` | 可复用工作流模式 | `capability_extension` / `accessibility_improvement` |
-| 性能统计 | 平均延迟 >2s / 成功率 <90% | `performance_tuning` |
+决策树（`engine/mbt` 的 `determine_evolution_type`）是一条严格有序的 if-else 链，
+**先按信号类别，再按插件领域（`PluginMetadata.domain`）分流**。v2.5 M-3 起，
+写作类领域（`Academic` / `TextGeneration`，**不含 `Mixed`**）的 correction/preference/workflow
+优先路由到专属进化类型；`Mixed` 因可能承载编程向信号，仍走通用分支。
+
+| 信号类别 (category) | 领域前提 | 进化类型 (evolution_type) |
+|---------------------|----------|--------------------------|
+| `loop` | 任意（最先判） | `behavior_optimization` |
+| `struggle` + 高复杂度 | 任意 | `interface_simplification` |
+| `correction` | Academic / TextGeneration | `anti_ai_detection` |
+| `preference` | Academic / TextGeneration | `citation_normalization` |
+| `workflow` | Academic / TextGeneration | `academic_writing_enhancement` |
+| `correction` | 其他（Programming / Mixed） | `error_handling_improvement` |
+| `preference` | 其他 | `documentation_enhancement` / `interface_simplification` |
+| `workflow` | 其他 | `capability_extension` |
+| 性能统计 | 其他（兜底） | `performance_tuning` |
+| 无匹配 | 其他（默认） | `documentation_enhancement` |
+
+> **预留接口**：`security_hardening` / `accessibility_improvement` 已有 `plan_changes` 变更逻辑，
+> 但决策树当前不自动产出（无安全/WCAG 扫描信号源区分它们与 `error_handling_improvement` /
+> `capability_extension`），只能由外部直接指定 `etype`。见 `types/proposal.mbt` 枚举注释。
+
+> **v2.5 M-3 签名漂移**：上表写作类领域的新路由会改变 `evolution_type`，进而改变
+> 签名（签名含进化类型）。升级后，已存在同类旧提案（如 `error_handling_improvement`）
+> 的写作插件，对同一批信号可能绕过去重闸门⑧多产出一条新类型提案。属行为后果而非 bug，
+> 不阻断；详见本文件词汇表 Signature 行的迁移提醒。
 
 ## Matt Pocock 原则 ↔ 进化类型
 
@@ -70,6 +88,9 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 | `error_handling_improvement` | 紧反馈环 > 盲目试错 |
 | `security_hardening` | 先对齐，再动手 |
 | `accessibility_improvement` | 垂直切片 > 水平切片 |
+| `academic_writing_enhancement` | 词汇即文档 |
+| `anti_ai_detection` | 紧反馈环 > 盲目试错 |
+| `citation_normalization` | 词汇即文档 |
 
 代码里的单一事实来源是 `types/proposal.mbt` 的 `EvolutionType::principle`。
 注意 `behavior_optimization` 与 `error_handling_improvement` **都**映射到

@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
 [![Version: 2.4.0](https://img.shields.io/badge/version-2.4.0-1f6feb.svg)](.zcode-plugin/plugin.json)
 [![Runtime: MoonBit native](https://img.shields.io/badge/runtime-MoonBit%20native-ff7a18.svg)](moon.mod)
-[![Total tests: 377/377](https://img.shields.io/badge/tests-377%2F377-22cc22.svg)](CONTEXT.md)[![Sandbox: enabled](https://img.shields.io/badge/sandbox-enabled-22cc22.svg)](#安全沙箱)
+[![Total tests: 383/383](https://img.shields.io/badge/tests-383%2F383-22cc22.svg)](CONTEXT.md)[![Sandbox: enabled](https://img.shields.io/badge/sandbox-enabled-22cc22.svg)](#安全沙箱)
 [![Gate: 0/0](https://img.shields.io/badge/gate-%20%E2%9C%93%20passing-22cc22.svg)](build.ps1)
 [![Platform: Windows / Linux / macOS](https://img.shields.io/badge/platform-win%20%7C%20linux%20%7C%20macos-informational.svg)]()
 
@@ -59,7 +59,7 @@
 
 > **L1 仓库**：https://github.com/Across2005/harness-self-evolution-plugin（GitHub）/ https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin（GitLink 镜像）— 公开，2026-09-09 发布 v2.4.0，MoonBit native，MIT。
 >
-> **L2 manifest**：`package.json` 声明 `dsh.bundle`（指向 `.zcode-plugin/plugin.json`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。377 测试全过（0 失败）、11 条架构守卫 G1–G6 机器化卡死。
+> **L2 manifest**：`package.json` 声明 `dsh.bundle`（指向 `.zcode-plugin/plugin.json`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。383 测试全过（0 失败）、11 条架构守卫 G1–G6 机器化卡死。
 >
 > **L3 安装规范**：
 > ```bash
@@ -108,6 +108,7 @@ flowchart TB
         FAC["factory/<br/>子 Agent 定义管理"]
         SCN["scanner/<br/>插件发现 + 信息提取"]
         MON["monitor/<br/>性能采集 + 信号检测"]
+        PLN["planner/<br/>提案 → 执行计划（无状态预处层）"]
         ST["store/<br/>唯一持久化层<br/>（JSONL / 缓存 / 提案 / 子 Agent）"]
         TY["types/<br/>19 张 wire 表 · 词汇表单一事实来源"]
         UT["util/<br/>路径 / 时间 / 日志 / 4 个零依赖 Deep Module"]
@@ -132,6 +133,8 @@ flowchart TB
     MON --> TY
     ENG --> MON
     EXE --> MON
+    EXE --> PLN
+    PLN --> TY
     ST --> UT
     TY --> UT
     ENG --> UT
@@ -141,7 +144,7 @@ flowchart TB
     MON --> UT
 ```
 
-依赖图是**严格分层**的（`util → types → store → scanner/monitor → engine/executor/factory → mcp → harness_evolution`），由 `src/mcp/architecture_test.mbt` 的 11 条守卫（G1–G6）机器化验证；任何新增反向边、往 stdout 写日志、绕过 `store/` 持久化，都会在 `moon test` 里立刻变红。
+依赖图是**严格分层**的（`util → types → store → scanner/monitor/planner → engine/executor/factory → mcp → harness_evolution`），由 `src/mcp/architecture_test.mbt` 的 11 条守卫（G1–G6）机器化验证；任何新增反向边、往 stdout 写日志、绕过 `store/` 持久化，都会在 `moon test` 里立刻变红。
 
 ### 安装
 
@@ -434,7 +437,8 @@ harness-self-evolution-plugin/
 ```mermaid
 flowchart LR
     P[提案审批] --> E[Executor 启动]
-    E --> D[任务分解]
+    E --> PL[Planner 生成执行计划]
+    PL --> D[任务分解]
     D --> CG[code-generator]
     D --> TW[test-writer]
     D --> DW[doc-writer]
@@ -483,7 +487,7 @@ flowchart LR
 | G2 / G2b | `@stdio.stdout` 只在 `mcp/server.mbt`，`@stdio.stderr` 只在 `util/log.mbt` |
 | G3 / G3b | `@fs` 的写操作只在 `store/` |
 | G4 / G4b | 数据目录字面量只在 `store/paths.mbt` |
-| G5 / G5b | MoonBit 测试覆盖 347 个用例，包含完整的架构守卫验证 |
+| G5 / G5b | MoonBit 测试覆盖 383 个用例，包含完整的架构守卫验证 |
 | G6 | `moon.mod` 只有一个外部依赖，且 native 是首选目标 |
 
 每条守卫都做过**负向探针**验证（人为引入违规确认会变红），否则「永远通过的测试」只是装饰。
@@ -554,7 +558,7 @@ Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / Ope
 
 > **L1 Repository**: https://github.com/Across2005/harness-self-evolution-plugin (GitHub) / https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin (GitLink 镜像) — public, released 2026-09-09, MoonBit native, MIT.
 >
-> **L2 Manifest**: `package.json` declares `dsh.bundle` (pointing at `.zcode-plugin/plugin.json`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 377 tests passing (0 failures), 11 architecture guards G1–G6 enforced by machine.
+> **L2 Manifest**: `package.json` declares `dsh.bundle` (pointing at `.zcode-plugin/plugin.json`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 383 tests passing (0 failures), 11 architecture guards G1–G6 enforced by machine.
 >
 > **L3 Install Spec**:
 > ```bash

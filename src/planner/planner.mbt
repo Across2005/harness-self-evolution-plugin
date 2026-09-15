@@ -113,6 +113,12 @@ fn generate_step(
 /// - 保留提案元数据
 /// - 只清除计划细节
 /// - 避免残留上下文被反复读取
+///
+/// ★ 预留接口（v2.5）：当前 executor 只在内存里临时用 plan 写日志，
+///   不将 plan 回写到持久化提案，故本函数暂无调用方。
+///   待将来把 plan 随提案持久化（例如存到 proposals.jsonl 的 plan 字段）后，
+///   应在状态终结为 completed 的路径上调用本函数做清理。
+/// TODO(v2.5): call from the completed-status transition once `plan` is persisted.
 pub fn cleanup_completed_plan(
   proposal : @types.EvolutionProposal,
 ) -> @types.EvolutionProposal {

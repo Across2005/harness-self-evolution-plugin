@@ -1,4 +1,5 @@
 import {
+  "Across2005/harness-self-evolution/planner",
   "Across2005/harness-self-evolution/store",
   "Across2005/harness-self-evolution/types",
   "Across2005/harness-self-evolution/util",
