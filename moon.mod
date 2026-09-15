@@ -22,8 +22,9 @@ source = "src"
 description = "DeepSeek Harness 全盘自进化升级插件（MoonBit native）"
 
 // 版本必须锁死在 0.20.1：0.21.x 起 async 使用 `noraise + nocancel` 效果标注语法，
-// 本机 moon 0.1.20260819 无法解析（报 [3002] Parse error, unexpected token `+`）。
-// 升级工具链后方可放宽此约束。
+// 撰写时（moon 0.1.20260819）无法解析（报 [3002] Parse error, unexpected token `+`）。
+// 当前工具链 0.1.20260904（errdefer 已实测可用），async 0.21.x 未复测，维持锁定；
+// 升级工具链并复测后方可放宽此约束。
 import {
   "moonbitlang/async@0.20.1",
 }

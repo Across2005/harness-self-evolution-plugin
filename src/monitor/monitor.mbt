@@ -17,9 +17,9 @@
 /// 2. `flush_buffers` 严格「**先换出、后 await**」：换出与清空之间没有任何
 ///    await 点，而 MoonBit async 是单线程协作式调度、只在 await 处让出，
 ///    因此不需要互斥锁就不可能重入。
-/// 3. 用 `Deque` 环形缓冲取代 TS L374 的 `sessionEvents.splice(0, len-500)`
-///    —— 后者稳态下每次事件都 O(n) 搬移整个数组。
-let max_session_events : Int = 500 // ← TS L23 MAX_SESSION_EVENTS
+/// 3. TS 的 `sessionEvents` 环形副本（L23 / L35 / L374）在本仓**没有生产读取方**，
+///    已整体删除 —— 它唯一的用途（反馈回填）在待落盘的 `event_buffer` 上完成，
+///    会话内重复维护一份每次事件都搬移的副本是纯开销。
 
 ///|
 let deep_check_interval_ms : Int64 = 30_000L // ← TS L26 DEEP_CHECK_INTERVAL_MS
@@ -71,11 +71,9 @@ pub struct PerformanceMonitor {
   session_id : String
   /// 待落盘的性能事件（对应 TS L32 eventBuffer）
   event_buffer : Array[@types.PerformanceEvent]
-  /// 待落盘的信号（对应 TS L33 signalBuffer）
-  signal_buffer : Array[@types.EvolutionSignal]
-  /// 本会话事件的环形副本，上限 `max_session_events`（对应 TS L35 sessionEvents）。
-  /// 用 Deque 使两端操作都是 O(1)，取代 TS L374 的 splice。
-  session_events : @deque.Deque[@types.PerformanceEvent]
+  /// 待落盘的信号（对应 TS L33 signalBuffer）。
+  /// 用 Deque：溢出丢最旧的 `pop_front` 是 O(1)，取代 `Array::remove(0)` 的 O(n) 搬移。
+  signal_buffer : @deque.Deque[@types.EvolutionSignal]
   /// 每插件的 O(1) 尾计数器
   trailing : Map[String, TrailingState]
   /// 已发射过 loop 信号的 `plugin:tool` 集合（对应 TS L38 loopReported）。
@@ -126,8 +124,7 @@ pub fn PerformanceMonitor::with_thresholds(
     signals: @store.Jsonl::new(signals_path),
     session_id: new_session_id(),
     event_buffer: [],
-    signal_buffer: [],
-    session_events: @deque.Deque([], capacity=max_session_events),
+    signal_buffer: @deque.Deque([], capacity=max_buffered_signals),
     trailing: Map([]),
     loop_reported: @ref.Ref(Map([])),
     struggle_reported: @ref.Ref(Map([])),
@@ -218,7 +215,6 @@ pub async fn PerformanceMonitor::record_tool_call(
 
   self.event_buffer.push(event)
   self.buffers_dirty.val = true
-  self.push_session_event(event)
   self.check_for_signals(plugin_id, tool, success)
 }
 
@@ -227,12 +223,11 @@ pub async fn PerformanceMonitor::record_tool_call(
 ///
 /// 两件事：① 回填该插件最近一条事件的 `user_feedback`；② 负面反馈发 strong/correction 信号。
 ///
-/// **一处 MoonBit 特有的实现差异**：TS 里 `sessionEvents` 与 `eventBuffer`
-/// 持有的是**同一个对象引用**，所以改 `lastEvent.context.user_feedback`（L130）
-/// 会同时反映到待落盘的缓冲里。MoonBit 的值语义下必须**两处都改**，
-/// 否则已缓冲但未落盘的事件拿不到反馈 —— 这正是 legacy 测试
-/// L117-127 含糊带过（"the in-memory update is exercised for absence of errors"）
-/// 的那处行为，此处做实。
+/// 回填作用于待落盘的 `event_buffer`：TS 里 `sessionEvents` 与 `eventBuffer`
+/// 持有**同一个对象引用**，改 `lastEvent.context.user_feedback`（L130）会同时反映到
+/// 两边；本仓不设环形副本，回填只落在缓冲上，随下一次 flush 成为生产可见的状态 ——
+/// 这正是 legacy 测试 L117-127 含糊带过（"the in-memory update is exercised for
+/// absence of errors"）的那处行为，此处做实。
 /// 这里**刻意不是** `async fn`：回填与信号入缓冲都是纯内存操作，
 /// 不做任何 I/O（落盘统一由 `flush_buffers` 负责）。
 /// 保留无意义的 `async` 会被工具链判为 unused_async，
@@ -243,9 +238,8 @@ pub fn PerformanceMonitor::record_user_feedback(
   feedback : @types.UserFeedback,
   context? : String? = None,
 ) -> Unit {
-  // ① 回填：待落盘缓冲（后写覆盖）与会话环形副本都要更新
+  // ① 回填：待落盘缓冲（后写覆盖）
   patch_last_feedback(self.event_buffer, plugin_id, feedback)
-  self.patch_last_session_feedback(plugin_id, feedback)
 
   // ② 负面反馈 → strong/correction 信号（对齐 TS L134-138）
   if feedback == @types.UserFeedback::Negative {
@@ -286,23 +280,6 @@ fn patch_last_feedback(
 }
 
 ///|
-/// 同上，但作用于 `Deque` 环形副本。返回 `Unit` 的理由同 `patch_last_feedback`。
-fn PerformanceMonitor::patch_last_session_feedback(
-  self : PerformanceMonitor,
-  plugin_id : String,
-  feedback : @types.UserFeedback,
-) -> Unit {
-  let n = self.session_events.length()
-  for i = n - 1; i >= 0; i = i - 1 {
-    let event = self.session_events.at(i)
-    if event.plugin_id == plugin_id {
-      self.session_events.set(i, with_feedback(event, feedback))
-      return
-    }
-  }
-}
-
-///|
 /// 返回一份把 `context.user_feedback` 换成 `feedback` 的事件副本。
 fn with_feedback(
   event : @types.PerformanceEvent,
@@ -319,19 +296,6 @@ fn with_feedback(
       conversation_turn: event.context.conversation_turn,
       related_tools: event.context.related_tools,
     },
-  }
-}
-
-///|
-/// 把事件并入会话环形副本，超过上限时从头部丢弃。
-/// `Deque` 两端都是 O(1)，取代 TS L374 的 `splice`（O(n) 搬移）。
-fn PerformanceMonitor::push_session_event(
-  self : PerformanceMonitor,
-  event : @types.PerformanceEvent,
-) -> Unit {
-  self.session_events.push_back(event)
-  while self.session_events.length() > max_session_events {
-    ignore(self.session_events.pop_front())
   }
 }
 
@@ -463,10 +427,10 @@ fn PerformanceMonitor::enqueue_signal(
   self : PerformanceMonitor,
   signal : @types.EvolutionSignal,
 ) -> Unit {
-  self.signal_buffer.push(signal)
+  self.signal_buffer.push_back(signal)
   self.buffers_dirty.val = true
   if self.signal_buffer.length() > max_buffered_signals {
-    ignore(self.signal_buffer.remove(0))
+    ignore(self.signal_buffer.pop_front())
   }
 }
 
@@ -484,10 +448,11 @@ pub async fn PerformanceMonitor::get_metrics(
   plugin_id : String,
   time_range? : @types.TimeRange = @types.TimeRange::All,
 ) -> Array[@types.PerformanceEvent] {
-  // 只在缓冲区有新数据时才 flush，减少不必要的磁盘 I/O
+  // 只在缓冲区有新数据时才 flush，减少不必要的磁盘 I/O。
+  // 脏标记本身由 flush_buffers 维护：缓冲真正清空时置 false，
+  // 写失败回填时保持 true，这里不做任何额外处理。
   if self.buffers_dirty.val {
     self.flush_buffers()
-    self.buffers_dirty.val = false
   }
   let all : Array[@types.PerformanceEvent] = self.metrics.load()
   let cutoff = time_range.cutoff_ms(@util.now_ms())

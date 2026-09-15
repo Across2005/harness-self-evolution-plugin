@@ -42,12 +42,17 @@
 /// 一个 JSONL 文件。
 pub struct Jsonl {
   path : String
+  /// ★ S5（store 评审）：`load` 发现文件不以换行结尾（尾部有崩溃残行）置真，
+  /// `append` / `append_many` 看到标志先把残行原子清掉再追加。
+  /// 本仓的 JSONL 一律由 append 写出（恒以换行结尾），故「无换行结尾」
+  /// 即残行，是成立的契约内判断。
+  mut tainted : Bool
 }
 
 ///|
 /// 构造。路径经 `expand_home` 展开，故可以直接传 `~/...`。
 pub fn Jsonl::new(path : String) -> Jsonl {
-  { path: @util.expand_home(path) }
+  { path: @util.expand_home(path), tainted: false }
 }
 
 ///|
@@ -101,6 +106,8 @@ fn[T : ToJson] encode_line(item : T) -> String {
 ///|
 /// 读取全部记录。文件不存在 → 空数组。
 /// 空行跳过；损坏行告警后跳过，**不中断**其余行的解析。
+/// 带 UTF-8 BOM 的文件先剥 BOM（★ S6）；尾部崩溃残行记入 `tainted`，
+/// 由 append / append_many 清理（★ S5）。
 ///
 /// 只约束 `FromJson`（不约束 `ToJson`）：读取路径不做序列化，
 /// 多余的约束会被工具链判为 unused_trait_bound。
@@ -109,6 +116,17 @@ pub async fn[T : @json.FromJson] Jsonl::load(self : Jsonl) -> Array[T] {
     return []
   }
   let content = @fs.read_file(self.path).text()
+  // ★ S6（store 评审）：剥掉 UTF-8 BOM（U+FEFF，磁盘上是 EF BB BF 三字节，
+  // 解码为单个 UTF-16 码元，故按 1 个码元切掉）。带着它首行的 JSON 解析
+  // 必然失败，整条记录会被当损坏行丢掉。
+  let content = if content.has_prefix("\u{FEFF}") {
+    content[1:].to_owned()
+  } else {
+    content
+  }
+  // ★ S5（store 评审）：文件不以换行结尾 = 尾部有崩溃残行（append 的
+  // 单次写被进程死亡截断的唯一残留形态）。记下标志，追加前清理。
+  self.tainted = content.length() > 0 && !content.has_suffix("\n")
   let out : Array[T] = []
   let mut lineno = 0
   for line in content.split("\n") {
@@ -132,33 +150,6 @@ pub async fn[T : @json.FromJson] Jsonl::load(self : Jsonl) -> Array[T] {
     }
   }
   out
-}
-
-///|
-/// 增量加载：只读取指定修改时间之后的新增记录。
-///
-/// **优化目的**：
-/// - 对于频繁查询的场景，避免每次都读取全文件
-/// - 监控器可以只加载新事件，而不是所有历史事件
-///
-/// **实现**：
-/// - 使用文件修改时间（mtime）判断是否有新数据
-/// - 如果文件修改时间 <= since_mtime，返回空数组
-/// - 否则读取全文件并解析（简单实现，未来可优化为只读取尾部）
-pub async fn[T : @json.FromJson] Jsonl::load_since(
-  self : Jsonl,
-  since_mtime : Int64,
-) -> Array[T] {
-  if !@fs.exists(self.path) {
-    return []
-  }
-  let (mtime_sec, _) = @fs.mtime(self.path)
-  if mtime_sec <= since_mtime {
-    return []
-  }
-  // 文件有更新，读取全文件
-  // TODO: 未来可优化为只读取尾部新增内容
-  self.load()
 }
 
 ///|
@@ -190,11 +181,16 @@ pub async fn Jsonl::trim_to(self : Jsonl, max_bytes : Int) -> Bool {
   }
   // 廉价预检：开只读句柄查一次大小，没超上限就整体不动。
   // `@fs` 没有路径级 stat 的 size（只有句级 `File::size`），这样已是最廉价的查法。
-  // close 用 `defer` 挂在作用域出口：`f.size()` 若 raise，手动 close 会被跳过，
-  // 句柄就此泄漏 —— defer 保证两条路径都会关闭。
-  let f = @fs.open(self.path, mode=ReadOnly)
-  defer f.close()
-  let size = f.size()
+  // close 用 `defer` 挂在**内层块**出口：`f.size()` 若 raise，手动 close 会被
+  // 跳过、句柄就此泄漏 —— defer 保证两条路径都会关闭。
+  // ★ S2（store 评审）：句柄必须在块内关闭 —— Windows 的 rename 不容忍
+  // 目标还被本函数自己打开的只读句柄占着；旧实现 defer 到函数出口，
+  // 晚于下面的 rename 触发，裁剪会随机性失败。
+  let size = {
+    let f = @fs.open(self.path, mode=ReadOnly)
+    defer f.close()
+    f.size()
+  }
   if size <= max_bytes.to_int64() {
     return false
   }
@@ -207,9 +203,11 @@ pub async fn Jsonl::trim_to(self : Jsonl, max_bytes : Int) -> Bool {
     // 这是「至少保住最新一条证据」优先于「严格不超上限」的唯一例外。
     return false
   }
-  let tmp = self.path + ".tmp"
+  // ★ S9：tmp 路径由 `unique_tmp_path` 生成，rename 失败由
+  // `rename_or_cleanup` 清残件 —— 与 write_json_atomic 同一配方。
+  let tmp = unique_tmp_path(self.path)
   @fs.write_file(tmp, raw[cut:eff_end], create_mode=CreateOrTruncate)
-  @fs.rename(tmp, self.path)
+  rename_or_cleanup(tmp, self.path)
   @util.log_info(
     "Store",
     "Trimmed \{self.path}: kept \{eff_end - cut} of \{total} bytes",
@@ -275,9 +273,31 @@ fn trim_window(raw : Bytes, max_bytes : Int) -> (Int, Int) {
 }
 
 ///|
+/// 清理文件尾的崩溃残行（★ S5 的执行侧）。
+///
+/// 读全文、截掉最后一个换行之后的字节、原子重写。「截掉」的依据是
+/// 契约内判断：本仓 JSONL 只由 append 写出（恒以换行结尾），无换行结尾的
+/// 尾巴只可能是崩溃残行 —— `load` 也从未把它交还给调用方。
+async fn Jsonl::heal_tainted_tail(self : Jsonl) -> Unit {
+  let raw = @fs.read_file(self.path).binary()
+  let mut end = raw.length()
+  while end > 0 && raw[end - 1] != b'\n' {
+    end -= 1
+  }
+  let tmp = unique_tmp_path(self.path)
+  @fs.write_file(tmp, raw[0:end], create_mode=CreateOrTruncate)
+  rename_or_cleanup(tmp, self.path)
+  self.tainted = false
+}
+
+///|
 /// 追加一条记录。自动创建父目录。
+/// 尾部有崩溃残行时先原子清掉再追加，新记录绝不与残行拼接（★ S5）。
 pub async fn[T : ToJson] Jsonl::append(self : Jsonl, item : T) -> Unit {
   self.ensure_parent()
+  if self.tainted {
+    self.heal_tainted_tail()
+  }
   let line = encode_line(item) + "\n"
   // create_mode 必须显式传：0.20.1 的 write_file 缺省会落到 TruncateExisting，
   // 其语义是「文件不存在则失败」（Phase 0 门禁实测）。追加要用 OpenOrCreate。
@@ -286,6 +306,7 @@ pub async fn[T : ToJson] Jsonl::append(self : Jsonl, item : T) -> Unit {
 
 ///|
 /// 批量追加。空数组短路（连父目录都不创建，对齐 TS L57）。
+/// 尾部有崩溃残行时先原子清掉再追加，同 `append`（★ S5）。
 ///
 /// **单次 `write_file`**：见文件头注释关于 append 原子性的论证。
 pub async fn[T : ToJson] Jsonl::append_many(
@@ -296,7 +317,10 @@ pub async fn[T : ToJson] Jsonl::append_many(
     return
   }
   self.ensure_parent()
-  let buf = StringBuilder::new(size_hint=items.length() * 64)
+  if self.tainted {
+    self.heal_tainted_tail()
+  }
+  let buf = StringBuilder(size_hint=items.length() * 64)
   for item in items {
     buf.write_string(encode_line(item))
     buf.write_char('\n')
@@ -307,6 +331,50 @@ pub async fn[T : ToJson] Jsonl::append_many(
     create_mode=OpenOrCreate,
     append=true,
   )
+}
+
+///|
+/// 临时文件路径的进程内序号。MoonBit 的 `mut` 只允许出现在局部绑定、
+/// 全局绑定不可变，故用「不可变全局绑定 + struct 可变字段」承载；
+/// 单线程协作式调度下自增与读取之间没有 await 点，天然原子。
+priv struct TmpPathSeq {
+  mut seq : Int
+}
+
+///|
+let tmp_path_seq : TmpPathSeq = { seq: 0 }
+
+///|
+/// 生成唯一临时文件路径：`<target>.<now_ms>.<seq>.tmp`（★ S9）。
+///
+/// 旧的固定 `<target>.tmp` 在两个原子写交错时会互相踩踏
+/// （A 写 tmp → B 写同一 tmp → A rename 改走了 B 的半成品）；
+/// 计数器 + 毫秒时间戳保证每次调用拿到的路径都不同。
+fn unique_tmp_path(target : String) -> String {
+  tmp_path_seq.seq += 1
+  "\{target}.\{@util.now_ms()}.\{tmp_path_seq.seq}.tmp"
+}
+
+///|
+/// rename 失败时尽力删除残留 tmp 再重新抛出（★ S9）。
+/// rename 是原子替换的最后一步，它失败时 tmp 里只留下无主半成品，
+/// 不清理会随失败重试不断堆积。
+///
+/// 必须是 async：`@fs.rename` / `@fs.remove` 都是 async 且会 raise，
+/// 同步且无错误类型的函数体里既调不动也 raise 不出去。
+/// 在 rename 失败的带错退出路径上清理残留 tmp（先删 tmp 再继续抛原始
+/// 错误），成功路径不触发。
+/// 注：moon 0.1.20260904 实测支持 `errdefer`（2026-09-15，此前
+/// 0.1.20260819 会 Parse error），错误路径清理改用官方推荐的
+/// errdefer 写法——仅在带错退出时执行，成功路径不触发，
+/// 与原「catch 捕获 + 清理 + 重抛」结构语义等价。
+/// 清理本身用 `catch { _ => () }` 吞错：tmp 已不存在等清理失败
+/// 不该掩盖原始的 rename 错误。
+async fn rename_or_cleanup(tmp : String, target : String) -> Unit {
+  errdefer {
+    @fs.remove(tmp) catch { _ => () }
+  }
+  @fs.rename(tmp, target)
 }
 
 ///|
@@ -321,13 +389,13 @@ pub async fn write_json_atomic(path : String, json : Json) -> Unit {
   if dir != "." && dir != "/" && !@fs.exists(dir) {
     @fs.mkdir(dir, recursive=true)
   }
-  let tmp = "\{target}.tmp"
+  let tmp = unique_tmp_path(target)
   @fs.write_file(
     tmp,
     json.stringify(indent=2) + "\n",
     create_mode=CreateOrTruncate,
   )
-  @fs.rename(tmp, target)
+  rename_or_cleanup(tmp, target)
 }
 
 ///|

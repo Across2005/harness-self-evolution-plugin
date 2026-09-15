@@ -95,15 +95,18 @@ pub fn DataPaths::agent_defs(self : DataPaths) -> String {
 ///|
 /// 宿主的用户级子 Agent 定义目录（v2.1）。**跨出插件数据根**：
 /// 根据宿主类型选择不同的路径，支持多种 harness 平台：
-/// - DeepSeek Harness: `~/.deepseek/harness/agents/`（首打）
-/// - Minimax Code: `~/.minimax/agents/`
 /// - ZCode: `~/.zcode/agents/`
-/// 默认使用 DeepSeek Harness 路径，可通过环境变量 `HARNESS_EVOLUTION_HOST` 覆盖。
+/// - Minimax Code: `~/.minimax/agents/`
+/// - DeepSeek Harness: `~/.deepseek/harness/agents/`
+/// 默认使用 ZCode 路径（★ S13：与 CONTEXT.md 词汇表「AgentScope」条目及
+/// types/agent_scope、mcp/schema、factory 等处的既有描述对齐 —— 它们
+/// 都写的是 `~/.zcode/agents/`，唯独这里的缺省值曾指向 DeepSeek），
+/// 可通过环境变量 `HARNESS_EVOLUTION_HOST` 覆盖。
 /// 测试经 `AgentFactory::with_dirs` 注入临时目录，绝不触碰真实的用户 home。
 pub fn user_agents_dir() -> String {
   let host = match @env.get_env_var("HARNESS_EVOLUTION_HOST") {
     Some(h) if h.length() > 0 => h
-    _ => "deepseek-harness"
+    _ => "zcode"
   }
   match host {
     "zcode" => @util.expand_home("~/.zcode/agents")

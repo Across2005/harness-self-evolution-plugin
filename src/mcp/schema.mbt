@@ -1,10 +1,11 @@
 ///|
-/// 10 个 MCP 工具的 JSON Schema 与参数解码。
+/// 13 个 MCP 工具的 JSON Schema 与参数解码。
 /// 取代 legacy-ts/src/mcp/server.ts L27-55 的 6 个 Zod raw shape。
 ///
 /// 前 7 个工具与 legacy-ts/package.json 的 `mcp.tools` 逐项同序，
 /// 后 3 个（create/list/delete_sub_agent）是 v2.1 子 Agent 工厂新增，
-/// 无 legacy 对应物（见 docs/subagent-factory.md）。
+/// 无 legacy 对应物（见 docs/subagent-factory.md）；
+/// 再后 3 个（analyze_plugins/evolve_plugin/manage_sub_agent）是 v2.3 合并工具。
 ///
 /// MoonBit 没有 zod，Schema 手写。这看起来是退步，实则消除了一处重复：
 /// TS 版把「取值域」写在 zod 里（`z.enum([...])`），
@@ -47,6 +48,21 @@ pub let default_sub_agent_scope : @types.AgentScope = @types.AgentScope::Plugin
 /// `create_sub_agent.overwrite` 的默认值（v2.1）：同名已存在时报错而非覆盖，
 /// 破坏性动作必须显式声明（与 ProposalStore 状态机的显式性原则一致）。
 pub let default_sub_agent_overwrite : Bool = false
+
+///|
+/// `analyze_plugins.mode` 的默认值（v2.3 合并工具）：
+/// both —— 一次调用同时刷新档案与指标。
+pub let default_analyze_mode : @types.ScanMode = @types.ScanMode::Both
+
+///|
+/// `evolve_plugin.action` 的默认值（v2.3 合并工具）：
+/// propose —— 生成提案无副作用；执行必须显式选择。
+pub let default_evolve_action : @types.EvolveAction = @types.EvolveAction::Propose
+
+///|
+/// `manage_sub_agent.action` 的默认值（v2.3 合并工具）：
+/// list —— 只读动作做默认值最安全。
+pub let default_manage_action : @types.ManageAction = @types.ManageAction::List
 
 // ----------------------------------------------------------------------------
 // Schema 构造
@@ -372,8 +388,9 @@ pub(all) struct DeleteSubAgentArgs {
 /// 合并了 `scan_plugins` 和 `get_plugin_metrics` 的功能。
 /// mode="scan" 执行扫描，mode="metrics" 获取指标，mode="both" 两者都做。
 pub(all) struct AnalyzePluginsArgs {
-  /// 操作模式：scan（扫描）、metrics（获取指标）、both（两者）
-  mode : String
+  /// 操作模式：scan（扫描）、metrics（获取指标）、both（两者）；
+  /// Option —— 缺省时 handler 取 default_analyze_mode（schema 声明的默认值）
+  mode : String?
   /// 插件 ID（metrics/both 模式必填）
   plugin_id : String?
   /// 强制重新扫描（scan/both 模式可选）
@@ -394,8 +411,8 @@ pub fn analyze_plugins_schema() -> Json {
       "mode": {
         "type": "string",
         "description": "操作模式：scan（扫描）、metrics（获取指标）、both（两者）",
-        "enum": Json::array([Json::string("scan"), Json::string("metrics"), Json::string("both")]),
-        "default": Json::string("both"),
+        "enum": ToJson::to_json(@types.scan_mode_wire.names()),
+        "default": Json::string(default_analyze_mode.wire_name()),
       },
       "plugin_id": str_prop("插件 ID（metrics/both 模式必填）"),
       "force_rescan": bool_prop("强制重新扫描（scan/both 模式可选）", default_force_rescan),
@@ -419,8 +436,9 @@ pub fn analyze_plugins_schema() -> Json {
 /// 合并了 `propose_evolution` 和 `execute_evolution` 的功能。
 /// action="propose" 生成提案，action="execute" 执行提案。
 pub(all) struct EvolvePluginArgs {
-  /// 操作模式：propose（生成提案）、execute（执行提案）
-  action : String
+  /// 操作模式：propose（生成提案）、execute（执行提案）；
+  /// Option —— 缺省时 handler 取 default_evolve_action（schema 声明的默认值）
+  action : String?
   /// 插件 ID（propose 模式必填）
   plugin_id : String?
   /// 提案 ID（execute 模式必填）
@@ -439,8 +457,8 @@ pub fn evolve_plugin_schema() -> Json {
       "action": {
         "type": "string",
         "description": "操作模式：propose（生成提案）、execute（执行提案）",
-        "enum": Json::array([Json::string("propose"), Json::string("execute")]),
-        "default": Json::string("propose"),
+        "enum": ToJson::to_json(@types.evolve_action_wire.names()),
+        "default": Json::string(default_evolve_action.wire_name()),
       },
       "plugin_id": str_prop("插件 ID（propose 模式必填）"),
       "proposal_id": str_prop("提案 ID（execute 模式必填）"),
@@ -456,8 +474,9 @@ pub fn evolve_plugin_schema() -> Json {
 /// 合并了 `create_sub_agent`、`list_sub_agents` 和 `delete_sub_agent` 的功能。
 /// action="create" 创建，action="list" 列出，action="delete" 删除。
 pub(all) struct ManageSubAgentArgs {
-  /// 操作模式：create（创建）、list（列出）、delete（删除）
-  action : String
+  /// 操作模式：create（创建）、list（列出）、delete（删除）；
+  /// Option —— 缺省时 handler 取 default_manage_action（schema 声明的默认值）
+  action : String?
   /// Agent 名称（create/delete 模式必填）
   name : String?
   /// Agent 描述（create 模式必填）
@@ -482,8 +501,8 @@ pub fn manage_sub_agent_schema() -> Json {
       "action": {
         "type": "string",
         "description": "操作模式：create（创建）、list（列出）、delete（删除）",
-        "enum": Json::array([Json::string("create"), Json::string("list"), Json::string("delete")]),
-        "default": Json::string("list"),
+        "enum": ToJson::to_json(@types.manage_action_wire.names()),
+        "default": Json::string(default_manage_action.wire_name()),
       },
       "name": str_prop("Agent 名称（create/delete 模式必填）"),
       "description": str_prop("Agent 描述（create 模式必填）"),

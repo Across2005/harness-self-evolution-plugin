@@ -111,6 +111,49 @@ pub fn expand_home(p : String) -> String {
 }
 
 ///|
+/// 词法消解路径中的 `.` 与 `..` 段（不触碰文件系统，不解析符号链接）。
+///
+/// 与 `path_normalize` 的分工：normalize 只折叠分隔符与空段，**故意**保留
+/// `.` / `..`（既有调用方依赖该原样语义，不动它）；本函数在其上再做消解，
+/// 供安全边界比较使用（见 executor/sandbox.mbt 的 `is_within_boundary`）。
+///
+/// 规则：`.` 段丢弃；非开头的 `..` 段吃掉前一段；**开头**的 `..` 保留 ——
+/// 相对路径（如 `../x`）在词法上无法确定父目录。返回结果因此仍可能含
+/// 未消解的 `..`，调用方必须把这种结果视为不可判定并拒绝。
+pub fn path_lexical_resolve(p : String) -> String {
+  let s = path_normalize(p)
+  let unc = s.has_prefix("//")
+  let absolute = s.has_prefix("/")
+  // 切掉归一化保留的引导前缀，避免 "//server" 被再切成空段
+  let body : String = if unc {
+    s[2:].to_owned()
+  } else if absolute {
+    s[1:].to_owned()
+  } else {
+    s
+  }
+  let segments : Array[String] = []
+  for seg in body.split("/") {
+    let t = seg.to_owned()
+    if t.length() == 0 || t == "." {
+      continue
+    }
+    // 非开头的 ".." 吃掉前一段；前一段已是 ".."（或栈空）时保留原样
+    if t == ".." && segments.length() > 0 && segments[segments.length() - 1] != ".." {
+      let _ = segments.pop()
+      continue
+    }
+    segments.push(t)
+  }
+  let prefix = if unc { "//" } else if absolute { "/" } else { "" }
+  let joined = segments.join("/")
+  if joined.length() == 0 && (unc || absolute) {
+    return prefix
+  }
+  prefix + joined
+}
+
+///|
 /// `p` 相对 `root` 的深度：`root` 自身为 0，直接子项为 1，以此类推。
 /// `p` 不在 `root` 下时返回 -1。供 scanner 的清单发现深度限制（缺陷 F1）使用。
 ///

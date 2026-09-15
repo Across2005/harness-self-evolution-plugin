@@ -136,7 +136,8 @@ pub async fn hanging_task(task : @types.SubAgentTask) -> Json {
 ///
 /// **当前实现**：
 /// - 检查环境变量是否存在
-/// - 存在时使用进程执行（需要正确的 @process API）
+/// - 存在 → 显式失败（真实进程执行尚未实现；静默返回模拟成功会让上层
+///   把「假执行」当真，执行结果是回滚/合入决策的依据 —— 宁可报错不可假绿）
 /// - 不存在时回退到模拟实现
 pub async fn process_task(task : @types.SubAgentTask) -> Json {
   // 检查环境变量
@@ -144,22 +145,13 @@ pub async fn process_task(task : @types.SubAgentTask) -> Json {
     Some(cmd) => cmd != ""
     None => false
   }
-  
+
   if has_env {
-    // TODO: 实现真实进程执行
-    // 需要正确的 @process.collect_output API
-    // 当前版本回退到模拟实现
-    @async.sleep(100)
-    {
-      "simulated": true,
-      "task": Json::string(task.task),
-      "input": task.input,
-      "message": "Process execution placeholder (env configured but API not available)",
-    }
-  } else {
-    // 未配置环境变量，回退到模拟实现
-    simulated_task(task)
+    // X9: 已配置真实执行命令但实现未就绪 —— 必须显式失败，不返回模拟成功。
+    raise Failure("process execution not implemented")
   }
+  // 未配置环境变量，回退到模拟实现
+  simulated_task(task)
 }
 
 ///|
@@ -172,8 +164,9 @@ pub async fn process_task(task : @types.SubAgentTask) -> Json {
 ///
 /// **当前实现**：
 /// - 检查环境变量 `HARNESS_EVOLUTION_REAL_VALIDATION`
-/// - 存在时使用真实验证（需要正确的 @process API）
-/// - 不存在时回退到模拟实现
+/// - 为 "true" → 显式失败（真实验证未实现；这是验证闸门，
+///   返回模拟通过就是假绿，比失败更危险 —— 宁可报错不可假绿）
+/// - 未开启时回退到模拟实现
 pub async fn real_validation(
   level : @types.ValidationLevelTag,
   _proposal : @types.EvolutionProposal,
@@ -183,20 +176,11 @@ pub async fn real_validation(
     Some(val) => val == "true"
     None => false
   }
-  
+
   if use_real {
-    // TODO: 实现真实验证
-    // 需要正确的 @process.collect_output API
-    // 当前版本回退到模拟实现
-    let (delay_ms, message) = match level {
-      @types.ValidationLevelTag::T0 => (50, "T0 Syntax validation passed (env configured, simulated)")
-      @types.ValidationLevelTag::T1 => (100, "T1 Functionality validation passed (env configured, simulated)")
-      @types.ValidationLevelTag::T2 => (150, "T2 Regression validation passed (env configured, simulated)")
-    }
-    @async.sleep(delay_ms)
-    (true, message)
-  } else {
-    // 回退到模拟实现
-    simulated_validation(level, _proposal)
+    // X10: 开关打开但真实验证未就绪 —— 显式报错，绝不返回模拟通过。
+    raise Failure("real validation not implemented")
   }
+  // 回退到模拟实现
+  simulated_validation(level, _proposal)
 }

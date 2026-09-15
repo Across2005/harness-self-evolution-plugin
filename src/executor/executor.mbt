@@ -268,7 +268,14 @@ async fn run_validation_level(
   spec : @types.ValidationLevel,
   proposal : @types.EvolutionProposal,
 ) -> @types.SubAgentResult {
-  let timeout = spec.timeout_ms.unwrap_or(default_validation_timeout_ms)
+  // X8: timeout_ms 缺省或 <= 0 统一回退默认值 ——
+  // 0 会让 with_timeout_opt 立即超时，负数则让保护失效。
+  let configured = spec.timeout_ms.unwrap_or(0)
+  let timeout = if configured <= 0 {
+    default_validation_timeout_ms
+  } else {
+    configured
+  }
   let started = @util.now_ms()
   let outcome : Result[(Bool, String)?, String] = Ok(
     @async.with_timeout_opt(timeout, () => validator(spec.level, proposal)),
@@ -330,8 +337,15 @@ async fn run_with_timeout(
     "Executing task: \{task.agent.wire_name()} - \{task.task}",
   )
   let started = @util.now_ms()
+  // X8: timeout_ms <= 0 统一回退默认值（与 run_validation_level 同规则）——
+  // 0 会让 with_timeout_opt 立即超时，负数则让保护失效。
+  let timeout = if task.timeout_ms <= 0 {
+    default_validation_timeout_ms
+  } else {
+    task.timeout_ms
+  }
   let outcome : Result[Json?, String] = Ok(
-    @async.with_timeout_opt(task.timeout_ms, () => runner(task)),
+    @async.with_timeout_opt(timeout, () => runner(task)),
   ) catch {
     e => Err(e.to_string())
   }
@@ -354,7 +368,7 @@ async fn run_with_timeout(
         agent: task.agent,
         success: false,
         output: None,
-        error: Some("timeout after \{task.timeout_ms}ms"),
+        error: Some("timeout after \{timeout}ms"),
         duration_ms: finished - started,
       }
     Err(msg) =>

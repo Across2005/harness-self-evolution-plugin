@@ -8,8 +8,9 @@
 /// **文件名规则**：一律 `<name>.md`，调用方传的 `name` 不带扩展名
 /// （`list()` 返回的名字同样不带）。name 合法性有**两道防线**：
 /// 第一道在 factory 的校验（仅小写字母/数字/连字符），
-/// 第二道在本包 —— 含 `/`、`\`、`..` 或为空的 name 直接 raise，
-/// 防止路径穿越。store 是最后一道防线，不依赖上游调用方的自觉。
+/// 第二道在本包 —— 为空或含白名单之外字符的 name 直接 raise，
+/// 防止路径穿越与 Windows 保留文件名（★ S8）。store 是最后一道防线，
+/// 不依赖上游调用方的自觉。
 pub struct AgentDefStore {
   /// 定义文件所在目录（包内字段；外部经 `at()` 构造、经 `path_of()` 取路径）
   dir : String
@@ -23,9 +24,20 @@ pub fn AgentDefStore::at(dir : String) -> AgentDefStore {
 }
 
 ///|
+/// name 字符白名单：仅小写字母 / 数字 / `-`，与 factory 的 `validate_name`
+/// 字符集规则保持一致（factory.mbt 的 `agent_name_chars`）。store 不能反向
+/// 依赖 factory（包分层：factory → store），故此处誊抄同一份字符集：
+/// 两道防线必须认同一套合法名字，改一处就必须同步改另一处。
+/// ASCII 白名单逐字符判断（选型理由同 factory：本仓对正则锚点语义有
+/// 实测踩坑记录，逐字符判断零歧义且可单测），把 `/`、`\`、`..` 与
+/// Windows 保留字符（`< > : " | ? *`）等一切非法文件名形态一并挡下。
+let agent_def_name_chars : String = "abcdefghijklmnopqrstuvwxyz0123456789-"
+
+///|
 /// 名为 `name` 的定义文件的完整路径。
-/// 拼路径**之前**做最后一道 name 校验：为空或含 `/`、`\`、`..` 直接 raise
-/// —— 这些字符会让 `<dir>/<name>.md` 逃出定义目录（路径穿越）。
+/// 拼路径**之前**做最后一道 name 校验：为空或含白名单之外字符直接 raise
+/// —— 这些字符会让 `<dir>/<name>.md` 逃出定义目录（路径穿越），
+/// 或在 Windows 上构成非法/保留文件名（★ S8，原先只挡 `/`、`\`、`..`）。
 pub fn AgentDefStore::path_of(
   self : AgentDefStore,
   name : String,
@@ -33,10 +45,12 @@ pub fn AgentDefStore::path_of(
   if name.length() == 0 {
     raise Failure("agent definition name must not be empty")
   }
-  if name.contains("/") || name.contains("\\") || name.contains("..") {
-    raise Failure(
-      "invalid agent definition name \"\{name}\": must not contain '/', '\\' or '..'",
-    )
+  for ch in name.iter() {
+    if !agent_def_name_chars.contains_char(ch) {
+      raise Failure(
+        "invalid agent definition name \"\{name}\": only lowercase letters, digits and '-' are allowed",
+      )
+    }
   }
   @util.path_join(self.dir, "\{name}.md")
 }
@@ -88,9 +102,12 @@ pub async fn AgentDefStore::write(
   }
   // 统一走 tmp + rename：新文件与覆盖都是「写临时文件 → 原子改名」。
   // 不存在时 rename 同等于创建；存在时原子替换。绝不原地截断目标。
-  let tmp = "\{path}.tmp"
+  // ★ S9：tmp 路径由 `unique_tmp_path` 生成，rename 失败由
+  // `rename_or_cleanup` 清残件 —— 与 write_json_atomic 同一配方。
+  // （固定 `.tmp` 在两个原子写交错时会互相踩踏，见 jsonl.mbt 的论证。）
+  let tmp = unique_tmp_path(path)
   @fs.write_file(tmp, content, create_mode=CreateOrTruncate)
-  @fs.rename(tmp, path)
+  rename_or_cleanup(tmp, path)
   existed
 }
 

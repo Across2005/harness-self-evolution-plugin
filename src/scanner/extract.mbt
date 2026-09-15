@@ -79,29 +79,35 @@ let re_name_field : @string.Regex = @string.Regex::unsafe_from_string(
 )
 
 // R10-R13：文本/学术写作能力模式。用于识别文本生成、学术写作、人机辨识等领域。
+// 与 R1-R5 一致，`capture1` 取第 1 捕获组作为 capability 输出，
+// 故三条模式都必须有一个捕获组 —— 把整个命中短语包进去
+// （如 "academic writing"、"citation apa"），丢失捕获组会让模式永远产出不了能力。
 
 ///|
-/// 写作能力模式：识别 write/compose/draft/author 等动词
+/// 写作能力模式：识别 write/compose/draft/author 等动词，捕获其宾语（单个 ASCII 词）
 let re_writing : @string.Regex = @string.Regex::unsafe_from_string(
   "(?i:can[ \t\n\r]+(?:write|compose|draft|author)[ \t\n\r]+([A-Za-z0-9_]+))",
 )
 
 ///|
-/// 学术写作模式：识别 academic/scholarly/research + writing/paper/article
+/// 学术写作模式：识别 academic/scholarly/research + writing/paper/article/literature，
+/// 捕获整个命中短语（如 "academic writing"）
 let re_academic : @string.Regex = @string.Regex::unsafe_from_string(
-  "(?i:(?:academic|scholarly|research)[ \t\n\r]+(?:writing|paper|article|literature))",
+  "(?i:((?:academic|scholarly|research)[ \t\n\r]+(?:writing|paper|article|literature)))",
 )
 
 ///|
-/// 人机辨识模式：识别 humanize/anti-ai/natural + text/writing/style
+/// 人机辨识模式：识别 humanize/anti-ai/natural/human + text/writing/style/language，
+/// 捕获整个命中短语（如 "humanize text"）
 let re_humanize : @string.Regex = @string.Regex::unsafe_from_string(
-  "(?i:(?:humanize|anti.?ai|natural|human)[ \t\n\r]+(?:text|writing|style|language))",
+  "(?i:((?:humanize|anti.?ai|natural|human)[ \t\n\r]+(?:text|writing|style|language)))",
 )
 
 ///|
-/// 格式规范模式：识别 format/style/template + apa/mla/chicago/ieee
+/// 格式规范模式：识别 format/style/template/citation + apa/mla/chicago/ieee/vancouver，
+/// 捕获整个命中短语（如 "citation apa"）
 let re_format : @string.Regex = @string.Regex::unsafe_from_string(
-  "(?i:(?:format|style|template|citation)[ \t\n\r]+(?:apa|mla|chicago|ieee|vancouver))",
+  "(?i:((?:format|style|template|citation)[ \t\n\r]+(?:apa|mla|chicago|ieee|vancouver)))",
 )
 
 ///|
@@ -166,13 +172,16 @@ pub fn extract_from_skill_text_enhanced(text : String) -> Extracted {
       text_capabilities.push(cap.to_lower())
     }
   }
-  
-  // 合并并去重（保持首次出现顺序）
+
+  // 合并 = 简单 concat，**不去重** —— 与 base 版语义完全一致：
+  // TS 在此处不去重（去重发生在存进 metadata 时，见 scanner.mbt 的
+  // `@types.dedup_ordered`），重复项会抬高 `complexity_score`。
+  // 「顺手去重」会静默改变 complexity_score，进而翻转 engine 的 `> 7` 判定。
   let all_capabilities = base.capabilities
   for c in text_capabilities {
     all_capabilities.push(c)
   }
-  
+
   { capabilities: all_capabilities, tools: base.tools }
 }
 

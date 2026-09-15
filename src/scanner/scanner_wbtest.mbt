@@ -501,3 +501,67 @@ async test "list_files_recursive stops at the depth cap (W10)" {
   let too_deep = @util.path_join(deep, "SKILL.md")
   assert_false(files.contains(too_deep))
 }
+
+///|
+/// **N8 的回归测试：多 root 扫描的确定性。**
+/// 修复前：`scan_all` 并行 spawn 后各 task 直接往 `self` 吸收，「同 id 先到先得」
+/// 退化成 task 交错先后的竞速 —— 跨 root 撞 `plugin_id` 时胜者与输出顺序都不确定。
+/// 修复后：每 root 扫进自己的桶，group 结束后按 `cfg.roots` 顺序合并：
+/// 先 root 优先、输出顺序 = root 顺序 + root 内发现顺序。
+///
+/// 命名刻意反向：root_b 里撞 id 的目录叫 `a-first`（字典序占先），
+/// 修复前它若先被吸收就会赢；修复后胜负只由 root 顺序决定。
+async test "N8: multi-root scan merges in root order, first root wins on id clash" {
+  let tmp = @fs.tmpdir(prefix="evo-scan-n8-")
+  defer @fs.rmdir(tmp, recursive=true)
+
+  let root_a = @util.path_join(tmp, "root-a")
+  let root_b = @util.path_join(tmp, "root-b")
+  @fs.mkdir(root_a, recursive=true)
+  @fs.mkdir(root_b, recursive=true)
+
+  // 两个 root 声明同一个 plugin_id（dup-1.0.0）
+  let dup_pkg =
+    #|{"name":"dup","version":"1.0.0"}
+  ignore(
+    make_plugin(root_a, "z-later", [
+      ("package.json", dup_pkg),
+      ("SKILL.md", "can from_root_a"),
+    ]),
+  )
+  ignore(
+    make_plugin(root_b, "a-first", [
+      ("package.json", dup_pkg),
+      ("SKILL.md", "can from_root_b"),
+    ]),
+  )
+  // 再各放一个不同 id 的插件，钉住输出顺序 = root 顺序 + root 内字典序
+  let solo_a =
+    #|{"name":"solo-a","version":"1.0.0"}
+  let solo_b =
+    #|{"name":"solo-b","version":"1.0.0"}
+  ignore(make_plugin(root_a, "m-solo", [("package.json", solo_a)]))
+  ignore(make_plugin(root_b, "m-solo", [("package.json", solo_b)]))
+
+  let cache_path = @util.path_join(tmp, "plugin-cache.json")
+  let scanner = PluginScanner::new(ScanConfig::custom([root_a, root_b], cache_path))
+  scanner.scan_all(force_rescan=true)
+
+  assert_eq(scanner.count(), 3)
+  // 胜者确定：先 root（root_a）的 z-later 胜出 —— 与目录名字典序无关
+  json_inspect(scanner.get("dup-1.0.0").unwrap().capabilities, content=[
+    "from_root_a",
+  ])
+  // 输出顺序可复现：root_a 的全部（m-solo < z-later）→ root_b 的全部
+  json_inspect(scanner.all().map(fn(p) { p.plugin_id }), content=[
+    "solo-a-1.0.0", "dup-1.0.0", "solo-b-1.0.0",
+  ])
+
+  // 第二个实例走缓存命中路径，合并顺序必须与首次扫描完全一致
+  let second = PluginScanner::new(ScanConfig::custom([root_a, root_b], cache_path))
+  second.scan_all(force_rescan=false)
+  assert_eq(
+    second.all().map(fn(p) { p.plugin_id }),
+    scanner.all().map(fn(p) { p.plugin_id }),
+  )
+}

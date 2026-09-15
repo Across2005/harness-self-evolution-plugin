@@ -1059,3 +1059,217 @@ async test "mixed domain is not claimed by writing routing" {
     None => abort("expected a proposal")
   }
 }
+
+// ============================================================================
+// v2.5 接线：写作类三型的变更由 AcademicWritingEngine 丰富
+// ============================================================================
+
+///|
+/// 在插件目录里写入一份 SKILL.md（供 enrich_writing_changes 读取）。
+async fn seed_skill_md(dir : String, content : String) -> Unit {
+  @fs.write_file(
+    @util.path_join(dir, "SKILL.md"),
+    content,
+    create_mode=CreateOrTruncate,
+  )
+}
+
+///|
+/// 收集一份提案里全部 UpdateDocumentation 条目（跨组摊平）。
+fn all_doc_items(p : @types.EvolutionProposal) -> Array[@types.DocumentationUpdate] {
+  let items : Array[@types.DocumentationUpdate] = []
+  for c in p.proposed_changes {
+    match c {
+      @types.Change::UpdateDocumentation(docs) =>
+        for d in docs {
+          items.push(d)
+        }
+      _ => ()
+    }
+  }
+  items
+}
+
+///|
+/// ★ 接线主钉子：写作领域 + correction → AntiAIDetection，且提案 changes
+/// 体现 AcademicWritingEngine 的逐条词汇替换建议。
+///
+/// SKILL.md 含 9 个 AI 标记词（每个扣 0.5 分）→ 词汇维分 10 - 4.5 = 5.5 < 6.0，
+/// 逐条触发改写建议；其余维度无痕迹 → 只产出这 9 条。
+/// 断言具体到建议文本：delve → examine 的替换句必须逐字出现。
+async test "academic correction proposal carries academic writing engine suggestions" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  seed_skill_md(
+    dir,
+    "delve crucial pivotal comprehensive multifaceted intricate vibrant profound essential",
+  )
+  let (engine, _) = make_engine(dir, @types.Intensity::Half)
+  let plugin = { ..academic_plugin(), path: dir }
+
+  match engine.generate_proposal(plugin, signals=Some([strong_correction()])).proposal() {
+    Some(p) => {
+      assert_eq(p.evolution_type, @types.EvolutionType::AntiAIDetection)
+      let docs = all_doc_items(p)
+      // 默认 2 条（Anti-AI Detection Guidelines + User Preferences）+ 9 条建议，
+      // 建议并入已存在的 UpdateDocumentation 组，不另起组
+      assert_eq(docs.length(), 11)
+      let mut rewrite_count = 0
+      let mut has_delve = false
+      for d in docs {
+        if d.new_content.has_prefix("将 '") {
+          rewrite_count += 1
+        }
+        if d.new_content == "将 'delve' 替换为 'examine'" {
+          has_delve = true
+        }
+      }
+      assert_eq(rewrite_count, 9)
+      assert_true(has_delve)
+      // 建议条目必须标注出处（reason 指向学术写作引擎）
+      let mut sourced = 0
+      for d in docs {
+        if d.reason == "学术写作引擎：基于 SKILL.md 分析的可执行建议" {
+          sourced += 1
+        }
+      }
+      assert_eq(sourced, 9)
+    }
+    None => abort("expected a proposal")
+  }
+}
+
+///|
+/// SKILL.md 缺失（read_text_or_none → None）→ 回退 plan_changes 的默认变更，
+/// 三型提案仍能产出（不能因为丰富失败而吞掉提案）。
+async test "writing proposal falls back to default changes when SKILL.md is missing" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  let (engine, _) = make_engine(dir, @types.Intensity::Half)
+  let plugin = { ..academic_plugin(), path: dir }
+
+  match engine.generate_proposal(plugin, signals=Some([strong_correction()])).proposal() {
+    Some(p) => {
+      assert_eq(p.evolution_type, @types.EvolutionType::AntiAIDetection)
+      let docs = all_doc_items(p)
+      // 只有 plan_anti_ai_detection_docs 的默认 2 条，没有任何引擎建议
+      assert_eq(docs.length(), 2)
+      for d in docs {
+        assert_false(d.new_content.has_prefix("将 '"))
+      }
+    }
+    None => abort("expected a proposal")
+  }
+}
+
+///|
+/// SKILL.md 存在但无 AI 痕迹（各维分 10 → 分析不出建议）→ 同样回退默认变更。
+async test "writing proposal falls back to default changes when analysis yields nothing" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  seed_skill_md(dir, "A calm human note about research methods.")
+  let (engine, _) = make_engine(dir, @types.Intensity::Half)
+  let plugin = { ..academic_plugin(), path: dir }
+
+  match engine.generate_proposal(plugin, signals=Some([strong_correction()])).proposal() {
+    Some(p) => {
+      let docs = all_doc_items(p)
+      assert_eq(docs.length(), 2)
+      for d in docs {
+        assert_false(d.new_content.has_prefix("将 '"))
+      }
+    }
+    None => abort("expected a proposal")
+  }
+}
+
+///|
+/// TextGeneration 领域 + preference → CitationNormalization，建议同样进 changes
+/// （SKILL.md 无 doi:/https://、无括号、无 et al. → 3 条引用规范建议）。
+async test "textgeneration citation proposal carries citation suggestions" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  seed_skill_md(dir, "A plain paragraph of prose without citations.")
+  let (engine, _) = make_engine(dir, @types.Intensity::Full)
+  let plugin = {
+    ..mock_plugin(),
+    domain: @types.SkillDomain::TextGeneration,
+    path: dir,
+  }
+  let pref = signal(
+    @types.SignalStrength::Medium,
+    @types.SignalCategory::Preference,
+    "prefers IEEE citation format",
+  )
+
+  match engine.generate_proposal(plugin, signals=Some([pref])).proposal() {
+    Some(p) => {
+      assert_eq(p.evolution_type, @types.EvolutionType::CitationNormalization)
+      let docs = all_doc_items(p)
+      // 默认 1 条 Citation Format Guidelines + 3 条建议（并入同一组）
+      assert_eq(docs.length(), 4)
+      let mut suggestion_count = 0
+      let mut has_doi = false
+      for d in docs {
+        if d.reason == "学术写作引擎：基于 SKILL.md 分析的可执行建议" {
+          suggestion_count += 1
+        }
+        if d.new_content == "添加 DOI 或 URL 引用" {
+          has_doi = true
+        }
+      }
+      assert_eq(suggestion_count, 3)
+      assert_true(has_doi)
+    }
+    None => abort("expected a proposal")
+  }
+}
+
+///|
+/// 非写作领域（Programming）完全不经过学术写作引擎：
+/// 即使 SKILL.md 满是 AI 痕迹，correction 提案也保持通用分支的变更形状。
+async test "programming domain never consults the academic writing engine" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  seed_skill_md(
+    dir,
+    "delve crucial pivotal comprehensive multifaceted intricate vibrant profound essential",
+  )
+  let (engine, _) = make_engine(dir, @types.Intensity::Half)
+  let plugin = { ..mock_plugin(), path: dir }
+
+  match engine.generate_proposal(plugin, signals=Some([strong_correction()])).proposal() {
+    Some(p) => {
+      assert_eq(p.evolution_type, @types.EvolutionType::ErrorHandlingImprovement)
+      assert_eq(p.proposed_changes.length(), 1)
+      match p.proposed_changes[0] {
+        @types.Change::ImproveErrorHandling(xs) => assert_eq(xs.length(), 1)
+        _ => abort("expected ImproveErrorHandling")
+      }
+    }
+    None => abort("expected a proposal")
+  }
+}
+
+///|
+/// 接线不动 6 种结果语义：写作提案第二次生成仍命中 pending 闸门
+/// （AlreadyPending 返回同一份提案），不会被丰富逻辑绕开或改变。
+async test "writing proposals still honour the pending gate after enrichment" {
+  let dir = @fs.tmpdir(prefix="evo-engine-")
+  defer @fs.rmdir(dir, recursive=true)
+  seed_skill_md(
+    dir,
+    "delve crucial pivotal comprehensive multifaceted intricate vibrant profound essential",
+  )
+  let (engine, _) = make_engine(dir, @types.Intensity::Half)
+  let plugin = { ..academic_plugin(), path: dir }
+
+  let first = engine.generate_proposal(plugin, signals=Some([strong_correction()]))
+  let second = engine.generate_proposal(plugin, signals=Some([strong_correction()]))
+  assert_true(first is ProposalOutcome::Created(_))
+  assert_true(second is ProposalOutcome::AlreadyPending(_))
+  match (first.proposal(), second.proposal()) {
+    (Some(a), Some(b)) => assert_eq(b.proposal_id, a.proposal_id)
+    _ => abort("expected two proposals")
+  }
+}

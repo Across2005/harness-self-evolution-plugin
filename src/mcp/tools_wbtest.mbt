@@ -243,6 +243,19 @@ async test "an unknown method yields -32601" {
 }
 
 ///|
+/// 协议细节 6：batch（顶层 JSON 数组）显式拒绝为 -32600 —— MCP stdio
+/// 无批量语义，不逐条拆开处理（见 jsonrpc.mbt 文件头）。
+async test "a batch payload (top-level array) is rejected as -32600" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  let resp = send(state, "[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}]")
+  assert_eq(error_code(resp), code_invalid_request)
+  // 形状非法取不到 id → 渲染成 null
+  assert_eq(obj(resp).get("id"), Some(Json::null()))
+}
+
+///|
 /// ★ -32602（**协议级**）与 isError（**工具级**）的分界。
 ///
 /// 「没有这个工具」是请求本身不合法 → -32602，与官方 MCP SDK 一致；
@@ -1455,4 +1468,184 @@ async test "an invalid sub-agent name becomes isError explaining the rule" {
     Some(String(m)) => assert_true(m.contains("invalid sub-agent name"))
     _ => abort("expected an error message in the isError payload")
   }
+}
+
+// ============================================================================
+// v2.3 合并工具：判别式、默认值与委托透传
+// ============================================================================
+
+///|
+/// M2：`analyze_plugins` 的未知 mode 不再静默按成功形状返回，
+/// 而是 raise Failure → isError。错误消息里的合法值列表由
+/// scan_mode_wire.names() 驱动（wire 表的第三处消费）。
+async test "analyze_plugins with an unknown mode becomes isError" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  let resp = send(
+    state,
+    call_line(1, "analyze_plugins", { "mode": "teleported" }),
+  )
+  assert_eq(is_tool_error(resp), true)
+  let body = obj(tool_payload(resp))
+  match body.get("error") {
+    Some(String(m)) => {
+      assert_true(m.contains("Unknown mode: teleported"))
+      // 合法值列表与 wire 表同源，三个取值都要出现
+      assert_true(m.contains("scan"))
+      assert_true(m.contains("metrics"))
+      assert_true(m.contains("both"))
+    }
+    _ => abort("expected an error message in the isError payload")
+  }
+}
+
+///|
+/// M2 对齐：`evolve_plugin` / `manage_sub_agent` 对未知 action 同样 raise，
+/// 消息里的合法值列表与各自 wire 表同源。
+async test "unknown evolve/manage actions become isError with wire-driven hints" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  let evolved = send(
+    state,
+    call_line(1, "evolve_plugin", { "action": "teleported" }),
+  )
+  assert_eq(is_tool_error(evolved), true)
+  match obj(tool_payload(evolved)).get("error") {
+    Some(String(m)) => {
+      assert_true(m.contains("Unknown action: teleported"))
+      assert_true(m.contains("propose"))
+      assert_true(m.contains("execute"))
+    }
+    _ => abort("expected an error message in the isError payload")
+  }
+  let managed = send(
+    state,
+    call_line(2, "manage_sub_agent", { "action": "teleported" }),
+  )
+  assert_eq(is_tool_error(managed), true)
+  match obj(tool_payload(managed)).get("error") {
+    Some(String(m)) => {
+      assert_true(m.contains("Unknown action: teleported"))
+      assert_true(m.contains("create"))
+      assert_true(m.contains("list"))
+      assert_true(m.contains("delete"))
+    }
+    _ => abort("expected an error message in the isError payload")
+  }
+}
+
+///|
+/// M3：空参数对象 → 各工具取 schema 声明的默认值（default_analyze_mode /
+/// default_evolve_action / default_manage_action，唯一定义处）。
+/// 同时钉住 M6：both 模式缺 plugin_id 与 metrics 模式一致地报错。
+async test "v2.3 merged tools fall back to their schema defaults when arguments are omitted" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  // factory 重指向临时目录：缺省 list 会扫两个作用域，不能碰真实 ~/.zcode/agents
+  let state = {
+    ..state,
+    factory: @factory.AgentFactory::with_dirs(
+      @util.path_join(tmp, "agents"),
+      @util.path_join(tmp, "user-agents"),
+    ),
+  }
+  // manage_sub_agent 缺省 action=list：成功返回空清单
+  let listed = send(
+    state, call_line(1, "manage_sub_agent", Json::empty_object()),
+  )
+  assert_false(is_tool_error(listed))
+  let listed_body = obj(tool_payload(listed))
+  assert_eq(listed_body.get("success"), Some(Json::boolean(true)))
+  assert_eq(listed_body.get("count"), Some(Json::number(0.0)))
+  // evolve_plugin 缺省 action=propose：走到 propose 的 plugin_id 必填校验
+  let evolved = send(state, call_line(2, "evolve_plugin", Json::empty_object()))
+  assert_eq(is_tool_error(evolved), true)
+  assert_eq(
+    obj(tool_payload(evolved)).get("error"),
+    Some(Json::string("plugin_id is required for propose action")),
+  )
+  // analyze_plugins 缺省 mode=both：both 缺 plugin_id 一并报错（M6）
+  let analyzed = send(
+    state, call_line(3, "analyze_plugins", Json::empty_object()),
+  )
+  assert_eq(is_tool_error(analyzed), true)
+  assert_eq(
+    obj(tool_payload(analyzed)).get("error"),
+    Some(Json::string("plugin_id is required for metrics/both mode")),
+  )
+}
+
+///|
+/// M4 回归网：`evolve_plugin` 委托给 propose 路径时必须透传 `signals`。
+/// 手动信号经 F5 修复升级为 strong，足以在出厂 50% 强度下生成提案；
+/// 若委托时丢弃 signals，引擎拿不到信号只会回「没生成提案」。
+async test "evolve_plugin forwards signals to the propose path" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  seed_plugin(tmp)
+  let state = isolated_state(tmp)
+  ignore(send(state, call_line(1, "scan_plugins", { "force_rescan": true })))
+  let resp = send(
+    state,
+    call_line(2, "evolve_plugin", {
+      "plugin_id": "demo-plugin-1.2.3",
+      "signals": Json::array([
+        Json::string("users keep retrying the same call over and over"),
+      ]),
+    }),
+  )
+  assert_false(is_tool_error(resp))
+  let body = obj(tool_payload(resp))
+  assert_eq(body.get("success"), Some(Json::boolean(true)))
+  // 信号真的被透传：提案生成了（丢弃 signals 则不会有 proposal 键）
+  assert_true(body.contains("proposal"))
+}
+
+///|
+/// M4 回归网：`manage_sub_agent` 委托给 create 路径时必须透传 `color` / `tools`。
+async test "manage_sub_agent forwards color and tools to the create path" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  let state = {
+    ..state,
+    factory: @factory.AgentFactory::with_dirs(
+      @util.path_join(tmp, "agents"),
+      @util.path_join(tmp, "user-agents"),
+    ),
+  }
+  let created = send(
+    state,
+    call_line(1, "manage_sub_agent", {
+      "action": "create",
+      "name": "doc-writer",
+      "description": "更新文档",
+      "system_prompt": "Write docs.",
+      "color": "green",
+      "tools": ["Read", "Edit"],
+    }),
+  )
+  assert_false(is_tool_error(created))
+  assert_eq(
+    obj(tool_payload(created)).get("success"),
+    Some(Json::boolean(true)),
+  )
+  // 落盘的定义里确实带 color 与 tools（委托时丢弃则这两键缺失）
+  let listed = send(
+    state, call_line(2, "manage_sub_agent", Json::empty_object()),
+  )
+  let agents = match obj(tool_payload(listed)).get("agents") {
+    Some(Array(a)) => a
+    _ => abort("agents must be an array")
+  }
+  assert_eq(agents.length(), 1)
+  let first = obj(agents[0])
+  assert_eq(first.get("color"), Some(Json::string("green")))
+  guard first.get("tools") is Some(Array(tools)) else {
+    abort("tools must be forwarded to the create path")
+  }
+  assert_eq(tools.length(), 2)
 }

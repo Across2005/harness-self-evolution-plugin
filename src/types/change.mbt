@@ -86,14 +86,26 @@ pub fn Change::is_empty(self : Change) -> Bool {
 }
 
 ///|
-/// 取出**非空**变更的种类，保持原顺序。
+/// 取出**非空**变更的种类，按 kind 去重并保持首次出现顺序。
 /// 于是「变更种类数」= `changes_kinds(cs).length()`，
 /// 直接替换 engine L615 的 `Object.values(...).filter(...).length`。
+///
+/// 去重是必要的：唯一消费方（engine/risk.mbt 的 `estimate_migration_effort`）
+/// 把本函数的长度当「变更种类数」，同一 kind 的多条变更不能被重复计数。
+/// `ChangeKind` 未 derive Hash，已见集合故以 wire 名为键
+/// （kind 与 wire 名一一对应，wire 表无重名由 types_wbtest 守住）。
 pub fn changes_kinds(cs : ArrayView[Change]) -> Array[ChangeKind] {
+  let seen : Map[String, Unit] = Map([])
   let out : Array[ChangeKind] = []
   for c in cs {
-    if !c.is_empty() {
-      out.push(c.kind())
+    if c.is_empty() {
+      continue
+    }
+    let kind = c.kind()
+    let name = kind.wire_name()
+    if !seen.contains(name) {
+      seen.set(name, ())
+      out.push(kind)
     }
   }
   out

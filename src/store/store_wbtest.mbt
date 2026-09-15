@@ -738,6 +738,89 @@ async test "AgentDefStore lists nothing when the directory cannot be read" {
   assert_eq(blocked.list(), [])
 }
 
+///|
+/// ★ S8：path_of 的字符白名单（仅小写字母/数字/`-`，与 factory 的
+/// validate_name 字符集一致）。大写、空格、Windows 保留字符、点号、
+/// 非 ASCII 全部拦下 —— write / read / exists / remove 都经 path_of，
+/// 一道设防处处生效。上一条用例已覆盖 `/`、`\`、`..` 与空名。
+async test "AgentDefStore rejects names outside the lowercase-digits-hyphen whitelist" {
+  let dir = @fs.tmpdir(prefix="evo-agent-defs-")
+  defer @fs.rmdir(dir, recursive=true)
+  let store = AgentDefStore::at(dir)
+  let bad_names : Array[String] = [
+    "Alpha", "a_b", "a b", "a:b", "a*b", "a?b", "a<b", "a>b", "a|b",
+    "a\"b", "a.b", "中文", "café",
+  ]
+  for bad in bad_names {
+    let msg = try {
+      let _ = store.write(bad, "x", overwrite=false)
+      ""
+    } catch {
+      e => e.to_string()
+    }
+    assert_true(
+      msg.contains("only lowercase letters, digits and '-'"),
+      msg="name \"\{bad}\" must be rejected by the whitelist",
+    )
+  }
+  // 报错不能留下半成品：目录里没有任何 .md
+  assert_eq(store.list(), [])
+  // 白名单内的名字照常通行（字母、数字、连字符的组合）
+  assert_eq(store.write("alpha-1", "ok", overwrite=false), false)
+  assert_eq(store.read("alpha-1"), "ok")
+}
+
+///|
+/// ★ S9 的基底：同一目标连续生成的 tmp 路径必须互不相同
+/// （计数器 + 毫秒时间戳），否则两个原子写交错时会互相踩踏。
+test "unique_tmp_path never repeats for consecutive calls" {
+  let a = unique_tmp_path("/x/target")
+  let b = unique_tmp_path("/x/target")
+  assert_true(a.has_suffix(".tmp"))
+  assert_true(b.has_suffix(".tmp"))
+  assert_true(a.has_prefix("/x/target"))
+  assert_false(a == b)
+}
+
+// ============================================================================
+// SandboxStore（executor 沙箱的持久层）
+// ============================================================================
+
+///|
+/// 备份 → 恢复必须按**字节**原样往返（★ S11b）：旧实现用 `.text()` 做
+/// 文本往返，非 UTF-8 字节会被替换成 U+FFFD，恢复出来的文件永久损毁。
+async test "SandboxStore backup and restore round-trip non-UTF-8 bytes exactly" {
+  let dir = @fs.tmpdir(prefix="evo-sandbox-")
+  defer @fs.rmdir(dir, recursive=true)
+  let target = "\{dir}/source.bin"
+  // 含非法 UTF-8 序列（\xff、\x80）与 NUL 的字节串
+  let raw : Bytes = b"\xff\xfe\x00\x80abc\xff\x00"
+  @fs.write_file(target, raw, create_mode=CreateOrTruncate)
+  let backup = "\{dir}/source.bin.bak"
+  assert_eq(sandbox_backup_file(target, backup), Ok(backup))
+  // 备份件本身也是字节精确的（旧实现在这一步就已经损毁了）
+  assert_true(@fs.read_file(backup).binary() == raw, msg="backup must be byte-exact")
+  // 覆写原文件后恢复，字节必须原样回来
+  @fs.write_file(target, b"overwritten", create_mode=CreateOrTruncate)
+  sandbox_restore_file(backup, target)
+  assert_true(@fs.read_file(target).binary() == raw, msg="restore must be byte-exact")
+}
+
+///|
+/// 备份缺失时 restore 必须 raise 而不是静默返回（★ S11c）：
+/// 「没恢复」必须让调用方（executor 回滚流程）看见。
+async test "SandboxStore restore raises when the backup is missing" {
+  let dir = @fs.tmpdir(prefix="evo-sandbox-")
+  defer @fs.rmdir(dir, recursive=true)
+  let msg = try {
+    sandbox_restore_file("\{dir}/absent.bak", "\{dir}/target")
+    ""
+  } catch {
+    e => e.to_string()
+  }
+  assert_true(msg.contains("no backup to restore"))
+}
+
 // ============================================================================
 // JSONL 存储边界情况测试
 // ============================================================================

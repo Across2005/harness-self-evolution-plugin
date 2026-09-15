@@ -574,3 +574,79 @@ pub impl @json.FromJson for AgentScope with fn from_json(json, path) {
 pub fn AgentScope::wire_name(self : AgentScope) -> String {
   agent_scope_wire.name_of(self)
 }
+
+// ============================================================================
+// v2.3 合并工具判别式（无 legacy 源 —— mcp/tools.mbt 的三个合并工具）
+// ============================================================================
+
+///|
+/// 与上面各表不同，这三张表的枚举是 **MCP 工具参数的判别式，不落 JSONL**
+/// —— wire 表只驱动两件事：inputSchema 的 `enum` 数组（`names()`，
+/// 见 mcp/schema.mbt）与未知取值错误消息里的合法值列表（`names().join`，
+/// 见 mcp/tools.mbt 的三个合并工具 handler）。
+
+///|
+/// `analyze_plugins.mode`：scan（扫描）、metrics（获取指标）、both（两者）。
+pub(all) enum ScanMode {
+  /// 仅扫描
+  Scan
+  /// 仅获取性能指标
+  Metrics
+  /// 两者都做
+  Both
+} derive(Eq, Debug)
+
+///|
+pub let scan_mode_wire : @util.WireEnum[ScanMode] = @util.WireEnum::of([
+  ("scan", ScanMode::Scan),
+  ("metrics", ScanMode::Metrics),
+  ("both", ScanMode::Both),
+])
+
+///|
+pub fn ScanMode::wire_name(self : ScanMode) -> String {
+  scan_mode_wire.name_of(self)
+}
+
+///|
+/// `evolve_plugin.action`：propose（生成提案）、execute（执行提案）。
+pub(all) enum EvolveAction {
+  /// 生成提案
+  Propose
+  /// 执行已审批的提案
+  Execute
+} derive(Eq, Debug)
+
+///|
+pub let evolve_action_wire : @util.WireEnum[EvolveAction] = @util.WireEnum::of([
+  ("propose", EvolveAction::Propose),
+  ("execute", EvolveAction::Execute),
+])
+
+///|
+pub fn EvolveAction::wire_name(self : EvolveAction) -> String {
+  evolve_action_wire.name_of(self)
+}
+
+///|
+/// `manage_sub_agent.action`：create（创建）、list（列出）、delete（删除）。
+pub(all) enum ManageAction {
+  /// 创建定义文件
+  Create
+  /// 列出定义
+  List
+  /// 删除定义文件
+  Delete
+} derive(Eq, Debug)
+
+///|
+pub let manage_action_wire : @util.WireEnum[ManageAction] = @util.WireEnum::of([
+  ("create", ManageAction::Create),
+  ("list", ManageAction::List),
+  ("delete", ManageAction::Delete),
+])
+
+///|
+pub fn ManageAction::wire_name(self : ManageAction) -> String {
+  manage_action_wire.name_of(self)
+}

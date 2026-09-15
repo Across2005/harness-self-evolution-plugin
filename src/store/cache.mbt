@@ -99,8 +99,10 @@ pub async fn fingerprint_of(dir : String) -> DirFingerprint? {
     return None
   }
   let (sec, nsec) = @fs.mtime(dir)
-  // readdir 失败（权限、竞态删除）时直接当作无法指纹 → 上层会重扫。
-  // 宁可多扫一次，也不要沿用一份无法核实的缓存。
+  // readdir 失败（权限、竞态删除）或**任何子项 stat 失败**时，都直接当作
+  // 无法指纹 → 上层会重扫。宁可多扫一次，也不要沿用一份无法核实的缓存。
+  // ★ S10：旧实现对子项 stat 失败静默跳过，与 readdir 的「宁可多扫」口径不一
+  // —— 部分子项不可见的指纹会漏报变化，让缓存带着盲区陈旧下去。
   let names : Array[String] = @fs.readdir(dir, include_hidden=true, sort=true) catch {
     _ => return None
   }
@@ -112,16 +114,12 @@ pub async fn fingerprint_of(dir : String) -> DirFingerprint? {
   let mut newest : Int64? = None
   for name in names {
     let child = @util.path_join(dir, name)
-    let stamp : (Int64, Int)? = Some(@fs.mtime(child)) catch { _ => None }
-    match stamp {
-      Some((csec, cnsec)) => {
-        let ns = csec * 1_000_000_000L + cnsec.to_int64()
-        match newest {
-          Some(prev) => if ns > prev { newest = Some(ns) }
-          None => newest = Some(ns)
-        }
-      }
-      None => ()
+    // ★ S10：子项 stat 失败与 readdir 失败同一口径 —— 返回 None 让上层重扫。
+    let (csec, cnsec) = @fs.mtime(child) catch { _ => return None }
+    let ns = csec * 1_000_000_000L + cnsec.to_int64()
+    match newest {
+      Some(prev) => if ns > prev { newest = Some(ns) }
+      None => newest = Some(ns)
     }
   }
   Some({

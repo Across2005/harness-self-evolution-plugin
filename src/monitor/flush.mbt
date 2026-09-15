@@ -1,38 +1,39 @@
-﻿///|
-/// 钀界洏涓庣敓鍛藉懆鏈熴€備粠 monitor.mbt 鎷嗗垎锛岄檷浣庡崟鏂囦欢澶嶆潅搴︺€?
+///|
+/// 落盘与会话生命周期。从 monitor.mbt 拆分，降低单文件复杂度。
 ///
-/// 鍖呭惈锛歠lush_buffers / trim_quietly / bounded_requeue / requeue_into
-///       / shutdown / run_flush_loop銆?
+/// 包含：flush_buffers / trim_quietly / bounded_requeue / requeue_into
+///       / requeue_into_deque / shutdown / run_flush_loop。
 
 ///|
-/// 鎶婁袱涓紦鍐茶惤鐩橈紱鍐欐垚鍔熸墠娓呯┖锛屽啓澶辫触鍒欏洖濉瓑涓嬩竴杞噸璇曘€?
-/// 鍙栦唬 legacy-ts L381-391锛堥偅杈圭殑琛屼负宸紓瑙佷笅鏂?鈽?涓?CONTEXT.md 鐨?H1锛夈€?
+/// 把两个缓冲落盘；写成功才清空，写失败则回填等下一轮重试。
+/// 取代 legacy-ts L381-391（那边的行为差异见下文 ★ 与 CONTEXT.md 的 H1）。
 ///
-/// 鈽?**蹇呴』銆屽厛鎹㈠嚭銆佸悗 await銆?*锛氭崲鍑轰笌娓呯┖涔嬮棿娌℃湁浠讳綍 await 鐐癸紝
-/// 鑰?MoonBit async 鏄崟绾跨▼鍗忎綔寮忚皟搴︺€佸彧鍦?await 澶勮鍑猴紝
-/// 鏁呬笉鍙兘鏈夊彟涓€涓换鍔″湪涓棿鎻掑叆 鈫?鏃犻渶浜掓枼閿侊紝涔熶笉鍙兘閲嶅叆銆?
-/// 瀵规瘮 TS L56 鐨?`void this.flushBuffers()`锛氫涪寮?Promise 鏃㈠悶鎺夊紓甯革紝
-/// 鍙堝厑璁稿畾鏃跺櫒涓庢墜鍔ㄨ皟鐢ㄩ噸鍏ャ€?
+/// ★ **必须「先换出、后 await」**：换出与清空之间没有任何 await 点，
+/// 而 MoonBit async 是单线程协作式调度、只在 await 处让出，
+/// 故不可能有另一个任务在中间插入 → 无需互斥锁，也不可能重入。
+/// 对比 TS L56 的 `void this.flushBuffers()`：丢弃 Promise 既吞掉异常，
+/// 又允许定时器与手动调用重入。
 ///
-/// 鈽?**钀界洏澶辫触鏃笉涓㈡暟鎹篃涓嶅鎶?*锛堝鍘熷疄鐜扮殑淇锛岃 CONTEXT.md锛夛細
-/// `store/jsonl.mbt` 鏈夋剰鎶?`append` / `append_many` 鐨?I/O 閿欒鐩存帴 raise锛?
-/// 浣嗗師鏉ョ殑璋冪敤鏂规鏄渶涓嶈鎺ヨ繖涓?raise 鐨勫湴鏂?鈥斺€?浜嬩欢宸茬粡 `clear` 鍑虹紦鍐诧紝
-/// 涓€鎶涘氨姘镐箙涓㈠け锛涜€?`run_flush_loop` 鐨勫惊鐜綋娌℃湁鍏滈敊锛?
-/// 浠诲姟涓€鎶涘懆鏈?flush 灏卞啀涔熶笉璺戯紙`allow_failure=true` 鍙繚璇佷笉杩炵疮 group锛夈€?
-/// 鐜板湪 metrics 涓?signals **鍚勮嚜鐙珛鍏滈敊**锛氬啓涓嶈繘鍘荤殑鎵规鎸夋椂闂村簭鏀惧洖缂撳啿
-/// 澶撮儴绛変笅涓€杞噸璇曪紝瓒呰繃 `max_buffered_items` 鎵嶄涪寮冩渶鏃х殑骞跺憡璀︺€?
-/// 鏈嚱鏁板洜姝や笉鍐?raise锛孖/O 閿欒浠ュ憡璀︾殑褰㈠紡鍙銆?
+/// ★ **落盘失败时不丢数据也不上抛**（对原实现的修正，见 CONTEXT.md）：
+/// `store/jsonl.mbt` 有意把 `append` / `append_many` 的 I/O 错误直接 raise，
+/// 但原来的调用方正是最不该接这个 raise 的地方 —— 事件已经 `clear` 出缓冲，
+/// 一抛就永久丢失；而 `run_flush_loop` 的循环体没有兜错，
+/// 任务一抛整个 flush 就再也不跑（`allow_failure=true` 只保证不连累 group）。
+/// 现在 metrics 与 signals **各自独立兜错**：写不进去的批次按时间序放回缓冲
+/// 头部等下一轮重试，超过 `max_buffered_items` 才丢弃最旧的并告警。
+/// 本函数因此不 raise，I/O 错误以告警的形式可见。
 pub async fn PerformanceMonitor::flush_buffers(
   self : PerformanceMonitor,
 ) -> Unit {
-  // 绌虹紦鍐茬煭璺細涓や釜缂撳啿閮戒负绌烘椂锛岃烦杩?copy/clear/trim 鐨勫叏閮ㄥ紑閿€銆?
-  // 涓嶅奖鍝嶈涔夆€斺€旂┖缂撳啿鐨?flush 鏈氨鏄?no-op銆?
+  // 空缓冲短路：两个缓冲都为空时，跳过 copy/clear/trim 的全部开销。
+  // 不影响语义 —— 空缓冲的 flush 本来就是 no-op。
   if self.event_buffer.length() == 0 && self.signal_buffer.length() == 0 {
     return
   }
   let events = self.event_buffer.copy()
   self.event_buffer.clear()
-  let signals = self.signal_buffer.copy()
+  // 信号缓冲是 Deque：先转成 Array（保序：最旧在前），再走同一条落盘路径
+  let signals = self.signal_buffer.to_array()
   self.signal_buffer.clear()
   let events_ok = if events.length() == 0 {
     true
@@ -66,9 +67,9 @@ pub async fn PerformanceMonitor::flush_buffers(
       }
     }
   }
-  // 绐楀彛瑁佸壀鎸傚湪鍞竴鐨勫啓鍏ヨ矾寰勪笂锛歛ppend 鎴愬姛鍚庢墠妫€鏌ヤ笂鐣岋紝
-  // 涓旇蛋 trim_quietly 鍏滈敊 鈥斺€?append 宸叉垚鍔熺殑浜嬩欢涓嶈兘鍥犺鍓嚭閿欒
-  // 鍒ゅ洖濉紙閲嶅钀界洏锛夛紝flush_buffers 鏇翠笉鑳藉洜姝ら噸鏂板紑濮嬫姏閿欙紙H1 鎵胯锛夈€?
+  // 窗口裁剪挂在唯一的写入路径上：append 成功后才检查上限，
+  // 且走 trim_quietly 兜错 —— append 已成功的事件不能因裁剪出错被
+  // 判回填（重复落盘），flush_buffers 更不能因此重新开始抛错（H1 承诺）。
   if events_ok {
     self.trim_quietly(self.metrics)
   }
@@ -79,21 +80,21 @@ pub async fn PerformanceMonitor::flush_buffers(
     requeue_into(events, self.event_buffer, "events")
   }
   if !signals_ok {
-    requeue_into(signals, self.signal_buffer, "signals")
+    requeue_into_deque(signals, self.signal_buffer, "signals")
   }
-  // 清除脏标记：仅当 buffer 确实清空时才清除。
-  // 修复：原逻辑无条件 false，若 events_ok/signals_ok 为 false 且数据已 requeue，
-  // 脏标记被误清，requeue 数据可能延迟落盘直到下次 record_* 调用。
+  // 维护脏标记：仅当两个缓冲确实清空时才清除。
+  // 若有批次写失败被回填（requeue），脏标记必须保持 true ——
+  // 否则回填的数据要等到下一次 record_* 才有机会落盘。
   self.buffers_dirty.val = self.event_buffer.length() > 0 || self.signal_buffer.length() > 0
 }
 
 ///|
-/// 瑁佸壀鐨勫厹閿欏眰锛欼/O 澶辫触鍙憡璀︼紝缁濅笉鎶涘嚭銆?
+/// 裁剪的兜错层：I/O 失败只告警，绝不抛出。
 ///
-/// append 宸叉垚鍔熺殑鍓嶆彁涓嬶紝`Jsonl::trim_to` 鐨?I/O 閿欒鑻ユ部 raise 閫冨嚭
-/// `flush_buffers`锛屽氨鐮村潖浜?H1 鐨勩€宖lush 涓?raise銆嶆壙璇猴紱鑻ヨ褰撴垚
-/// append 澶辫触澶勭悊锛屽凡钀界洏鐨勪簨浠朵細鍥炲～閲嶈瘯閫犳垚閲嶅 鈥斺€?涓よ竟閮介敊锛?
-/// 鎵€浠ュ湪杩欓噷鏀跺彛銆俙max_log_bytes <= 0` 琛ㄧず鏄惧紡璞佸厤锛屼笉纰版枃浠躲€?
+/// append 已成功的前提下，`Jsonl::trim_to` 的 I/O 错误若沿 raise 逃出
+/// `flush_buffers`，就破坏了 H1 的「flush 不 raise」承诺；若被当成
+/// append 失败处理，已落盘的事件会回填重试造成重复 —— 两边都错，
+/// 所以在这里收口。`max_log_bytes <= 0` 表示显式豁免，不碰文件。
 async fn PerformanceMonitor::trim_quietly(
   self : PerformanceMonitor,
   store : @store.Jsonl,
@@ -111,11 +112,11 @@ async fn PerformanceMonitor::trim_quietly(
 }
 
 ///|
-/// 鎶娿€屾病鍐欒繘鍘荤殑涓€鎵广€嶆寜鏃堕棿搴忔斁鍥炵紦鍐插ご閮紝骞惰鍓埌 `max_buffered_items`銆?
-/// 椤哄簭鏄?`unsaved ++ buffered`锛歚unsaved` 鏄洿鏃╂崲鍑虹殑閭ｆ壒锛岃€?`buffered`
-/// 閲岀殑鏉＄洰鏄崲鍑轰箣鍚庢柊璁板綍鐨勶紝蹇呯劧鏇存柊 鈥斺€?鍙嶈繃鏉ュ氨浼氭墦涔辨椂闂村簭锛?
-/// 璁?`get_metrics` / 缁熻鐪嬪埌銆屽厛鍚庣殑浜嬩欢鍊掔潃鍙戠敓銆嶃€?
-/// 瑁佸壀鏃朵粠澶翠涪璧凤紙涓㈢殑灏辨槸 `unsaved` 閲屾渶鏃х殑锛夛紝鏁呰繑鍥?`(缂撳啿, 涓㈠純鏉℃暟)`銆?
+/// 把「没写进去的一批」按时间序放回缓冲头部，并裁剪到 `max_buffered_items`。
+/// 顺序是 `unsaved ++ buffered`：`unsaved` 是最早换出的那批，而 `buffered`
+/// 里的条目是换出之后新记录的，必然更新 —— 反过来就会打乱时间序，
+/// 让 `get_metrics` / 统计看到「先后的事件倒着发生」。
+/// 裁剪时从头丢起（丢的就是 `unsaved` 里最旧的），故返回 `(缓冲, 丢弃条数)`。
 fn[A] bounded_requeue(
   unsaved : Array[A],
   buffered : Array[A],
@@ -141,9 +142,9 @@ fn[A] bounded_requeue(
 }
 
 ///|
-/// 鎶婂啓澶辫触鐨勬壒娆″洖濉埌缂撳啿澶撮儴锛屾孩鍑烘椂涓㈠純鏈€鏃х殑骞跺憡璀︺€?
-/// 灏佽 `bounded_requeue` + `clear` + `push` + `log_warn` 鐨勫浐瀹氭ā寮忥紝
-/// 娑堥櫎 events/signals 涓ゆ潯璺緞鐨勭粨鏋勯噸澶嶃€?
+/// 把写失败的批次回填到 Array 缓冲头部，溢出时丢弃最旧的并告警。
+/// 封装 `bounded_requeue` + `clear` + `push` + `log_warn` 的固定模式，
+/// 消除 events 路径的结构重复。
 async fn[A] requeue_into(
   unsaved : Array[A],
   buffer : Array[A],
@@ -163,53 +164,74 @@ async fn[A] requeue_into(
 }
 
 ///|
-/// 鍋滄鐩戞帶锛氭渶鍚庝竴娆?flush銆傚彇浠?legacy-ts L65-74 鐨?`stop()`銆?
+/// 同 `requeue_into`，但缓冲是 Deque（`signal_buffer`）。
+/// 回填与裁剪语义完全一致：保时间序、超上限丢最旧并告警。
+async fn[A] requeue_into_deque(
+  unsaved : Array[A],
+  buffer : @deque.Deque[A],
+  label : String,
+) -> Unit {
+  let (back, dropped) = bounded_requeue(unsaved, buffer.to_array())
+  buffer.clear()
+  for x in back {
+    buffer.push_back(x)
+  }
+  if dropped > 0 {
+    @util.log_warn(
+      "Monitor",
+      "Dropped \{dropped} oldest buffered \{label} (cap \{max_buffered_items})",
+    )
+  }
+}
+
+///|
+/// 停止监控：最后一次 flush。取代 legacy-ts L65-74 的 `stop()`。
 ///
-/// 骞傜瓑 鈥斺€?缂撳啿宸茬┖鏃舵槸 no-op锛屾晠娴嬭瘯閲屽彲浠ラ殢鎰忓璋冦€?
+/// 幂等 —— 缓冲已空时是 no-op，故测试里可以随意多调。
 pub async fn PerformanceMonitor::shutdown(self : PerformanceMonitor) -> Unit {
   self.flush_buffers()
 }
 
 ///|
-/// 鍚姩鍛ㄦ湡鎬?flush銆傚彇浠?legacy-ts L53-60 鐨?`start()` + `setInterval(5000)`銆?
+/// 启动周期性 flush。取代 legacy-ts L53-60 的 `start()` + `setInterval(5000)`。
 ///
-/// **涓轰粈涔堢敤 `spawn` + `sleep` 鑰屼笉鏄?`Timer::refresh`**锛?
-/// `Timer::refresh` 鏄?*闈?async 鐨勭姸鎬佺獊鍙?*锛岃嫢鐢卞彟涓€涓换鍔″湪 `Timer::wait`
-/// 鎸傝捣鏈熼棿璋冪敤锛屽氨浼氬湪鍗忕▼鎸傝捣鐘舵€佷笅鏀瑰啓 timer 鍐呴儴鐘舵€侊紝
-/// 浜х敓鍞ら啋涓㈠け鎴栭噸澶嶅敜閱掔殑绔炴€併€俙sleep(interval)` 鐨勮涔夋槸
-/// 銆屼笂涓€杞畬鎴愬悗鍐嶇瓑 interval銆嶏紙鍥哄畾**闂撮殧**鑰岄潪鍥哄畾**棰戠巼**锛夛紝
-/// 瀵?flush 鍦烘櫙瀹屽叏澶熺敤涓旀棤绔炴€併€?
+/// **为什么用 `spawn` + `sleep` 而不是 `Timer::refresh`**：
+/// `Timer::refresh` 是**非 async 的状态突变**，若由另一个任务在 `Timer::wait`
+/// 挂起期间调用，就会在协程挂起状态下改写 timer 内部状态，
+/// 产生唤醒丢失或重复唤醒的竞态。`sleep(interval)` 的语义是
+/// 「上一轮完成后再等 interval」（固定**间隔**而非固定**频率**），
+/// 对 flush 场景完全够用且无竞态。
 ///
-/// 鈽?**杩斿洖 `Task` 鍙ユ焺缁欒皟鐢ㄦ柟鍙栨秷** 鈥斺€?杩欐槸蹇呴渶鑰岄潪鍙€夌殑锛?
-/// `with_task_group` 浼氱瓑**鍏ㄩ儴**瀛愪换鍔＄粨鏉熸墠閫€鍑猴紝鑰岃繖涓惊鐜槸 `for ;;`
-/// 姘镐笉鑷缁撴潫鐨勩€傝嫢涓嶅湪 stdin EOF 鍚庢樉寮?`cancel()`锛?
-/// group 灏变細姘歌繙绛変笅鍘?鈥斺€?瀹炴祴琛ㄧ幇涓?MCP 瀹㈡埛绔叧闂?stdin 鍚?
-/// 杩涚▼鎸傛锛堝涓绘案杩滄敹涓嶅埌閫€鍑猴級銆?
+/// ★ **返回 `Task` 供调用方取消** —— 这是必需而非可选的：
+/// `with_task_group` 会等**全部**子任务结束才退出，而这个循环是 `for ;;`
+/// 永不自行结束的。若不在 stdin EOF 后显式 `cancel()`，
+/// group 就会永远等下去 —— 实测表现为 MCP 客户端关闭 stdin 后
+/// 进程挂死（宿主永远收不到退出）。
 ///
-/// 涓轰綍涓嶇敤 `group.return_immediately`锛氬畠浼?`raise Cancelled`锛?
-/// 鑰?`with_task_group` 鐨勫洖璋冪鍚嶆槸 `async (TaskGroup[X]) -> X`锛堜笉甯?raise锛夛紝
-/// 鍦ㄥ叾鍐呴儴鎶涢敊鏃犳硶閫氳繃绫诲瀷妫€鏌ャ€俙Task::cancel` 鏄函鐘舵€佺獊鍙橈紝涓嶆姏閿欍€?
+/// 为何不用 `group.return_immediately`：它会 `raise Cancelled`，
+/// 而 `with_task_group` 的回调签名是 `async (TaskGroup[X]) -> X`（不带 raise），
+/// 在其内部抛错无法通过类型检查。`Task::cancel` 是纯状态突变，不抛错。
 pub fn PerformanceMonitor::run_flush_loop(
   self : PerformanceMonitor,
   group : @async.TaskGroup[Unit],
 ) -> @async.Task[Unit] {
-  // 鐢ㄧ澶村嚱鏁拌€屼笉鏄?`fn() { ... }`锛氬悗鑰呮槸 async 鍗存湭鏍囨敞锛?
-  // 宸ュ叿閾句細浠?deprecated_syntax 璀﹀憡銆宔ffect inference is deprecated銆嶃€?
+  // 用箭头函数而不是 `fn() { ... }`：后者是 async 却未标注，
+  // 工具链会以 deprecated_syntax 警告「effect inference is deprecated」。
   let task = group.spawn(allow_failure=true, () => {
     for ;; {
       @async.sleep(flush_interval_ms)
       if @async.is_being_cancelled() {
         break
       }
-      // flush_buffers 涓?raise锛堣鍏?鈽?娉ㄩ噴锛夛紝鎵€浠ヨ繖涓惊鐜笉浼氬洜涓?
-      // 涓€娆＄灛鏃跺啓澶辫触灏辩粓姝?鈥斺€?鍘熷疄鐜颁細锛氬紓甯搁€冨嚭寰幆浣擄紝浠诲姟缁撴潫锛?
-      // 姝ゅ悗鍙墿 add_defer 閲屾渶鍚庝竴娆″悓鏍峰彲鑳藉け璐ョ殑 flush銆?
+      // flush_buffers 不 raise（见函数 ★ 注释），所以这个循环不会因为
+      // 一次瞬时写失败就终止 —— 原实现会：异常逃出循环体，任务结束，
+      // 此后只剩 add_defer 里最后一次同样可能失败的 flush。
       self.flush_buffers()
     }
   })
-  // 閫€鍑哄墠鍋氭渶鍚庝竴娆?flush銆俙protect_from_cancel` 鏄?`add_defer` 鏂囨。鏄庡啓鐨勫缓璁細
-  // 鑻ユ暣涓?group 琚閮ㄥ彇娑堬紝defer 閲岀殑 async 鎿嶄綔浼氳绔嬪嵆鍙栨秷锛?
-  // 瀵艰嚧鏈€鍚庤繖鎵逛簨浠朵涪澶?鈥斺€?鑰岃繖姝ｆ槸 defer 瀛樺湪鐨勫敮涓€鐩殑銆?
+  // 退出前做最后一次 flush。`protect_from_cancel` 是 `add_defer` 文档明写的建议：
+  // 若整个 group 被外部取消，defer 里的 async 操作会被立即取消，
+  // 导致最后这批事件丢失 —— 而这正是 defer 存在的唯一目的。
   group.add_defer(() => @async.protect_from_cancel(() => self.flush_buffers()))
   task
 }

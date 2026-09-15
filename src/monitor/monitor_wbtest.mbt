@@ -107,6 +107,20 @@ fn event_at(
   }
 }
 
+///|
+/// 指定时间戳**与延迟**的工具调用事件（构造日/周窗口样本用，不靠真实等待）。
+fn call_event_at(
+  plugin_id : String,
+  tool : String,
+  ts : Int64,
+  latency_ms : Int,
+) -> @types.PerformanceEvent {
+  {
+    ..event_at(plugin_id, tool, ts),
+    payload: @types.EventPayload::ToolCall({ ..tool_call(tool), latency_ms }),
+  }
+}
+
 // ============================================================================
 // 移植：recordToolCall + getStatistics（legacy L27-66）
 // ============================================================================
@@ -366,42 +380,60 @@ async test "emits a correction signal on negative user feedback" {
 /// → `get_metrics` → `flush_buffers`（TS L249 → L262 → L149 的同一条链），
 /// 所以等到 `record_user_feedback` 时事件已经在磁盘上了。
 ///
-/// 因此本用例断言的是**会话环形副本**（回填真正生效的地方），
-/// 而不是落盘内容 —— 后者只会得到 `user_feedback: None`，TS 也一样。
+/// 因此本用例断言的是**待落盘缓冲**（回填真正生效的地方）：
+/// 两个插件各先触发一次 eager flush 后，各自的后续调用受 30s 节流保护
+/// 留在缓冲里，此时回填可以直接白盒断言；落盘后反馈是生产可见的。
 /// MoonBit 的值语义让这块内存状态第一次变得可直接断言（TS 靠对象引用
 /// 共享隐式生效，从外部观察不到）。
-async test "backfills user feedback onto the in-memory session ring" {
+async test "backfills user feedback onto the buffered event before it is flushed" {
   let dir = @fs.tmpdir(prefix="evo-mon-")
   defer @fs.rmdir(dir, recursive=true)
   let mon = make_monitor(dir)
 
+  // 两个插件各一次调用：首次调用触发 maybe_deep_check → 立即 flush，
+  // 此后两插件都进入 30s 节流，再来的调用留在待落盘缓冲里
   mon.record_tool_call("p-1", "a", Json::empty_object(), 10, true)
   mon.record_tool_call("p-2", "b", Json::empty_object(), 10, true)
+  mon.record_tool_call("p-1", "c", Json::empty_object(), 10, true)
+  mon.record_tool_call("p-2", "d", Json::empty_object(), 10, true)
+
   // 只回填 p-1；p-2 不应受影响
   mon.record_user_feedback("p-1", @types.UserFeedback::Positive)
 
-  // 环形副本里 p-1 的最后一条拿到了反馈，p-2 的仍为空
-  assert_eq(feedback_in_ring(mon, "p-1"), Some(@types.UserFeedback::Positive))
-  assert_eq(feedback_in_ring(mon, "p-2"), None)
+  // 缓冲里 p-1 的最后一条（"c"）拿到了反馈，p-2 的（"d"）仍为空
+  assert_eq(
+    last_buffered_feedback(mon, "p-1"),
+    Some(@types.UserFeedback::Positive),
+  )
+  assert_eq(last_buffered_feedback(mon, "p-2"), None)
 
-  // legacy 的可观察断言：两条事件最终都落盘了
+  // 落盘后该反馈是生产可见的：p-1 的 "c" 带反馈，其余事件（含更早的 "a"）不带
   mon.shutdown()
   let events = load_events(dir)
-  assert_eq(events.length(), 2)
+  assert_eq(events.length(), 4)
+  for event in events {
+    match event.payload.tool_name() {
+      Some("c") =>
+        assert_eq(
+          event.context.user_feedback,
+          Some(@types.UserFeedback::Positive),
+        )
+      _ => assert_eq(event.context.user_feedback, None)
+    }
+  }
 }
 
 ///|
-/// 从会话环形副本里取某插件最后一条事件的反馈。
-/// 白盒访问 `session_events` 私有字段 —— 这正是白盒测试的用途。
-fn feedback_in_ring(
+/// 从待落盘缓冲里取某插件最后一条事件的反馈。
+/// 白盒访问 `event_buffer` 私有字段 —— 这正是白盒测试的用途。
+fn last_buffered_feedback(
   mon : PerformanceMonitor,
   plugin_id : String,
 ) -> @types.UserFeedback? {
-  let n = mon.session_events.length()
-  for i = n - 1; i >= 0; i = i - 1 {
-    let event = mon.session_events.at(i)
-    if event.plugin_id == plugin_id {
-      return event.context.user_feedback
+  let events = mon.event_buffer
+  for i = events.length() - 1; i >= 0; i = i - 1 {
+    if events[i].plugin_id == plugin_id {
+      return events[i].context.user_feedback
     }
   }
   None
@@ -674,12 +706,10 @@ async test "session ids are unique within a process" {
 }
 
 ///|
-/// 会话环形副本的上限：超过 500 条后从头部丢弃，`Deque` 两端都是 O(1)
-/// （取代 TS L374 的 `splice`，那是稳态下每次事件都 O(n) 搬移）。
-///
-/// 真正的不变量是「一条事件也不丢」：上限只约束**会话副本**（供反馈回填用），
-/// 不约束待落盘缓冲。后者最终全部进磁盘。
-async test "session event ring is capped without losing events" {
+/// 事件一条不丢：大量工具调用后，缓冲里的每一条都要落盘。
+/// （原「会话环形副本上限」用例随 `session_events` 字段一起删除 ——
+/// 环形副本已无生产读取方；真正的不变量是「不丢事件」。）
+async test "buffered events are not lost across many tool calls" {
   let dir = @fs.tmpdir(prefix="evo-mon-")
   defer @fs.rmdir(dir, recursive=true)
   let mon = make_monitor(dir)
@@ -687,18 +717,12 @@ async test "session event ring is capped without losing events" {
   for i in 0..<600 {
     mon.record_tool_call("p-1", "tool\{i % 3}", Json::empty_object(), 10, true)
   }
-  // 环形副本被上限截断到 500
-  assert_eq(mon.session_events.length(), max_session_events_for_test)
-  // 但事件一条不丢：首次调用因 maybe_deep_check 提前 flush 了一条，
-  // 其余留在缓冲里，shutdown 后全部落盘
+  // 首次调用因 maybe_deep_check 提前 flush 了一条，其余 599 条留在缓冲里
+  assert_eq(mon.pending_event_count(), 599)
+  // shutdown 后一条不丢
   mon.shutdown()
   assert_eq(load_events(dir).length(), 600)
 }
-
-///|
-/// `max_session_events` 是包内私有常量，白盒测试里用同值镜像一份。
-/// 若两者不一致，上面那条断言会立即失败。
-let max_session_events_for_test : Int = 500
 
 // ============================================================================
 // 加固 H1：落盘失败不得丢事件，也不得让周期 flush 静默停摆
@@ -891,6 +915,8 @@ async test "flush_buffers trims signals.jsonl down to the configured cap" {
 ///
 /// 构造数据的要点：历史低延迟事件必须落在**周窗口内、日窗口外**
 /// （`now - 3 天`，日窗口是 1 天、周窗口是 7 天），否则日平均也会被拉低。
+/// 另外深度检查受 N4 的最小样本量保护（两窗口各需 >= 5 个样本），
+/// 故今天的 4 条高延迟事件先直接落盘，第 5 条由 `record_tool_call` 带入。
 async test "emits a latency-regression signal when the daily average exceeds the weekly baseline" {
   let dir = @fs.tmpdir(prefix="evo-mon-w2-")
   defer @fs.rmdir(dir, recursive=true)
@@ -900,12 +926,19 @@ async test "emits a latency-regression signal when the daily average exceeds the
   let baseline : Array[@types.PerformanceEvent] = []
   let three_days_ago = @util.now_ms() - @types.TimeRange::LastDay.span_ms() * 3L
   for i in 0..<5 {
-    baseline.push(event_at("p-1", "navigate", three_days_ago + i.to_int64()))
+    baseline.push(call_event_at("p-1", "navigate", three_days_ago + i.to_int64(), 10))
   }
-  // 直接把基线写进 metrics.jsonl（模拟「历史观测」）
+  // 今天的 4 条高延迟事件（直接落盘，模拟「历史观测」）
+  let today : Array[@types.PerformanceEvent] = []
+  let now = @util.now_ms()
+  for i in 0..<4 {
+    today.push(call_event_at("p-1", "navigate", now + i.to_int64(), 1000))
+  }
   @store.Jsonl::new(metrics_path(dir)).append_many(baseline)
+  @store.Jsonl::new(metrics_path(dir)).append_many(today)
 
-  // 今天一次高延迟调用：首次调用触发深度检查 → 日平均 1000ms vs 周基线 ~175ms
+  // 今天一次高延迟调用：首次调用触发深度检查
+  // → 日平均 1000ms（5 样本）vs 周基线 505ms（10 样本），涨幅 ~98%
   mon.record_tool_call("p-1", "navigate", Json::empty_object(), 1000, true)
   mon.shutdown()
 
@@ -932,7 +965,8 @@ async test "emits a latency-regression signal when the daily average exceeds the
 
 ///|
 /// ★ W2 的负例：延迟**没有**超过阈值时不得产出回归信号。
-/// 今天一次与基线同量级的调用（10ms vs 基线 10ms）→ 涨幅为 0，不触发。
+/// 今天的 5 条调用与基线同量级（10ms vs 基线 10ms）→ 涨幅为 0，不触发。
+/// 两个窗口都有 5+ 样本 —— 无信号是**阈值判定**所致，而非样本量保护放行。
 async test "does not emit a latency-regression signal within the threshold" {
   let dir = @fs.tmpdir(prefix="evo-mon-w2b-")
   defer @fs.rmdir(dir, recursive=true)
@@ -941,18 +975,17 @@ async test "does not emit a latency-regression signal within the threshold" {
   let three_days_ago = @util.now_ms() - @types.TimeRange::LastDay.span_ms() * 3L
   let baseline : Array[@types.PerformanceEvent] = []
   for i in 0..<5 {
-    // 基线 10ms：event_at 的默认 latency_ms 是 1，这里手动改成 10 的夹具
-    baseline.push({
-      ..event_at("p-1", "navigate", three_days_ago + i.to_int64()),
-      payload: @types.EventPayload::ToolCall({
-        ..tool_call("navigate"),
-        latency_ms: 10,
-      }),
-    })
+    baseline.push(call_event_at("p-1", "navigate", three_days_ago + i.to_int64(), 10))
+  }
+  let today : Array[@types.PerformanceEvent] = []
+  let now = @util.now_ms()
+  for i in 0..<4 {
+    today.push(call_event_at("p-1", "navigate", now + i.to_int64(), 10))
   }
   @store.Jsonl::new(metrics_path(dir)).append_many(baseline)
+  @store.Jsonl::new(metrics_path(dir)).append_many(today)
 
-  // 今天一次同样 10ms 的调用：日平均与周基线持平，涨幅 ≈ 0
+  // 今天最后一条同样 10ms 的调用：日平均与周基线持平，涨幅 ≈ 0
   mon.record_tool_call("p-1", "navigate", Json::empty_object(), 10, true)
   mon.shutdown()
 
@@ -964,6 +997,75 @@ async test "does not emit a latency-regression signal within the threshold" {
     }
   }
   assert_eq(regression_count, 0)
+}
+
+///|
+/// ★ N4 回归网（最小样本量保护·负例）：任一窗口样本 < 5 时**不做**回归对比。
+/// 仅 1 条日样本（基线 10ms vs 今次 1000ms）：按公式算涨幅 ~98%，
+/// 若无保护会发出 strong/struggle 强信号 —— 单次抖动不该触发深度检查误报。
+async test "skips the latency-regression comparison when a window has fewer than five samples" {
+  let dir = @fs.tmpdir(prefix="evo-mon-n4-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  // 仅 1 条周基线（3 天前，日窗口外）
+  let three_days_ago = @util.now_ms() - @types.TimeRange::LastDay.span_ms() * 3L
+  @store.Jsonl::new(metrics_path(dir)).append_many([
+    call_event_at("p-1", "navigate", three_days_ago, 10),
+  ])
+
+  // 今天 1 条 1000ms 调用：日窗口 1 样本、周窗口 2 样本，双双不足 5
+  mon.record_tool_call("p-1", "navigate", Json::empty_object(), 1000, true)
+  mon.shutdown()
+
+  let signals = load_signals(dir)
+  assert_true(
+    find_by_category(signals, @types.SignalCategory::Struggle) is None,
+    msg="样本不足时不得发出延迟回归信号",
+  )
+}
+
+///|
+/// ★ N4 回归网（最小样本量保护·正例）：两窗口各自凑满 5 个样本后，
+/// 对比恢复执行 —— 增幅超过 `latency_regression`（0.2）即发信号。
+async test "compares windows once each has at least five samples" {
+  let dir = @fs.tmpdir(prefix="evo-mon-n4b-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  // 2 条周基线（3 天前，10ms）+ 今天 4 条 1000ms（直接落盘）
+  let three_days_ago = @util.now_ms() - @types.TimeRange::LastDay.span_ms() * 3L
+  let baseline : Array[@types.PerformanceEvent] = []
+  for i in 0..<2 {
+    baseline.push(call_event_at("p-1", "navigate", three_days_ago + i.to_int64(), 10))
+  }
+  let today : Array[@types.PerformanceEvent] = []
+  let now = @util.now_ms()
+  for i in 0..<4 {
+    today.push(call_event_at("p-1", "navigate", now + i.to_int64(), 1000))
+  }
+  let store = @store.Jsonl::new(metrics_path(dir))
+  store.append_many(baseline)
+  store.append_many(today)
+
+  // 第 5 条日样本由本次调用带入：日窗口恰 5 样本，周窗口 7 样本，
+  // 日均 1000ms vs 周均 ≈717ms → 涨幅 ≈ 39% > 20%
+  mon.record_tool_call("p-1", "navigate", Json::empty_object(), 1000, true)
+  mon.shutdown()
+
+  let signals = load_signals(dir)
+  let regress = find_by_category(signals, @types.SignalCategory::Struggle)
+  assert_true(
+    regress is Some(_),
+    msg="两窗口样本充足且增幅超阈值，必须发出延迟回归信号",
+  )
+  match regress {
+    Some(s) => {
+      assert_eq(s.strength, @types.SignalStrength::Strong)
+      assert_eq(s.evidence, @types.Evidence::Metrics("p-1"))
+    }
+    None => ()
+  }
 }
 
 ///|
@@ -1069,8 +1171,10 @@ async test "signal buffer overflow drops oldest signals" {
   assert_eq(mon.signal_buffer.length(), max_buffered_signals)
 
   // 验证保留的是最新的信号（最旧的被丢弃）
-  assert_true(mon.signal_buffer[0].description.contains("50"))
-  assert_true(mon.signal_buffer[max_buffered_signals - 1].description.contains("\{total - 1}"))
+  assert_true(mon.signal_buffer.at(0).description.contains("50"))
+  assert_true(
+    mon.signal_buffer.at(max_buffered_signals - 1).description.contains("\{total - 1}"),
+  )
 }
 
 ///|

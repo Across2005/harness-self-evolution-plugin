@@ -98,7 +98,12 @@ pub fn DependencyGraph::detect_cycles(self : DependencyGraph) -> Array[Array[Str
     let edge_indices = graph.index.get(node).unwrap_or([])
     for idx in edge_indices {
       let edge = graph.edges[idx]
-      let neighbor = if edge.from_plugin == node { edge.to_plugin } else { edge.from_plugin }
+      // 索引把每条边同时挂在两端点下；环检测只沿依赖方向（from → to）推进，
+      // 否则任意单边 A→B 都会经反向边被当成 A-B-A 假环
+      if edge.from_plugin != node {
+        continue
+      }
+      let neighbor = edge.to_plugin
       
       match visited.get(neighbor) {
         Some(1) => {
@@ -181,21 +186,22 @@ pub fn DependencyGraph::identify_co_evolution_opportunities(
   let affected : Array[String] = []
   let visited : Map[String, Unit] = Map([])
   let queue : Array[String] = [changed_plugin]
-  
+  // 起点自身不计入结果（存在依赖环时 dependents 可能把它推回来）
+  visited.set(changed_plugin, ())
+
   while queue.length() > 0 {
     let current = match queue.pop() {
       Some(c) => c
       None => break
     }
-    if visited.contains(current) {
-      continue
-    }
-    visited.set(current, ())
-    
+
     // 获取依赖当前插件的所有插件
     let dependents = self.get_dependents(current)
     for dep in dependents {
       if !visited.contains(dep) {
+        // 入队前即标记 visited：菱形依赖（同一节点经两条路径先后到达）时，
+        // 若等出栈才标记，节点会被重复收进 affected
+        visited.set(dep, ())
         affected.push(dep)
         queue.push(dep)
       }

@@ -461,12 +461,13 @@ async fn handle_scan_plugins(state : ServerState, args : Json) -> Json {
         }
       }
 
-      // 用独立 scanner 扫描目标目录（不影响主缓存）
+      // 用独立 scanner 扫描目标目录（不影响主缓存）；
+      // force 尊重客户端传入的 force_rescan，定向重扫不再无条件强制
       let tmp_cache = "\{state.paths.plugin_cache()}.incremental"
       let scanner = @scanner.PluginScanner::new(
         @scanner.ScanConfig::custom(target_dirs, tmp_cache),
       )
-      scanner.scan_all(force_rescan=true)
+      scanner.scan_all(force_rescan=force)
       // merge 模式：不清除已有注册表条目，只更新命中的插件
       state.merge(scanner.all())
 
@@ -825,58 +826,70 @@ async fn handle_delete_sub_agent(state : ServerState, args : Json) -> Json {
 /// mode="scan" 执行扫描，mode="metrics" 获取指标，mode="both" 两者都做。
 async fn handle_analyze_plugins(state : ServerState, args : Json) -> Json {
   let a : AnalyzePluginsArgs = @json.from_json(args)
-  let mode = a.mode
-
-  // scan 模式或 both 模式：委托给 handle_scan_plugins
-  if mode == "scan" || mode == "both" {
-    let force_val = a.force_rescan.unwrap_or(default_force_rescan)
-    // 按参数组合构建 scan_args
-    let has_ids = match a.plugin_ids {
-      Some(ids) if !ids.is_empty() => true
-      _ => false
-    }
-    let has_paths = match a.target_paths {
-      Some(ps) if !ps.is_empty() => true
-      _ => false
-    }
-    let scan_args : Json = if has_ids && has_paths {
-      {
-        "force_rescan": Json::boolean(force_val),
-        "plugin_ids": Json::array(a.plugin_ids.unwrap().map(fn(s) { Json::string(s) })),
-        "target_paths": Json::array(a.target_paths.unwrap().map(fn(s) { Json::string(s) })),
-      }
-    } else if has_ids {
-      {
-        "force_rescan": Json::boolean(force_val),
-        "plugin_ids": Json::array(a.plugin_ids.unwrap().map(fn(s) { Json::string(s) })),
-      }
-    } else if has_paths {
-      {
-        "force_rescan": Json::boolean(force_val),
-        "target_paths": Json::array(a.target_paths.unwrap().map(fn(s) { Json::string(s) })),
-      }
-    } else {
-      { "force_rescan": Json::boolean(force_val) }
-    }
-    ignore(handle_scan_plugins(state, scan_args))
+  // mode 缺省取 schema 声明的默认值（default_analyze_mode，唯一定义处），
+  // 再经 wire 表归一成枚举：未知取值在此 raise，而不是静默返回成功形状。
+  let mode_name = a.mode.unwrap_or(default_analyze_mode.wire_name())
+  let mode = match @types.scan_mode_wire.find_by_name(mode_name) {
+    Some(m) => m
+    None =>
+      raise Failure(
+        "Unknown mode: \{mode_name}. Use one of: \{@types.scan_mode_wire.names().join(", ")}.",
+      )
   }
 
-  // metrics 模式或 both 模式：委托给 handle_get_plugin_metrics
-  if mode == "metrics" || mode == "both" {
-    match a.plugin_id {
-      Some(plugin_id) => {
-        let metrics_args : Json = {
-          "plugin_id": Json::string(plugin_id),
-          "time_range": Json::string(a.time_range.unwrap_or(default_time_range).wire_name()),
-        }
-        return handle_get_plugin_metrics(state, metrics_args)
+  // scan / both 模式：委托给 handle_scan_plugins
+  match mode {
+    @types.ScanMode::Scan | @types.ScanMode::Both => {
+      let force_val = a.force_rescan.unwrap_or(default_force_rescan)
+      // 按参数组合构建 scan_args
+      let has_ids = match a.plugin_ids {
+        Some(ids) if !ids.is_empty() => true
+        _ => false
       }
-      None => {
-        if mode == "metrics" {
-          raise Failure("plugin_id is required for metrics mode")
-        }
+      let has_paths = match a.target_paths {
+        Some(ps) if !ps.is_empty() => true
+        _ => false
       }
+      let scan_args : Json = if has_ids && has_paths {
+        {
+          "force_rescan": Json::boolean(force_val),
+          "plugin_ids": Json::array(a.plugin_ids.unwrap().map(fn(s) { Json::string(s) })),
+          "target_paths": Json::array(a.target_paths.unwrap().map(fn(s) { Json::string(s) })),
+        }
+      } else if has_ids {
+        {
+          "force_rescan": Json::boolean(force_val),
+          "plugin_ids": Json::array(a.plugin_ids.unwrap().map(fn(s) { Json::string(s) })),
+        }
+      } else if has_paths {
+        {
+          "force_rescan": Json::boolean(force_val),
+          "target_paths": Json::array(a.target_paths.unwrap().map(fn(s) { Json::string(s) })),
+        }
+      } else {
+        { "force_rescan": Json::boolean(force_val) }
+      }
+      ignore(handle_scan_plugins(state, scan_args))
     }
+    @types.ScanMode::Metrics => ()
+  }
+
+  // metrics / both 模式：委托给 handle_get_plugin_metrics
+  match mode {
+    @types.ScanMode::Metrics | @types.ScanMode::Both =>
+      // metrics 与 both 对缺 plugin_id 一致报错：both 静默跳过指标
+      // 会让调用方把「扫描成功」误当成「全部完成」。
+      match a.plugin_id {
+        Some(plugin_id) => {
+          let metrics_args : Json = {
+            "plugin_id": Json::string(plugin_id),
+            "time_range": Json::string(a.time_range.unwrap_or(default_time_range).wire_name()),
+          }
+          return handle_get_plugin_metrics(state, metrics_args)
+        }
+        None => raise Failure("plugin_id is required for metrics/both mode")
+      }
+    @types.ScanMode::Scan => ()
   }
 
   // scan 模式返回扫描结果
@@ -897,31 +910,45 @@ async fn handle_analyze_plugins(state : ServerState, args : Json) -> Json {
 /// action="propose" 生成提案，action="execute" 执行提案。
 async fn handle_evolve_plugin(state : ServerState, args : Json) -> Json {
   let a : EvolvePluginArgs = @json.from_json(args)
-  let action = a.action
+  // action 缺省取 schema 声明的默认值（default_evolve_action，唯一定义处），
+  // 再经 wire 表归一成枚举：未知取值在此 raise。
+  let action_name = a.action.unwrap_or(default_evolve_action.wire_name())
+  let action = match @types.evolve_action_wire.find_by_name(action_name) {
+    Some(x) => x
+    None =>
+      raise Failure(
+        "Unknown action: \{action_name}. Use one of: \{@types.evolve_action_wire.names().join(", ")}.",
+      )
+  }
 
-  if action == "propose" {
-    match a.plugin_id {
-      Some(plugin_id) => {
-        let propose_args : Json = {
-          "plugin_id": Json::string(plugin_id),
+  match action {
+    @types.EvolveAction::Propose =>
+      match a.plugin_id {
+        Some(plugin_id) => {
+          // signals 已声明就透传，委托时不得丢弃；无则省键（None → 不写 null）
+          let base : Json = { "plugin_id": Json::string(plugin_id) }
+          let propose_args = match a.signals {
+            Some(sig) =>
+              with_key(
+                base, "signals", Json::array(sig.map(fn(s) { Json::string(s) })),
+              )
+            None => base
+          }
+          return handle_propose_evolution(state, propose_args)
         }
-        return handle_propose_evolution(state, propose_args)
+        None => raise Failure("plugin_id is required for propose action")
       }
-      None => raise Failure("plugin_id is required for propose action")
-    }
-  } else if action == "execute" {
-    match a.proposal_id {
-      Some(proposal_id) => {
-        let execute_args : Json = {
-          "proposal_id": Json::string(proposal_id),
-          "dry_run": Json::boolean(a.dry_run.unwrap_or(default_dry_run)),
+    @types.EvolveAction::Execute =>
+      match a.proposal_id {
+        Some(proposal_id) => {
+          let execute_args : Json = {
+            "proposal_id": Json::string(proposal_id),
+            "dry_run": Json::boolean(a.dry_run.unwrap_or(default_dry_run)),
+          }
+          return handle_execute_evolution(state, execute_args)
         }
-        return handle_execute_evolution(state, execute_args)
+        None => raise Failure("proposal_id is required for execute action")
       }
-      None => raise Failure("proposal_id is required for execute action")
-    }
-  } else {
-    raise Failure("Unknown action: \{action}. Use 'propose' or 'execute'.")
   }
 }
 
@@ -931,38 +958,59 @@ async fn handle_evolve_plugin(state : ServerState, args : Json) -> Json {
 /// action="create" 创建，action="list" 列出，action="delete" 删除。
 async fn handle_manage_sub_agent(state : ServerState, args : Json) -> Json {
   let a : ManageSubAgentArgs = @json.from_json(args)
-  let action = a.action
+  // action 缺省取 schema 声明的默认值（default_manage_action，唯一定义处），
+  // 再经 wire 表归一成枚举：未知取值在此 raise。
+  let action_name = a.action.unwrap_or(default_manage_action.wire_name())
+  let action = match @types.manage_action_wire.find_by_name(action_name) {
+    Some(x) => x
+    None =>
+      raise Failure(
+        "Unknown action: \{action_name}. Use one of: \{@types.manage_action_wire.names().join(", ")}.",
+      )
+  }
 
-  if action == "create" {
-    match (a.name, a.description, a.system_prompt) {
-      (Some(name), Some(description), Some(system_prompt)) => {
-        let create_args : Json = {
-          "name": Json::string(name),
-          "description": Json::string(description),
-          "system_prompt": Json::string(system_prompt),
-          "scope": Json::string(a.scope.unwrap_or(default_sub_agent_scope).wire_name()),
-          "overwrite": Json::boolean(a.overwrite.unwrap_or(default_sub_agent_overwrite)),
+  match action {
+    @types.ManageAction::Create =>
+      match (a.name, a.description, a.system_prompt) {
+        (Some(name), Some(description), Some(system_prompt)) => {
+          let base : Json = {
+            "name": Json::string(name),
+            "description": Json::string(description),
+            "system_prompt": Json::string(system_prompt),
+            "scope": Json::string(a.scope.unwrap_or(default_sub_agent_scope).wire_name()),
+            "overwrite": Json::boolean(a.overwrite.unwrap_or(default_sub_agent_overwrite)),
+          }
+          // color / tools 已声明就透传，委托时不得丢弃；无则省键（None → 不写 null）
+          let with_color = match a.color {
+            Some(c) => with_key(base, "color", Json::string(c))
+            None => base
+          }
+          let create_args = match a.tools {
+            Some(t) =>
+              with_key(
+                with_color, "tools", Json::array(t.map(fn(s) { Json::string(s) })),
+              )
+            None => with_color
+          }
+          return handle_create_sub_agent(state, create_args)
         }
-        return handle_create_sub_agent(state, create_args)
+        _ => raise Failure("name, description, and system_prompt are required for create action")
       }
-      _ => raise Failure("name, description, and system_prompt are required for create action")
+    @types.ManageAction::List => {
+      let list_args : Json = Json::empty_object()
+      return handle_list_sub_agents(state, list_args)
     }
-  } else if action == "list" {
-    let list_args : Json = Json::empty_object()
-    return handle_list_sub_agents(state, list_args)
-  } else if action == "delete" {
-    match a.name {
-      Some(name) => {
-        let delete_args : Json = {
-          "name": Json::string(name),
-          "scope": Json::string(a.scope.unwrap_or(default_sub_agent_scope).wire_name()),
+    @types.ManageAction::Delete =>
+      match a.name {
+        Some(name) => {
+          let delete_args : Json = {
+            "name": Json::string(name),
+            "scope": Json::string(a.scope.unwrap_or(default_sub_agent_scope).wire_name()),
+          }
+          return handle_delete_sub_agent(state, delete_args)
         }
-        return handle_delete_sub_agent(state, delete_args)
+        None => raise Failure("name is required for delete action")
       }
-      None => raise Failure("name is required for delete action")
-    }
-  } else {
-    raise Failure("Unknown action: \{action}. Use 'create', 'list', or 'delete'.")
   }
 }
 
@@ -998,7 +1046,7 @@ fn tool_call_target(params : Json) -> Result[(Tool, Json), String] {
 /// |---|---|
 /// | `initialize` | protocolVersion（回显）+ capabilities.tools + serverInfo |
 /// | `ping` | `{}` |
-/// | `tools/list` | 10 个工具 |
+/// | `tools/list` | 13 个工具 |
 /// | `tools/call` | 工具结果或 isError |
 /// | 其他 | `-32601 Method not found` |
 pub async fn handle_message(state : ServerState, req : RpcRequest) -> Json? {

@@ -1,4 +1,4 @@
-﻿///|
+///|
 /// 娣卞害妫€鏌ワ紙鍙楄妭娴佺殑纾佺洏瀵规瘮锛夈€備粠 monitor.mbt 鎷嗗垎锛岄檷浣庡崟鏂囦欢澶嶆潅搴︺€?
 ///
 /// 鍖呭惈锛歠ixed1 / maybe_deep_check銆?
@@ -68,7 +68,13 @@ async fn PerformanceMonitor::maybe_deep_check(
     }
     let day = summarize(day_calls)
     let week = summarize(week_calls)
-    if week.avg_latency_ms > 0.0 {
+    // 最小样本量保护：任一窗口不足 5 个样本就不做回归对比。
+    // 没有这道闸时，各 1 条样本（基线 10ms vs 今次 1000ms）就能算出 ~98% 的
+    // 「涨幅」，单次抖动即触发 strong/struggle 强信号 —— 纯误报。
+    // 样本不足时跳过，保持「无信号」的原有行为。
+    if day.total_calls >= 5 &&
+      week.total_calls >= 5 &&
+      week.avg_latency_ms > 0.0 {
       let increase = (day.avg_latency_ms - week.avg_latency_ms) /
         week.avg_latency_ms
       if increase > self.thresholds.latency_regression {

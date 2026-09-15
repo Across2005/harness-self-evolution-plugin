@@ -35,7 +35,7 @@ pub fn plan_changes(
   // 每个分支写成 `if xs.is_empty() { [] } else { [Ctor(xs)] }` 而不是抽一个
   // 公共 helper：MoonBit **禁止把构造器当高阶函数传递**
   // （工具链报 "Using constructors as higher order function directly is forbidden"）。
-  // 六个分支的重复因此是语言层面的必然，不是设计缺陷。
+  // 分支之间的重复因此是语言层面的必然，不是设计缺陷。
   match etype {
     @types.EvolutionType::InterfaceSimplification => {
       let merges = plan_merges(plugin)

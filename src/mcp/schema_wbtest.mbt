@@ -285,7 +285,7 @@ test "find_tool resolves every declared name and nothing else" {
 }
 
 ///|
-/// `tools/list` 的响应体形状：`{tools:[{name,description,inputSchema}]}`，
+/// `tools_list` 的响应体形状：`{tools:[{name,description,inputSchema}]}`，
 /// 不含 `nextCursor`（13 个工具远小于任何客户端的页大小，不分页）。
 test "tools_list_result has the MCP tool-list shape" {
   let resp = tools_list_result()
@@ -300,4 +300,48 @@ test "tools_list_result has the MCP tool-list shape" {
     assert_true(t.contains("description"))
     assert_true(t.contains("inputSchema"))
   }
+}
+
+// ============================================================================
+// v2.3 合并工具：mode / action 的取值域与默认值
+// ============================================================================
+
+///|
+/// v2.3 三个合并工具的判别式取值域必须与 wire 表同源（不变量⑦）：
+/// 手写的字面量 enum 数组已被 scan_mode_wire / evolve_action_wire /
+/// manage_action_wire 的 names() 取代，词汇不可能再与表漂移。
+test "v2.3 merged-tool mode/action enums are the wire tables" {
+  assert_eq(
+    enum_of(analyze_plugins_schema(), "mode"),
+    @types.scan_mode_wire.names(),
+  )
+  assert_eq(
+    enum_of(evolve_plugin_schema(), "action"),
+    @types.evolve_action_wire.names(),
+  )
+  assert_eq(
+    enum_of(manage_sub_agent_schema(), "action"),
+    @types.manage_action_wire.names(),
+  )
+}
+
+///|
+/// v2.3 三个合并工具声明的 default 必须来自 defaults 段的唯一定义处，
+/// handler 的 unwrap_or 取的正是同一个常量（tools_wbtest 走行为路径验证）。
+test "v2.3 merged tools declare their mode/action defaults from one place" {
+  assert_eq(
+    default_of(analyze_plugins_schema(), "mode"),
+    Json::string(default_analyze_mode.wire_name()),
+  )
+  assert_eq(
+    default_of(evolve_plugin_schema(), "action"),
+    Json::string(default_evolve_action.wire_name()),
+  )
+  assert_eq(
+    default_of(manage_sub_agent_schema(), "action"),
+    Json::string(default_manage_action.wire_name()),
+  )
+  assert_eq(default_analyze_mode, @types.ScanMode::Both)
+  assert_eq(default_evolve_action, @types.EvolveAction::Propose)
+  assert_eq(default_manage_action, @types.ManageAction::List)
 }

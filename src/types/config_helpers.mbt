@@ -1,10 +1,10 @@
-﻿///|
-/// 瀹归敊 JSON 鍙栧€?helper 鍜屽煙鏍￠獙鍑芥暟銆備粠 config.mbt 鎷嗗垎锛岄檷浣庡崟鏂囦欢澶嶆潅搴︺€?
+///|
+/// 容错 JSON 取值 helper 和域校验函数。从 config.mbt 拆分，降低单文件复杂度。
 ///
-/// 鍒绘剰涓嶇敤 core/json 鐨?`Json::value` / `as_string` / `as_number` 鈥斺€?
-/// 瀹冧滑鍏ㄩ儴鏍囪浜?`#deprecated`锛堝缓璁敼鐢ㄦā寮忓尮閰嶏級銆?
-/// 涔熶笉鐢?`derive(FromJson)`锛氶厤缃枃浠舵槸**浜哄啓鐨勩€佸彲鑳芥畫缂?*鐨勮緭鍏ワ紝
-/// 缂哄瓧娈靛簲鍥為€€榛樿鍊硷紝鑰屼笉鏄鏁翠釜鎻掍欢鍚姩澶辫触銆?
+/// 刻意不用 core/json 的 `Json::value` / `as_string` / `as_number` ——
+/// 它们全部标记了 `#deprecated`（建议改用模式匹配）。
+/// 也不用 `derive(FromJson)`：配置文件是**人写的、可能残缺**的输入，
+/// 缺字段应回落默认值，而不是让整个插件启动失败。
 
 ///|
 fn str_field(obj : Map[String, Json], key : String) -> String? {
@@ -24,9 +24,9 @@ fn bool_field(obj : Map[String, Json], key : String) -> Bool? {
 }
 
 ///|
-/// 鎻愬彇 JSON 鏁板€煎瓧娈点€傝繃婊?NaN/Infinity锛圝SON 瑙勮寖涓嶅厑璁歌繖浜涘€硷紝
-/// 浣嗘墜宸ユ瀯閫犵殑 `Json` 鍙互鎼哄甫瀹冧滑锛夛細璁╁畠浠蛋"瀛楁缂哄け"璺緞
-/// 锛堝洖钀介粯璁ゅ€硷級锛屼笌 H2 鐨?鏄惧紡澶辨晥浼樹簬闈欓粯閲囩撼"鍘熷垯涓€鑷淬€?
+/// 提取 JSON 数值字段。过滤 NaN/Infinity（JSON 规范不允许这些值，
+/// 但手工构造的 `Json` 可以携带它们）：让它们走"字段缺失"路径
+/// （回落默认值），与 H2 的"显式失效优于静默采纳"原则一致。
 fn num_field(obj : Map[String, Json], key : String) -> Double? {
   match obj.get(key) {
     Some(Number(n, ..)) =>
@@ -48,20 +48,20 @@ fn obj_field(obj : Map[String, Json], key : String) -> Map[String, Json]? {
 }
 
 ///|
-/// 璇讳竴涓槇鍊硷細**鍏堟墎骞炽€佸悗 1.0 鐨勫祵濂楀舰鐘?*銆?
+/// 读一个阈值：**先扁平、后 1.0 的嵌套形状**。
 ///
-/// 鎵佸钩褰㈢姸锛坄signal_thresholds.consecutive_failures`锛夋槸 2.0 鐨勮鑼冨舰鐘讹紝
-/// 瀹冪殑閿悕涓?`SignalThresholds` 鐨勫瓧娈靛悕**閫愬瓧鐩稿悓** 鈥斺€?
-/// 杩欐槸銆岃瘝姹囧嵆鏂囨。銆嶇敤鍦ㄩ厤缃笂锛氶厤缃枃浠跺拰浠ｇ爜璇村悓涓€濂楄瘝锛?
-/// 璇婚厤缃殑浜轰笉闇€瑕佸湪鑴戝瓙閲屽仛涓€娆℃槧灏勩€?
+/// 扁平形状（`signal_thresholds.consecutive_failures`）是 2.0 的规范形状，
+/// 它的键名与 `SignalThresholds` 的字段名**逐字相同** ——
+/// 这是「词汇即文档」用在配置上：配置文件和代码说同一套词汇，
+/// 读配置的人不需要在脑子里做一次映射。
 ///
-/// 宓屽褰㈢姸锛坄.strong.consecutive_failures` / `.medium.loop_detection` /
-/// `.strong.performance_drop`锛夋槸 1.0 鐨?plugin.json L53-65 鍐欑殑锛?
-/// 淇濈暀瀹冧綔涓哄洖閫€锛岃鏃х殑閰嶇疆鏂囦欢缁х画鐢熸晥銆?
-/// 娉ㄦ剰 1.0 鐨勯敭鍚嶄笌缁撴瀯浣撳瓧娈靛苟涓嶅悓鍚嶏紙`performance_drop` vs
-/// `latency_regression`锛夛紝閭ｄ唤鏄犲皠鏄墜鍐欑殑 鈥斺€?杩欎篃姝ｆ槸瑕佹崲鎴愭墎骞冲舰鐘剁殑鐞嗙敱銆?
+/// 嵌套形状（`.strong.consecutive_failures` / `.medium.loop_detection` /
+/// `.strong.performance_drop`）是 1.0 的 plugin.json L53-65 写的，
+/// 保留它作为回退，让旧的配置文件继续生效。
+/// 注意 1.0 的键名与结构体字段并不同名（`performance_drop` vs
+/// `latency_regression`），那份映射是手写的 —— 这也正是要换成扁平形状的理由。
 ///
-/// 涓ゆ潯璺緞閮借涓嶅埌鏃惰繑鍥?`fallback`锛堝嵆 `SignalThresholds::default()` 鐨勫搴旈」锛夈€?
+/// 两条路径都读不到时返回 `fallback`（即 `SignalThresholds::default()` 的对应项）。
 fn threshold_field(
   st : Map[String, Json],
   flat_key : String,
@@ -84,10 +84,10 @@ fn threshold_field(
 }
 
 ///|
-/// 鏁存暟闃堝€硷細璇诲嚭鐨勬槸 Double锛屼絾娑堣垂鏂癸紙`int_floor` 涓庢娴嬪垽瀹氾級閮借 Int銆?
-/// 闈炴暣鏁帮紙濡?`2.5`锛夊湪 `.to_int()` 涓嬩細**闈欓粯鎴柇**锛屽啓閰嶇疆鐨勪汉寰椾笉鍒颁换浣?
-/// 鍙嶉銆佹娴嬬伒鏁忓害鍗村凡鏀瑰彉 鈥斺€?涓?`int_domain` / `int_floor` 鍚屼竴鍘熷垯锛?
-/// 鍥炶惤 `fallback` 骞朵骇鍑虹偣鍚嶅憡璀︼紝璁╁け鏁堝彲瑙併€?
+/// 整数阈值：读出的是 Double，但消费方（`int_floor` 与检测判定）都要 Int。
+/// 非整数（如 `2.5`）在 `.to_int()` 下会**静默截断**，写配置的人得不到任何
+/// 反馈、检测灵敏度却已改变 —— 与 `int_domain` / `int_floor` 同一原则：
+/// 回落 `fallback` 并产出点名告警，让失效可见。
 fn threshold_int(
   st : Map[String, Json],
   flat_key : String,
@@ -106,15 +106,15 @@ fn threshold_int(
 }
 
 ///|
-/// 鏁存暟閰嶇疆瀛楁锛氳鍑虹殑鏄?Double锛屾秷璐规柟瑕?Int銆?
-/// 闈炴暣鏁帮紙濡?`0.5`锛夊湪 `.to_int()` 涓嬩細**闈欓粯鎴柇**锛屽啓閰嶇疆鐨勪汉寰椾笉鍒颁换浣?
-/// 鍙嶉銆佸紩鎿庤涓哄嵈宸叉敼鍙?鈥斺€?涓?`threshold_int` 鍚屼竴鍘熷垯锛?
-/// 鍥炶惤 `fallback` 骞朵骇鍑虹偣鍚嶅憡璀︼紝璁╁け鏁堝彲瑙併€?
+/// 整数配置字段：读出的是 Double，消费方要 Int。
+/// 非整数（如 `0.5`）在 `.to_int()` 下会**静默截断**，写配置的人得不到任何
+/// 反馈、引擎行为却已改变 —— 与 `threshold_int` 同一原则：
+/// 回落 `fallback` 并产出点名告警，让失效可见。
 ///
-/// 鈽?B1锛坢cp 璇勫锛変慨澶嶏細`cooldown_hours` 涓?`max_log_bytes` 杩囧幓鐩存帴
-/// `n.to_int()`锛宍"cooldown_hours": 0.5` 浼氭埅鏂垚 0锛堝煙鍐呭€硷紝闈欓粯鍏虫帀鍐峰嵈锛夛紝
-/// `"max_log_bytes": 2097152.9` 浼氭埅鏂垚 2097152 鈥斺€?涓?signal_thresholds
-/// 鐨勫畧鍗笉涓€鑷淬€傜幇鍦ㄧ粺涓€璧拌繖閲屻€?
+/// ★ B1（mcp 评审）修复：`cooldown_hours` 与 `max_log_bytes` 过去直接
+/// `n.to_int()`，`"cooldown_hours": 0.5` 会截断成 0（域内值，静默关掉冷却），
+/// `"max_log_bytes": 2097152.9` 会截断成 2097152 —— 与 signal_thresholds
+/// 的守卫不一致。现在统一走这里。
 fn integer_field(name : String, d : Double, fallback : Int) -> (Int, String?) {
   if d == d.floor() {
     (d.to_int(), None)
@@ -129,12 +129,12 @@ fn integer_field(name : String, d : Double, fallback : Int) -> (Int, String?) {
 }
 
 ///|
-/// `cooldown_hours` 鐨勪笂鐣岋紙10 骞达級銆傛斁杩欎箞瀹藉彧涓轰簡鎸′綇鏄庢樉鐨勭瑪璇?鈥斺€?
-/// 璐熸暟浼氳鍐峰嵈缁堢偣绠楀埌杩囧幓銆佸喎鍗村舰鍚屼笉瀛樺湪锛沗1e9` 鍒欐槸杩戜箮姘镐箙鍗℃銆?
+/// `cooldown_hours` 的上界（10 年）。放这么宽只为了挡住明显的笔误 ——
+/// 负数会让冷却终点算到过去、冷却形同不存在；`1e9` 则是近乎永久卡死。
 let max_cooldown_hours : Int = 87_600
 
 ///|
-/// 鏁存暟瀛楁锛氳惤鍦?`[lo, hi]` 鍐呭垯鍘熸牱鎺ュ彈锛屽惁鍒欏洖钀?`dflt` 骞朵骇鍑轰竴鏉″憡璀︺€?
+/// 整数字段：落在 `[lo, hi]` 内则原样接受，否则回落 `dflt` 并产出一条告警。
 fn int_domain(
   name : String,
   value : Int,
@@ -155,7 +155,7 @@ fn int_domain(
 }
 
 ///|
-/// 闃堝€间笅闄愶細浣庝簬 `lo` 浼氳瀵瑰簲鐨勬娴嬫亽鐪燂紝鏁呬笉 clamp 鍒?`lo` 鑰屾槸鍥炶惤榛樿鍊笺€?
+/// 阈值下限：低于 `lo` 会让对应的检测恒真，故不 clamp 到 `lo` 而是回落默认值。
 fn int_floor(
   name : String,
   value : Int,
@@ -175,7 +175,7 @@ fn int_floor(
 }
 
 ///|
-/// 鐧惧垎姣斿瓧娈碉細蹇呴』钀藉湪 `(0, 100]`銆?
+/// 百分比字段：必须落在 `(0, 100]`。
 fn ratio_domain(
   name : String,
   value : Double,

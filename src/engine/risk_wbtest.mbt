@@ -255,6 +255,41 @@ test "is_backward_compatible treats an empty change set as compatible" {
 }
 
 ///|
+/// ★ 键存在判据（与 `is_backward_compatible` 统一）的钉子：
+/// TS L582 的数量判据（defaults 键数 >= remove 数）会漏判 ——
+/// defaults 里有 x、移除的是 a，数量 1 >= 1 但 a 根本没被兜底。
+test "has_breaking_changes requires each removed param to have a defaults key" {
+  // 数量判据：1 >= 1 → 不破坏；键存在判据：defaults 里没有 a → 破坏
+  assert_eq(
+    has_breaking_changes([
+      @types.Change::SimplifyParams([simplification(["a"], { "x": 1 })]),
+    ]),
+    true,
+  )
+  // 键存在（哪怕 defaults 还带多余键）→ 不破坏
+  assert_eq(
+    has_breaking_changes([
+      @types.Change::SimplifyParams([simplification(["a"], { "a": 1, "x": 2 })]),
+    ]),
+    false,
+  )
+}
+
+///|
+/// ★ 早退缺陷的回归网：merges 全兼容时**不得**跳过 params 检查。
+/// 旧实现对本输入返回 true（总体兼容），甚至与 breaking_changes=true 并存。
+test "is_backward_compatible checks params even when all merges are compatible" {
+  let changes = [
+    @types.Change::MergeTools([merge(true)]),
+    @types.Change::SimplifyParams([simplification(["a"], { "x": 1 })]),
+  ]
+  assert_eq(is_backward_compatible(changes), false)
+  let risk = assess_risks(changes)
+  assert_eq(risk.breaking_changes, true)
+  assert_eq(risk.backward_compatible, false)
+}
+
+///|
 /// `estimate_migration_effort` 数的是**非空变更组的种类数**，
 /// 取代 TS L615 那句依赖 JS 运行时对象反射的
 /// `Object.values(changes).filter(v => v && v.length > 0).length`。

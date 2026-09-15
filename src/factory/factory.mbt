@@ -78,6 +78,13 @@ fn validate_name(name : String) -> Unit raise Failure {
 /// 首尾不得有空白（★ 评审 B2：parse 对 frontmatter 值无条件 `trim()`，
 /// 若放行首尾空白，`render → parse` 往返不恒等，list 会回显与磁盘
 /// 不同的内容，list→create(overwrite=true) 还会静默改写用户输入）。
+///
+/// ★ X11：render 对 description **原样拼接**（`description: <值>`），
+/// 以下三类值会产出宿主 YAML 解析器拒载或解析歧义的非法 frontmatter，
+/// 必须在入口拒绝（render 不做转义，挡在校验层）：
+/// 1) 含 ": " —— 会被解析成第二个映射键；
+/// 2) 以 YAML 特殊指示符开头 —— 会被解析成序列/块标量/锚点/标签等非标量节点；
+/// 3) 包裹引号不配对 —— 单侧引号让 unquote 语义与 YAML 解析双重歧义。
 fn validate_description(description : String) -> Unit raise Failure {
   if description.length() == 0 || description.length() > 1024 {
     raise Failure(
@@ -92,6 +99,29 @@ fn validate_description(description : String) -> Unit raise Failure {
   if description != description.trim().to_owned() {
     raise Failure(
       "invalid sub-agent description: must not have leading or trailing whitespace (render→parse would not round-trip)",
+    )
+  }
+  if description.contains(": ") {
+    raise Failure(
+      "invalid sub-agent description: must not contain \": \" (would be parsed as a second YAML mapping key)",
+    )
+  }
+  // length >= 1 已由上面的检查保证，首字符必存在
+  let yaml_indicators = [
+    "[", "{", "\"", "'", "&", "*", "!", "|", ">", "%", "@", "`",
+  ]
+  for ind in yaml_indicators {
+    if description.has_prefix(ind) {
+      raise Failure(
+        "invalid sub-agent description: must not start with a YAML indicator character",
+      )
+    }
+  }
+  let unpaired_dq = description.has_prefix("\"") != description.has_suffix("\"")
+  let unpaired_sq = description.has_prefix("'") != description.has_suffix("'")
+  if unpaired_dq || unpaired_sq {
+    raise Failure(
+      "invalid sub-agent description: wrapping quotes must be paired on both ends or absent",
     )
   }
 }
@@ -196,7 +226,7 @@ pub fn AgentDefinition::validate(self : AgentDefinition) -> Unit raise Failure {
 /// `render → parse` 必须是恒等往返（factory_wbtest 有专门用例钉住），
 /// 因此这里的每个格式细节都是契约的一部分。
 pub fn render(def : AgentDefinition) -> String {
-  let buf = StringBuilder::new(size_hint=def.system_prompt.length() + 128)
+  let buf = StringBuilder(size_hint=def.system_prompt.length() + 128)
   buf.write_string("---\n")
   buf.write_string("name: ")
   buf.write_string(def.name)
@@ -496,34 +526,15 @@ pub async fn AgentFactory::delete(
 pub fn validate_template(content : String) -> Result[Unit, String] {
   match parse(content) {
     Some(def) => {
-      // 验证 name
-      if def.name.length() == 0 || def.name.length() > 64 {
-        return Err("Invalid template name: length must be between 1 and 64 characters")
+      // ★ X12: parse 成功即证明首行围栏存在（parse 要求首行是 "---"），
+      // 旧实现里 has_prefix("---") 分支不可达；形状/长度检查与 validate
+      // 重复且缺 name 字符集校验。现在直接复用 create 入口的规范校验 ——
+      // name kebab-case、description 单行形状、system_prompt 首末空行等
+      // 全部规则一处维护。
+      let outcome : Result[Unit, String] = Ok(def.validate()) catch {
+        e => Err(e.to_string())
       }
-      // 验证 description
-      if def.description.length() == 0 || def.description.length() > 1024 {
-        return Err("Invalid template description: length must be between 1 and 1024 characters")
-      }
-      // 验证 system_prompt
-      if def.system_prompt.length() == 0 || def.system_prompt.length() > 65536 {
-        return Err("Invalid template system_prompt: length must be between 1 and 65536 characters")
-      }
-      // 验证 frontmatter 格式
-      if !content.has_prefix("---") {
-        return Err("Invalid template format: missing frontmatter fence")
-      }
-      let lines = content.split("\n")
-      let mut found_close = false
-      for line in lines {
-        if line.trim() == "---" {
-          found_close = true
-          break
-        }
-      }
-      if !found_close {
-        return Err("Invalid template format: missing closing frontmatter fence")
-      }
-      Ok(())
+      outcome
     }
     None => Err("Invalid template format: could not parse frontmatter")
   }

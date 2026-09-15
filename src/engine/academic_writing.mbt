@@ -128,7 +128,8 @@ pub fn AcademicWritingEngine::generate_proposal(
     })
   }
   
-  // 学术规范不足（学术分 < 6.0）
+  // 学术规范不足（学术分 < 6.0）或引用规范不足（引用分 < 6.0）
+  // ★ 同一份文本指标只算一次（此前两个分支各调一次 compute_text_metrics）
   if domain == @types.SkillDomain::Academic {
     let text_metrics = @scanner.compute_text_metrics(skill_content, domain)
     if text_metrics.academic_compliance < 6.0 {
@@ -140,11 +141,7 @@ pub fn AcademicWritingEngine::generate_proposal(
         priority: 4,
       })
     }
-  }
-  
-  // 引用规范不足
-  if domain == @types.SkillDomain::Academic {
-    let text_metrics = @scanner.compute_text_metrics(skill_content, domain)
+    // 引用规范不足
     if text_metrics.citation_quality < 6.0 {
       let changes = self.generate_citation_suggestions(skill_content)
       return Some({
@@ -155,8 +152,34 @@ pub fn AcademicWritingEngine::generate_proposal(
       })
     }
   }
-  
+
   None
+}
+
+///|
+/// 按主引擎已判定的进化类型生成针对性建议（EvolutionEngine 接线用）。
+///
+/// ★ 类型判定只发生在主决策树（engine.mbt `determine_evolution_type`）：
+/// 这里**不做**「指纹分 < 6.0 → AntiAIDetection」之类的路由判断 ——
+/// 那条内嵌判据与主引擎的信号类别路由矛盾，正是本引擎此前无法安全
+/// 接入主链路的原因。本方法只负责「给定类型 → 给出逐条可执行建议」。
+pub fn AcademicWritingEngine::suggest_for(
+  self : AcademicWritingEngine,
+  skill_content : String,
+  etype : @types.EvolutionType,
+) -> Array[String] {
+  match etype {
+    @types.EvolutionType::AntiAIDetection =>
+      self.generate_rewrite_suggestions(
+        skill_content,
+        @scanner.detect_ai_fingerprints(skill_content),
+      )
+    @types.EvolutionType::AcademicWritingEnhancement =>
+      self.generate_academic_suggestions(skill_content)
+    @types.EvolutionType::CitationNormalization =>
+      self.generate_citation_suggestions(skill_content)
+    _ => []
+  }
 }
 
 ///|

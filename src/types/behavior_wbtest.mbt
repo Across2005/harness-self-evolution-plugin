@@ -199,6 +199,45 @@ test "changes_kinds counts only non-empty change groups, in order" {
 }
 
 ///|
+/// 「变更种类数」的唯一消费方（risk.mbt 的 estimate_migration_effort）把
+/// 本函数长度当种类数：同一 kind 的多条变更不得重复计数，去重后
+/// 仍保持首次出现顺序（与 dedup_ordered 同一契约）。
+test "changes_kinds dedupes repeated kinds keeping first occurrence" {
+  let merge : ToolMerge = {
+    new_tool: "smart_fill",
+    merged_from: ["navigate", "click", "type"],
+    new_interface: {
+      params: ["url", "selector", "text"],
+      description: "一站式表单填充：导航 + 定位 + 输入",
+      defaults: None,
+    },
+    backward_compatible: true,
+  }
+  let doc : DocumentationUpdate = {
+    file: "SKILL.md",
+    section: "Usage Examples",
+    new_content: "添加具体使用示例",
+    reason: "文档质量评分较低",
+  }
+  // 两条 MergeTools + 一条 UpdateDocumentation：只产出 2 个 kind，
+  // 重复的 merge_tools 不出现第二次
+  let changes : Array[Change] = [
+    Change::MergeTools([merge]),
+    Change::UpdateDocumentation([doc]),
+    Change::MergeTools([merge, merge]),
+  ]
+  json_inspect(changes_kinds(changes).map(fn(k) { k.wire_name() }), content=[
+    "merge_tools", "update_documentation",
+  ])
+  // 全部同 kind：长度收敛为 1
+  let same_kind : Array[Change] = [
+    Change::MergeTools([merge]),
+    Change::MergeTools([merge]),
+  ]
+  assert_eq(changes_kinds(same_kind).length(), 1)
+}
+
+///|
 /// `Change` 的自描述 wire 形式。用对象而非 derive 的 tagged-array，
 /// 因为 proposals.jsonl 是面向人类审批决策的低频文档，可读性优先。
 test "Change serializes as a self-describing object and round-trips" {
@@ -267,6 +306,64 @@ test "dedup_ordered keeps first-occurrence order" {
   json_inspect(dedup_ordered(["b", "a", "b", "c", "a"]), content=["b", "a", "c"])
   json_inspect(dedup_ordered([]), content=[])
   json_inspect(dedup_ordered(["x", "x", "x"]), content=["x"])
+}
+
+///|
+/// 构建一份最小插件档案：DependencyGraph 只消费 plugin_id 与
+/// dependencies 两个字段，其余一律填空值。
+fn plugin_with_deps(
+  plugin_id : String,
+  deps : Array[String],
+) -> PluginMetadata {
+  {
+    plugin_id: plugin_id,
+    name: plugin_id,
+    version: "1.0.0",
+    kind: PluginKind::Custom,
+    domain: SkillDomain::Programming,
+    capabilities: [],
+    tools: [],
+    events: [],
+    dependencies: deps,
+    scanned_at: 0L,
+    path: "",
+    initial_metrics: {
+      complexity_score: 0.0,
+      interface_clarity: 0.0,
+      documentation_quality: 0.0,
+      usage_frequency: None,
+    },
+  }
+}
+
+///|
+/// 环检测必须只沿依赖方向走：索引把每条边同时挂在两端点下，
+/// 若当作无向图遍历，任意单边 A→B 都会被反向边当成 A-B-A 假环。
+test "detect_cycles walks dependency edges in one direction only" {
+  // 单边 a→b（b 不依赖 a）：不得报环
+  let single = DependencyGraph::new(
+    [plugin_with_deps("a", ["b"]), plugin_with_deps("b", [])],
+  )
+  json_inspect(single.detect_cycles(), content=[])
+
+  // a→b→a：真环，报告闭合路径 [a, b, a]
+  let cyclic = DependencyGraph::new(
+    [plugin_with_deps("a", ["b"]), plugin_with_deps("b", ["a"])],
+  )
+  json_inspect(cyclic.detect_cycles(), content=[["a", "b", "a"]])
+}
+
+///|
+/// 菱形依赖的去重：x 与 y 都依赖 p1，x 还依赖 y。从 p1 出发时
+/// y 先出栈并把 x 推进结果，若 visited 等出栈才标记，x 会被重复收集。
+test "identify_co_evolution_opportunities dedupes diamond dependents" {
+  let g = DependencyGraph::new([
+    plugin_with_deps("p1", []),
+    plugin_with_deps("x", ["p1", "y"]),
+    plugin_with_deps("y", ["p1"]),
+  ])
+  // 期望 [x, y]：去重，且不含起点 p1 自身
+  json_inspect(g.identify_co_evolution_opportunities("p1"), content=["x", "y"])
 }
 
 ///|

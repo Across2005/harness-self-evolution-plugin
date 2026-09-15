@@ -252,17 +252,29 @@ pub async fn PluginScanner::scan_all(
   }
 
   self.reset()
-  // 并行扫描多个根目录以提升性能。
-  // **单线程协作式调度假设**：所有 spawned task 共享同一个 `self`，
-  // 通过 `absorb()` 写入 `self.profiles` / `self.index`。
-  // 当前安全是因为 MoonBit async 是单线程协作式——task 只在 await 点让出，
-  // absorb() 内无 await，不存在真正的并发写入。
-  // 若未来运行时引入多线程执行器，此处需改为「每 root 独立结果 + 最后 merge」。
+  // 并行扫描多个根目录以提升性能。每个 root 把扫描产物收进**自己的桶**，
+  // group 结束后按 `cfg.roots` 顺序合并/absorb ——
+  // · 跨 root 撞 `plugin_id` 时先 root 优先（absorb 的先到先得），胜者确定；
+  // · 输出与缓存的顺序 = root 顺序 + root 内发现顺序，完全可复现。
+  //   直接往 `self` 吸收会退化成 task 交错先后的竞速，跨 root 档案顺序与
+  //   胜者都不确定，违背 R5 与 discover.mbt:84-88 的确定性承诺。
+  // 并行阶段对 `self` 只读（`scan_plugin_collect` 不碰 profiles/index），
+  // 合并阶段串行执行，单线程协作式调度下依然无需互斥。
+  let buckets : Array[Array[ScannedPlugin]] = []
+  for _ in self.cfg.roots {
+    buckets.push([])
+  }
   @async.with_task_group() <| group => {
-    for root in self.cfg.roots {
+    for i, root in self.cfg.roots {
+      let sink = buckets[i]
       let _ = group.spawn(allow_failure=true, () => {
-        self.scan_root(root, @types.PluginKind::Official, cache_by_dir~)
+        self.scan_root_into(root, sink, @types.PluginKind::Official, cache_by_dir)
       })
+    }
+  }
+  for bucket in buckets {
+    for scanned in bucket {
+      self.adopt(scanned)
     }
   }
   self.save_cache()
@@ -288,12 +300,67 @@ pub async fn PluginScanner::scan_root(
   }
   let found = discover_plugins(root, max_depth=self.cfg.max_depth)
   for plugin in found {
-    self.scan_plugin_dir(plugin, kind, cache_by_dir~)
+    match self.scan_plugin_collect(plugin, kind, cache_by_dir) {
+      Some(scanned) => self.adopt(scanned)
+      None => ()
+    }
   }
 }
 
 ///|
-/// 扫描单个插件目录。取代 TS 的 `scanPluginDirectory`（L80-155）。
+/// 扫描单个根目录，把产物收进 `sink` 而**不吸收**（供 `scan_all` 的并行阶段用：
+/// 每 root 一个桶，group 结束后按 root 顺序合并）。其余行为与 `scan_root` 一致。
+async fn PluginScanner::scan_root_into(
+  self : PluginScanner,
+  root : String,
+  sink : Array[ScannedPlugin],
+  kind : @types.PluginKind,
+  cache_by_dir : Map[String, @store.CachedProfile],
+) -> Unit {
+  if !@fs.exists(root) {
+    @util.log_info("Scanner", "Path does not exist: \{root}")
+    return
+  }
+  let found = discover_plugins(root, max_depth=self.cfg.max_depth)
+  for plugin in found {
+    match self.scan_plugin_collect(plugin, kind, cache_by_dir) {
+      Some(scanned) => sink.push(scanned)
+      None => ()
+    }
+  }
+}
+
+///|
+/// 单个插件目录的扫描产物。
+/// `raw_tools` / `raw_caps` 是**未去重**的计数，仅供 absorb 成功后的
+/// 「Found plugin」日志使用（对齐 TS L150 用未去重计数）；
+/// 缓存命中直采的档案不打这条日志（既有行为），用 `from_cache` 区分。
+priv struct ScannedPlugin {
+  profile : @types.PluginMetadata
+  raw_tools : Int
+  raw_caps : Int
+  from_cache : Bool
+}
+
+///|
+/// 并入一份扫描产物：absorb 成功且非缓存直采时打「Found plugin」日志。
+/// 旧 `scan_plugin_dir` 尾部的行为原样搬到这里，逐字一致。
+async fn PluginScanner::adopt(
+  self : PluginScanner,
+  scanned : ScannedPlugin,
+) -> Unit {
+  if self.absorb(scanned.profile) && !scanned.from_cache {
+    @util.log_info(
+      "Scanner",
+      "Found plugin: \{scanned.profile.plugin_id} (\{scanned.profile.domain.wire_name()}, \{scanned.raw_tools} tools, \{scanned.raw_caps} capabilities)",
+    )
+  }
+}
+
+///|
+/// 扫描单个插件目录并**返回产物，不吸收**。
+/// 对 `self` 只读 —— 这是 `scan_all` 能把多个 root 并行扫进各自桶的前提。
+/// 返回 `None` 表示跳过（同 plugin_id 已被吸收，对齐 TS L115-117 先到先得）。
 ///
 /// CONTEXT.md 不变量⑤（「无清单目录不是插件」）由 `discover_plugins` 保证 ——
 /// 只有含清单的目录才会被送进来，故此处不再需要 TS L83-91 的那段判定。
@@ -302,20 +369,24 @@ pub async fn PluginScanner::scan_root(
 /// 在 TS 里是两次独立的全树递归，此处仍是两次调用但共享 `read_entries`
 /// 的剪枝与排序逻辑；真正的重复读取（P13：根 SKILL.md 被 `parseSkillFile`
 /// 与 `calculateMetrics` 各读一次）已消除 —— 内容长度在遍历技能文件时顺手记下。
-pub async fn PluginScanner::scan_plugin_dir(
+async fn PluginScanner::scan_plugin_collect(
   self : PluginScanner,
   plugin : DiscoveredPlugin,
   kind : @types.PluginKind,
-  cache_by_dir? : Map[String, @store.CachedProfile] = Map([]),
-) -> Unit {
+  cache_by_dir : Map[String, @store.CachedProfile],
+) -> ScannedPlugin? {
   let dir = plugin.dir
 
   // 缓存命中且指纹有效 → 直接采用，一个文件都不读
   match cache_by_dir.get(dir) {
     Some(entry) =>
       if @store.PluginCache::validate(entry) {
-        ignore(self.absorb(entry.profile))
-        return
+        return Some({
+          profile: entry.profile,
+          raw_tools: 0,
+          raw_caps: 0,
+          from_cache: true,
+        })
       }
     None => ()
   }
@@ -325,7 +396,7 @@ pub async fn PluginScanner::scan_plugin_dir(
   let plugin_id = "\{name}-\{version}"
   // 对齐 TS L115-117：同 id 先到先得
   if self.index.contains(plugin_id) {
-    return
+    return None
   }
 
   // 技能文件和源码文件：一次性遍历目录，避免两次遍历
@@ -334,7 +405,7 @@ pub async fn PluginScanner::scan_plugin_dir(
   let root_skill_path = @util.path_join(dir, "SKILL.md")
   let mut root_skill_len : Int? = None
   let (skill_files, source_files) = list_skill_and_source_files(dir)
-  
+
   for skill in skill_files {
     match read_text_or_none(skill) {
       Some(text) => {
@@ -392,12 +463,26 @@ pub async fn PluginScanner::scan_plugin_dir(
     path: dir,
     initial_metrics: metrics,
   }
-  if self.absorb(profile) {
-    // 对齐 TS L150 的日志：里面用的是**未去重**的计数
-    @util.log_info(
-      "Scanner",
-      "Found plugin: \{plugin_id} (\{domain.wire_name()}, \{tools.length()} tools, \{capabilities.length()} capabilities)",
-    )
+  Some({
+    profile,
+    raw_tools: tools.length(),
+    raw_caps: capabilities.length(),
+    from_cache: false,
+  })
+}
+
+///|
+/// 扫描单个插件目录。取代 TS 的 `scanPluginDirectory`（L80-155）。
+/// 即 `scan_plugin_collect` + 立即吸收：供定向重扫等单目录入口直接调用。
+pub async fn PluginScanner::scan_plugin_dir(
+  self : PluginScanner,
+  plugin : DiscoveredPlugin,
+  kind : @types.PluginKind,
+  cache_by_dir? : Map[String, @store.CachedProfile] = Map([]),
+) -> Unit {
+  match self.scan_plugin_collect(plugin, kind, cache_by_dir) {
+    Some(scanned) => self.adopt(scanned)
+    None => ()
   }
 }
 

@@ -42,22 +42,18 @@ fn collect_params(
 }
 
 ///|
-/// JSON 对象的键数；不是对象则为 0。
-/// 取代 TS L582 的 `Object.keys(p.defaults).length`。
-fn json_object_size(json : Json) -> Int {
-  match json {
-    Object(obj) => obj.length()
-    _ => 0
-  }
-}
-
-///|
 /// 是否存在破坏性变更。取代 TS L575-587。
 ///
 /// 两条判据逐一对应：
 /// · 有任一工具合并**不**向后兼容（L577）
-/// · 有任一参数简化，其默认值数量**少于**被移除的参数数量（L582）
+/// · 有任一参数简化，其被移除的参数在 defaults 里**没有**同名键
 ///   —— 即存在「被移除却没有默认值兜底」的参数
+///
+/// ★ 判据与 TS 有一处**有意的差异**：TS L582 按数量比
+/// （`Object.keys(defaults).length < remove_params.length`），
+/// defaults 里凑够数量但键名对不上时会漏判破坏。
+/// 新版与 `is_backward_compatible` 统一为**键存在判据**：
+/// 被移除的参数在 defaults 中有同名键才算被兜底。
 pub fn has_breaking_changes(changes : ArrayView[@types.Change]) -> Bool {
   for m in collect_merges(changes) {
     if !m.backward_compatible {
@@ -65,8 +61,10 @@ pub fn has_breaking_changes(changes : ArrayView[@types.Change]) -> Bool {
     }
   }
   for p in collect_params(changes) {
-    if json_object_size(p.defaults) < p.remove_params.length() {
-      return true
+    for removed in p.remove_params {
+      if !json_has_key(p.defaults, removed) {
+        return true
+      }
     }
   }
   false
@@ -86,39 +84,30 @@ pub fn has_breaking_changes(changes : ArrayView[@types.Change]) -> Bool {
 /// → 整体返回 `false`；而当 `merge_tools` 是**空数组**时，`[].every()` 为 `true`
 /// → 返回 `true`。同样是「没有任何变更」，结论却相反 —— 这是 TS 的自相矛盾。
 /// 「无变更」显然不会破坏任何调用方，故新版统一返回 `true`。
+///
+/// ★ **不允许中途早退**：此前 merges 全兼容时直接 `return true`，
+/// params 的检查被整体跳过，「merges 兼容 + params 破坏」会被误判为
+/// 总体兼容，甚至与 `has_breaking_changes = true` 并存。
+/// 现在先完成全部检查再汇总结论；空变更集时两个循环都不触碰
+/// `all_ok`，自然返回 `true`（上面的语义修正随之保留）。
 pub fn is_backward_compatible(changes : ArrayView[@types.Change]) -> Bool {
   let merges = collect_merges(changes)
   let params = collect_params(changes)
 
-  if merges.length() > 0 {
-    let mut all_ok = true
-    for m in merges {
-      if !m.backward_compatible {
+  let mut all_ok = true
+  for m in merges {
+    if !m.backward_compatible {
+      all_ok = false
+    }
+  }
+  for p in params {
+    for removed in p.remove_params {
+      if !json_has_key(p.defaults, removed) {
         all_ok = false
       }
     }
-    if all_ok {
-      return true
-    }
   }
-  if params.length() > 0 {
-    let mut all_defaulted = true
-    for p in params {
-      for removed in p.remove_params {
-        if !json_has_key(p.defaults, removed) {
-          all_defaulted = false
-        }
-      }
-    }
-    if all_defaulted {
-      return true
-    }
-  }
-  // 既无工具合并也无参数简化（含变更集为空）→ 不会破坏调用方
-  if merges.length() == 0 && params.length() == 0 {
-    return true
-  }
-  false
+  all_ok
 }
 
 ///|

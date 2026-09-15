@@ -165,7 +165,15 @@ pub async fn EvolutionEngine::generate_proposal(
 
   // 决策与生成
   let etype = self.determine_evolution_type(filtered, plugin)
-  let changes = plan_changes(plugin, etype, filtered)
+  // ★ v2.5 接线：写作领域命中写作类三型时，用 AcademicWritingEngine 对
+  // 插件 SKILL.md 的分析结果丰富变更集（逐条可执行建议并入文档更新条目）；
+  // 读不到 SKILL.md 或分析不出建议时保持 plan_changes 的既有默认变更，
+  // 三型提案仍能产出。类型判定只由上面的决策树决定，不受引擎内部分析影响。
+  let changes = enrich_writing_changes(
+    plugin,
+    etype,
+    plan_changes(plugin, etype, filtered),
+  )
   let signature = generate_signature(plugin.plugin_id, etype)
 
   // ⑧ 同签名重复 → 返回已存在的
@@ -355,6 +363,85 @@ fn has_category(
 }
 
 ///|
+/// 写作类三型（AntiAIDetection / CitationNormalization /
+/// AcademicWritingEnhancement）的变更丰富：读插件 SKILL.md 交给
+/// AcademicWritingEngine 分析，把逐条可执行建议作为附加的文档更新条目
+/// 并入变更集。
+///
+/// · 只在写作领域（Academic / TextGeneration）且决策树已命中写作三型时触发；
+///   类型判定只属于 `determine_evolution_type`，这里不重复判型
+///   （AcademicWritingEngine 自带的「指纹分 < 6.0 → AntiAIDetection」判据
+///   与主引擎的信号类别路由矛盾，故只取其建议、不取其类型）。
+/// · SKILL.md 缺失/不可读，或分析不出可用建议 → 原样返回默认变更，
+///   保证三型提案仍能产出。
+/// · 建议条目并入已存在的 UpdateDocumentation 组（写作三型的默认变更
+///   通常已有一组），没有才新起一组 —— 不增加变更组数，
+///   迁移成本估算不被建议条目抬高。
+async fn enrich_writing_changes(
+  plugin : @types.PluginMetadata,
+  etype : @types.EvolutionType,
+  default_changes : Array[@types.Change],
+) -> Array[@types.Change] {
+  let is_writing_domain =
+    plugin.domain == @types.SkillDomain::Academic ||
+      plugin.domain == @types.SkillDomain::TextGeneration
+  if !is_writing_domain {
+    return default_changes
+  }
+  let suggestions : Array[String] = match etype {
+    @types.EvolutionType::AntiAIDetection |
+    @types.EvolutionType::CitationNormalization |
+    @types.EvolutionType::AcademicWritingEnhancement => {
+      let content = @scanner.read_text_or_none(
+        @util.path_join(plugin.path, "SKILL.md"),
+      )
+      match content {
+        Some(text) => AcademicWritingEngine::new().suggest_for(text, etype)
+        None => []
+      }
+    }
+    _ => []
+  }
+  if suggestions.is_empty() {
+    return default_changes
+  }
+  // section 沿用 planning.mbt 各类型的既有词汇，不另起新词
+  let section = match etype {
+    @types.EvolutionType::AntiAIDetection => "Anti-AI Detection Guidelines"
+    @types.EvolutionType::AcademicWritingEnhancement =>
+      "Academic Writing Guidelines"
+    _ => "Citation Format Guidelines"
+  }
+  let items : Array[@types.DocumentationUpdate] = []
+  for s in suggestions {
+    items.push({
+      file: "SKILL.md",
+      section,
+      new_content: s,
+      reason: "学术写作引擎：基于 SKILL.md 分析的可执行建议",
+    })
+  }
+  @util.log_info("Engine", "Writing suggestions merged: \{items.length()}")
+  let mut merged = false
+  for c in default_changes {
+    match c {
+      @types.Change::UpdateDocumentation(docs) =>
+        if !merged {
+          for item in items {
+            docs.push(item)
+          }
+          merged = true
+        }
+      _ => ()
+    }
+  }
+  if !merged {
+    default_changes.push(@types.Change::UpdateDocumentation(items))
+  }
+  default_changes
+}
+
+///|
 /// 计算信号的时间衰减因子。
 /// 信号越老，衰减因子越小。默认衰减半衰期为 24 小时。
 /// 衰减公式：decay_factor = 0.5 ^ (age_hours / half_life_hours)
@@ -381,8 +468,11 @@ fn calculate_decay_factor(
 }
 
 ///|
-/// 聚合信号：按时间衰减强度，合并相同类别的信号。
-/// 返回聚合后的信号列表，每个信号的强度已根据时间衰减。
+/// 聚合信号：**逐条**计算时间衰减系数后原样透传 —— 不合并相同类别、
+/// 不去重，`strength` 也保持原值（衰减只写入 `decay_factor` 字段，
+/// 不影响按强度过滤与置信度判定的既有行为）。
+/// `decay_factor` 当前在仓内没有消费方，供外部/后续按衰减强度加权时使用；
+/// 该字段是 signals.jsonl 的一部分，不可删除。
 pub fn aggregate_signals(
   signals : ArrayView[@types.EvolutionSignal],
   current_ts : Int64,

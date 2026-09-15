@@ -91,10 +91,13 @@ fn pad(n : Int64, width : Int) -> String {
 }
 
 ///|
-/// 格式化为恰好 24 字符的 `YYYY-MM-DDTHH:mm:ss.mmmZ`（纯 UTC）。
+/// 格式化为与 JS `new Date(ms).toISOString()` 逐字符等价的 UTC 串 ——
+/// 这是硬性验收判据，由 `time_test.mbt` 用 `node -e` 的真实输出对拍。
 ///
-/// 与 JS `new Date(ms).toISOString()` 逐字符等价 —— 这是硬性验收判据，
-/// 由 `time_test.mbt` 用 `node -e` 的真实输出对拍。
+/// 年份在 `0..=9999` 时为 24 字符的 `YYYY-MM-DDTHH:mm:ss.mmmZ`（MCP 客户端
+/// 与 execution.log 依赖的常规形状）；越界年份走 ECMA-262 的扩展年格式：
+/// 负年份输出 `-YYYYYY`、超过 9999 年输出 `+YYYYYY`（符号 + 6 位数字），
+/// 注意 0 年仍按 4 位输出（`0000`），与 JS 一致。
 pub fn iso_utc(ms : Int64) -> String {
   let raw_days = tdiv(ms, ms_per_day)
   let rem = ms - raw_days * ms_per_day
@@ -110,7 +113,15 @@ pub fn iso_utc(ms : Int64) -> String {
   let hh = tdiv(sec_total, 3_600L)
   let mm = tdiv(sec_total - hh * 3_600L, 60L)
   let ss = sec_total - hh * 3_600L - mm * 60L
-  "\{pad(y, 4)}-\{pad(m, 2)}-\{pad(d, 2)}T\{pad(hh, 2)}:\{pad(mm, 2)}:\{pad(ss, 2)}.\{pad(milli, 3)}Z"
+  // 负年份 / 超 9999 年输出符号 + 6 位扩展年，其余（含 0000 年）保持 4 位
+  let year = if y < 0L {
+    "-" + pad(-y, 6)
+  } else if y > 9_999L {
+    "+" + pad(y, 6)
+  } else {
+    pad(y, 4)
+  }
+  "\{year}-\{pad(m, 2)}-\{pad(d, 2)}T\{pad(hh, 2)}:\{pad(mm, 2)}:\{pad(ss, 2)}.\{pad(milli, 3)}Z"
 }
 
 ///|

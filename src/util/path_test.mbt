@@ -131,6 +131,37 @@ test "String compare is length-first; lexical_compare is lexicographic" {
 }
 
 ///|
+/// X1 回归网：词法消解必须吃掉 `.` 与非开头的 `..` 段，
+/// 堵住 "boundary/../外" 式穿越；开头的 `..` 保留（相对路径无法词法消解），
+/// 调用方（is_within_boundary）据此拒绝。
+test "path_lexical_resolve collapses dot and dotdot segments lexically" {
+  // 核心修复用例：归一化后逃出原目录
+  assert_eq(@util.path_lexical_resolve("d:/app/../outside/x"), "d:/outside/x")
+  // "." 段丢弃
+  assert_eq(@util.path_lexical_resolve("d:/app/./x"), "d:/app/x")
+  // 尾部 ".." 吃掉前一段
+  assert_eq(@util.path_lexical_resolve("d:/app/x/.."), "d:/app")
+  // 开头的 ".." 保留
+  assert_eq(@util.path_lexical_resolve("../outside/x"), "../outside/x")
+  assert_eq(@util.path_lexical_resolve(".."), "..")
+  // ".." 连锁：吃尽真实段后剩余的作为开头保留
+  assert_eq(@util.path_lexical_resolve("a/../../b"), "../b")
+  // 连续 ".." 不互相吃
+  assert_eq(@util.path_lexical_resolve("../.."), "../..")
+  // 普通路径不受影响
+  assert_eq(@util.path_lexical_resolve("d:/app/x"), "d:/app/x")
+  assert_eq(@util.path_lexical_resolve("/root/x"), "/root/x")
+  // 反斜杠与重复分隔符先归一化
+  assert_eq(@util.path_lexical_resolve("d:\\app\\..\\x"), "d:/x")
+  assert_eq(@util.path_lexical_resolve("a//b/./c"), "a/b/c")
+  // 空串与根
+  assert_eq(@util.path_lexical_resolve(""), "")
+  assert_eq(@util.path_lexical_resolve("/"), "/")
+  // UNC 前缀保留且可消解
+  assert_eq(@util.path_lexical_resolve("//server/share/../x"), "//server/x")
+}
+
+///|
 test "path_depth_from counts segments below the root" {
   assert_eq(@util.path_depth_from("a", "a"), 0)
   assert_eq(@util.path_depth_from("a", "a/"), 0)

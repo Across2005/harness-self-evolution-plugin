@@ -748,3 +748,173 @@ async test "a validation failure is still reported when the log is unwritable" {
     None => abort("proposal vanished")
   }
 }
+
+// ============================================================================
+// 新增：沙箱纯逻辑（X1/X5/X6）
+// ============================================================================
+
+///|
+/// X1 回归网：边界检查先做词法消解 —— "boundary/../外" 必须被拒绝，
+/// 相对路径含未消解 `..` 一律拒绝（不可判定 → 宁可拒绝），普通路径不受影响。
+test "is_within_boundary resolves dotdot lexically and rejects escape attempts" {
+  // 普通路径不受影响
+  assert_true(is_within_boundary("d:/app/x", "d:/app"))
+  assert_true(is_within_boundary("d:/app", "d:/app"))
+  assert_true(is_within_boundary("d:/app/./sub", "d:/app"))
+  assert_true(is_within_boundary("D:/APP/X", "d:/app")) // L3 大小写不敏感
+  // 词法消解后逃出边界 → 拒绝（修复前 "d:/app/../x" 以 "d:/app/" 前缀命中）
+  assert_eq(is_within_boundary("d:/app/../outside/x", "d:/app"), false)
+  assert_eq(is_within_boundary("d:/app/../x", "d:/app"), false)
+  // 段边界：兄弟目录前缀不误判
+  assert_eq(is_within_boundary("d:/application/x", "d:/app"), false)
+  // 相对路径含未消解 .. → 不可判定，一律拒绝
+  assert_eq(is_within_boundary("../outside/x", "d:/app"), false)
+  assert_eq(is_within_boundary("app/../x", "app"), false)
+  assert_eq(is_within_boundary("x", "app"), false)
+}
+
+///|
+/// X5/X6 回归网：password 类只认赋值上下文（等号/冒号左侧），行号 1 基。
+test "scan_sensitive flags password only in assignment context with 1-based lines" {
+  // 赋值上下文的 password 命中（第 1 行）；第 3 行的环境变量赋值行号为 3
+  let hits = scan_sensitive("password = hunter2\nnothing here\nMY_SECRET_KEY=abc\n")
+  assert_eq(hits.length(), 2)
+  assert_eq(hits[0].kind, Password)
+  assert_eq(hits[0].line, 1)
+  assert_eq(hits[1].kind, EnvAssignment)
+  assert_eq(hits[1].line, 3)
+  // 英文句子里的 password（无赋值上下文）不再误报
+  assert_eq(scan_sensitive("the password was never here\n").length(), 0)
+  // 通用 token 后跟空格不再误报（X5：分隔符集去掉空格/制表）
+  assert_eq(scan_sensitive("a token here\n").length(), 0)
+  // "password: x" 冒号上下文仍命中
+  let colon_hits = scan_sensitive("password: hunter2\n")
+  assert_eq(colon_hits.length(), 1)
+  assert_eq(colon_hits[0].line, 1)
+}
+
+// ============================================================================
+// 新增：timeout_ms 下界保护（X8）
+// ============================================================================
+
+///|
+/// X8 回归网：timeout_ms = 0 不得让 with_timeout_opt 立即超时（修复前
+/// "timeout after 0ms" 必然失败），负数不得让保护失效 —— 统一回退默认值。
+async test "a non-positive task timeout falls back to the default instead of firing immediately" {
+  let task : @types.SubAgentTask = {
+    id: "cg-zero",
+    agent: @types.AgentType::CodeGenerator,
+    task: "quick",
+    input: Json::null(),
+    deps: [],
+    timeout_ms: 0,
+  }
+  let result = run_with_timeout(dry_run_task, task)
+  assert_eq(result.success, true)
+  assert_eq(result.error, None)
+}
+
+///|
+/// X8 回归网（验证侧）：timeout_ms 为负同样回退默认值。
+async test "a negative validation timeout falls back to the default instead of firing immediately" {
+  let spec : @types.ValidationLevel = {
+    level: @types.ValidationLevelTag::T0,
+    description: "Syntax",
+    automated: true,
+    timeout_ms: Some(-1),
+  }
+  let result = run_validation_level(dry_run_validation, spec, make_proposal())
+  assert_eq(result.success, true)
+  assert_eq(result.error, None)
+}
+
+// ============================================================================
+// 新增：真实执行/真实验证未就绪时必须显式失败（X9/X10）
+// ============================================================================
+
+///|
+/// X9/X10 用例共享的环境变量还原（测试进程内的环境是共享的）。
+fn restore_env(name : String, saved : String?) -> Unit {
+  match saved {
+    Some(v) => @env.set_env_var(name, v)
+    None => @env.unset_env_var(name)
+  }
+}
+
+///|
+/// X9 回归网：配置了 HARNESS_EVOLUTION_AGENT_CMD 但真实执行未实现，
+/// 必须报错而不是返回模拟成功（修复前返回 "Process execution placeholder"）。
+async test "process_task raises instead of faking success when the agent command is configured" {
+  let saved = @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD")
+  @env.set_env_var("HARNESS_EVOLUTION_AGENT_CMD", "some-agent --prompt {prompt}")
+  defer restore_env("HARNESS_EVOLUTION_AGENT_CMD", saved)
+  let task : @types.SubAgentTask = {
+    id: "cg-real",
+    agent: @types.AgentType::CodeGenerator,
+    task: "t",
+    input: Json::null(),
+    deps: [],
+    timeout_ms: 1000,
+  }
+  let outcome : Result[Json, String] = Ok(process_task(task)) catch {
+    e => Err(e.to_string())
+  }
+  match outcome {
+    Err(msg) => assert_true(msg.contains("process execution not implemented"))
+    Ok(_) =>
+      abort("process_task must not fake success when the agent command is configured")
+  }
+}
+
+///|
+/// X9 配套正例：未配置命令时仍回退模拟实现（不得因上述改动一刀切报错）。
+async test "process_task falls back to the simulated implementation without the agent command" {
+  let saved = @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD")
+  @env.unset_env_var("HARNESS_EVOLUTION_AGENT_CMD")
+  defer restore_env("HARNESS_EVOLUTION_AGENT_CMD", saved)
+  let task : @types.SubAgentTask = {
+    id: "cg-sim",
+    agent: @types.AgentType::CodeGenerator,
+    task: "t",
+    input: Json::null(),
+    deps: [],
+    timeout_ms: 1000,
+  }
+  let outcome : Result[Json, String] = Ok(process_task(task)) catch {
+    e => Err(e.to_string())
+  }
+  assert_true(outcome is Ok(_))
+}
+
+///|
+/// X10 回归网：HARNESS_EVOLUTION_REAL_VALIDATION=true 但真实验证未实现，
+/// 必须报错而不是返回模拟通过（验证闸门：宁可失败不可假绿）。
+async test "real_validation raises instead of faking a pass when the switch is on" {
+  let saved = @env.get_env_var("HARNESS_EVOLUTION_REAL_VALIDATION")
+  @env.set_env_var("HARNESS_EVOLUTION_REAL_VALIDATION", "true")
+  defer restore_env("HARNESS_EVOLUTION_REAL_VALIDATION", saved)
+  let outcome : Result[(Bool, String), String] = Ok(
+    real_validation(@types.ValidationLevelTag::T0, make_proposal()),
+  ) catch {
+    e => Err(e.to_string())
+  }
+  match outcome {
+    Err(msg) => assert_true(msg.contains("real validation not implemented"))
+    Ok(_) =>
+      abort("real_validation must not fake a pass when the switch is on")
+  }
+}
+
+///|
+/// X10 配套正例：开关未开启时仍回退模拟实现。
+async test "real_validation falls back to the simulated implementation when the switch is off" {
+  let saved = @env.get_env_var("HARNESS_EVOLUTION_REAL_VALIDATION")
+  @env.unset_env_var("HARNESS_EVOLUTION_REAL_VALIDATION")
+  defer restore_env("HARNESS_EVOLUTION_REAL_VALIDATION", saved)
+  let (ok, message) = real_validation(
+    @types.ValidationLevelTag::T0,
+    make_proposal(),
+  )
+  assert_true(ok)
+  assert_true(message.contains("Syntax"))
+}

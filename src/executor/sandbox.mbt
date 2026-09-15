@@ -23,11 +23,26 @@ pub(all) struct SensitiveHit {
 } derive(ToJson)
 
 /// 判断关键字后是否紧跟赋值/引号/冒号分隔符。
+/// X5：分隔符集**不含空格与制表** —— 否则 "the token in the cache" 这类
+/// 英文句子里的同形词会因后跟空格而误报。
 fn is_assignment_context(line : String, keyword_pos : Int, keyword_len : Int) -> Bool {
   let after = keyword_pos + keyword_len
   if after >= line.length() { return false }
   let c = line[after]
-  c == '=' || c == ':' || c == '"' || c == '\'' || c == ' ' || c == '\t'
+  c == '=' || c == ':' || c == '"' || c == '\''
+}
+
+/// 判断关键词是否出现在同一行 `=` / `:` 的**左侧**（中间允许空格/制表）。
+/// X5：password/secret 类关键词从「无条件命中」收紧为赋值上下文判定，
+/// 允许 `password = x` 这种等号前有空格的常见写法。
+fn is_left_of_assignment(line : String, keyword_pos : Int, keyword_len : Int) -> Bool {
+  let mut i = keyword_pos + keyword_len
+  let len = line.length()
+  while i < len && (line[i] == ' ' || line[i] == '\t') {
+    i = i + 1
+  }
+  if i >= len { return false }
+  line[i] == '=' || line[i] == ':'
 }
 
 /// 从第一个关键字位置开始查找子串。
@@ -65,12 +80,15 @@ fn is_valid_env_key(key : String) -> Bool {
 
 /// 纯函数：扫描文本中的敏感数据。
 ///
-/// 短匹配策略（H1）：通用关键字（token/password/secret/credential/private）
-/// 要求后跟 `=`/`:`/`"`/`'`/空格 分隔符，避免匹配代码注释或英文句子中的同形词。
+/// 短匹配策略（H1，X5 收紧）：通用关键字（token/private）要求**紧跟**
+/// `=`/`:`/引号分隔符（不再接受空格/制表）；password/passwd/secret/credential
+/// 要求出现在同一行 `=`/`:` 的左侧（允许中间隔空格/制表），
+/// 避免匹配代码注释或英文句子中的同形词。
+/// 行号一律 1 基（X6）：逐行扫描从 1 计数，env 扫描按换行偏移换算。
 pub fn scan_sensitive(text : String) -> Array[SensitiveHit] {
   let hits : Array[SensitiveHit] = []
   let lines = text.split("\n")
-  let mut line_num = 0
+  let mut line_num = 1
 
   for line in lines {
     let lower = line.to_lower().to_owned()
@@ -96,20 +114,26 @@ pub fn scan_sensitive(text : String) -> Array[SensitiveHit] {
       continue
     }
 
-    // Password / Secret / Credential — 高确定性关键字无需分隔；通用词要求分隔符
-    if lower.contains("password") || lower.contains("passwd") {
+    // Password / Secret / Credential — 要求出现在同一行 `=`/`:` 左侧（X5）
+    let mut pw_pos = find_substr(lower, "password")
+    let mut pw_len = 8
+    if pw_pos < 0 {
+      pw_pos = find_substr(lower, "passwd")
+      pw_len = 6
+    }
+    if pw_pos >= 0 && is_left_of_assignment(lower, pw_pos, pw_len) {
       hits.push({ kind: Password, line: line_num, preview })
       line_num = line_num + 1
       continue
     }
     let secret_pos = find_substr(lower, "secret")
-    if secret_pos >= 0 && is_assignment_context(lower, secret_pos, 6) {
+    if secret_pos >= 0 && is_left_of_assignment(lower, secret_pos, 6) {
       hits.push({ kind: Password, line: line_num, preview })
       line_num = line_num + 1
       continue
     }
     let cred_pos = find_substr(lower, "credential")
-    if cred_pos >= 0 && is_assignment_context(lower, cred_pos, 10) {
+    if cred_pos >= 0 && is_left_of_assignment(lower, cred_pos, 10) {
       hits.push({ kind: Password, line: line_num, preview })
       line_num = line_num + 1
       continue
@@ -139,11 +163,15 @@ pub fn scan_sensitive(text : String) -> Array[SensitiveHit] {
     line_num = line_num + 1
   }
 
-  // 环境变量赋值扫描
+  // 环境变量赋值扫描。X6：按换行偏移换算真实行号（1 基），
+  // 之前恒写 0 会让人读消息里的行号没有意义。
+  let mut env_line = 1
   let mut i = 0
   let len = text.length()
   while i < len {
-    if i == 0 || text[i - 1] == '\n' || text[i - 1] == ' ' {
+    if text[i] == '\n' {
+      env_line = env_line + 1
+    } else if i == 0 || text[i - 1] == '\n' || text[i - 1] == ' ' {
       let mut j = i
       while j < len && ((text[j] >= 'A' && text[j] <= 'Z') || text[j] == '_') {
         j = j + 1
@@ -153,7 +181,7 @@ pub fn scan_sensitive(text : String) -> Array[SensitiveHit] {
         if eq_end < len && text[eq_end] != ' ' && text[eq_end] != '\n' {
           if is_valid_env_key(text[i:j].to_owned()) {
             let snippet = if j + 20 < len { text[i:j + 20].to_owned() } else { text[i:].to_owned() }
-            hits.push({ kind: EnvAssignment, line: 0, preview: snippet })
+            hits.push({ kind: EnvAssignment, line: env_line, preview: snippet })
           }
         }
       }
@@ -164,11 +192,34 @@ pub fn scan_sensitive(text : String) -> Array[SensitiveHit] {
   hits
 }
 
+/// 判断归一化后的路径是否仍含未消解的 `..` 段（相对路径开头，
+/// `path_lexical_resolve` 无法在词法上消解它们 —— 见 util/path.mbt）。
+fn has_unresolved_dotdot(p : String) -> Bool {
+  for seg in p.split("/") {
+    if seg.to_owned() == ".." {
+      return true
+    }
+  }
+  false
+}
+
 /// 检查路径是否在边界目录内。
 /// L3: 统一转小写比较（Windows 大小写不敏感）。
+///
+/// X1：target 与 boundary 先经 `path_lexical_resolve` 消解 `.` 与非开头的
+/// `..` 段，堵住 `"boundary/../外"` 式穿越；仍含未消解 `..`（相对路径开头）
+/// 的结果视为不可判定，一律拒绝。
+///
+/// ★ 已知限制（X7）：本检查**仅词法边界，不解析符号链接** ——
+/// 经 symlink 指向边界外的路径在此无法识别。`moonbitlang/async/fs` 虽有
+/// `realpath`，但 executor 包构建依赖未引入 fs（见 moon.pkg），且文件 I/O
+/// 按不变量①收口在 store 层，故暂无法在写入前复核真实路径。
 fn is_within_boundary(target_path : String, boundary_root : String) -> Bool {
-  let target = @util.path_normalize(target_path).to_lower()
-  let boundary = @util.path_normalize(boundary_root).to_lower()
+  let target = @util.path_lexical_resolve(target_path).to_lower()
+  let boundary = @util.path_lexical_resolve(boundary_root).to_lower()
+  if has_unresolved_dotdot(target) || has_unresolved_dotdot(boundary) {
+    return false
+  }
   if target == boundary { return true }
   target.has_prefix("\{boundary}/")
 }
@@ -189,6 +240,28 @@ pub(all) struct PreCheckResult {
   sensitive_summary : Array[SensitiveHit]
   modified_paths : Array[String]
 } derive(ToJson)
+
+/// FNV-1a（32 位）哈希的 8 位 hex 字符串，供 flat_name 消歧（X4）。
+/// 用 Int 存位模式：`& 0xF` 取 nibble 时天然屏蔽算术右移的符号扩展，
+/// 乘法溢出按 32 位回绕，与规范 FNV-1a 语义一致。
+fn fnv1a_hex(s : String) -> String {
+  // 2166136261（0x811C9DC5）按带符号 32 位表示
+  let mut h = -2128831035
+  let n = s.length()
+  for i in 0..<n {
+    h = h ^ s[i].to_int()
+    h = h * 16777619
+  }
+  let hex : Array[Char] = [
+    '0', '1', '2', '3', '4', '5', '6', '7',
+    '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+  ]
+  let buf = StringBuilder(size_hint=8)
+  for shift in [28, 24, 20, 16, 12, 8, 4, 0] {
+    buf.write_char(hex[(h >> shift) & 0xF])
+  }
+  buf.to_string()
+}
 
 /// 入口函数：修改前安全检查。
 pub async fn sandbox_pre_check(
@@ -216,29 +289,51 @@ pub async fn sandbox_pre_check(
       .replace_all(old="/", new="__")
       .replace_all(old="\\", new="__")
       .replace_all(old=":", new="_")
-    let backup_path = @util.path_join(sandbox_dir, "\{flat_name}.bak")
+    // X4: 分隔符折叠有碰撞（d:/x/y.md 与 d:/x__y.md 同映射）——
+    // 末尾附完整路径的 FNV-1a 短哈希消歧
+    let backup_path = @util.path_join(
+      sandbox_dir,
+      "\{flat_name}_\{fnv1a_hex(norm_path)}.bak",
+    )
 
-    match @store.sandbox_backup_file(file_path, backup_path) {
-      Ok(_) => {
-        let original = @store.sandbox_read_text(file_path)
-        let hits = scan_sensitive(original)
-        let has_sensitive = hits.length() > 0
-
-        if has_sensitive {
-          @util.log_warn(
-            "sandbox:sensitive",
-            "⚠ 文件 \{file_path} 包含 \{hits.length()} 处敏感数据，备份已创建",
-          )
+    // X2: 备份已存在说明此前已 pre_check 过 —— 跳过覆盖写入，
+    // 保留最早的原始版本。否则二次备份会把已修改的内容当成
+    // 「原始版本」覆盖备份，rollback 恢复的就不是原件。
+    let backup_exists : Result[String, String] = Ok(
+      @store.sandbox_read_text(backup_path),
+    ) catch {
+      _ => Err("backup missing")
+    }
+    match backup_exists {
+      Ok(_) =>
+        @util.log_warn(
+          "sandbox:backup",
+          "备份已存在，跳过覆盖（保留最早原始版本）: \{file_path}",
+        )
+      Err(_) =>
+        match @store.sandbox_backup_file(file_path, backup_path) {
+          Ok(_) => ()
+          Err(msg) => {
+            @util.log_warn("sandbox:backup", "备份跳过: \{msg}")
+            continue
+          }
         }
+    }
 
-        backups.push({ original_path: norm_path, backup_path, has_sensitive, sensitive_hits: hits })
-        for hit in hits {
-          all_sensitive.push(hit)
-        }
-      }
-      Err(msg) => {
-        @util.log_warn("sandbox:backup", "备份跳过: \{msg}")
-      }
+    let original = @store.sandbox_read_text(file_path)
+    let hits = scan_sensitive(original)
+    let has_sensitive = hits.length() > 0
+
+    if has_sensitive {
+      @util.log_warn(
+        "sandbox:sensitive",
+        "⚠ 文件 \{file_path} 包含 \{hits.length()} 处敏感数据，备份已创建",
+      )
+    }
+
+    backups.push({ original_path: norm_path, backup_path, has_sensitive, sensitive_hits: hits })
+    for hit in hits {
+      all_sensitive.push(hit)
     }
   }
 
@@ -350,7 +445,25 @@ pub async fn sandbox_post_verify(result : PreCheckResult) -> Array[String] {
 
 /// 回滚：从备份恢复已修改的文件（逆序）。
 /// M2: 只恢复 modified_paths 中包含的文件，跳过未触及的。
+/// X3: 先对比 modified_paths 与 backups —— 已修改但**无备份**的路径
+/// （如本次会话新建的文件）无法自动恢复，必须明确告警，
+/// 不能静默跳过更不能谎称「未修改」。
 pub async fn sandbox_restore_all(result : PreCheckResult) -> Unit {
+  for p in result.modified_paths {
+    let mut has_backup = false
+    for backup in result.backups {
+      if backup.original_path == p {
+        has_backup = true
+        break
+      }
+    }
+    if !has_backup {
+      @util.log_warn(
+        "sandbox:restore",
+        "⚠ 已修改但无备份，无法自动恢复: \{p}",
+      )
+    }
+  }
   let len = result.backups.length()
   let mut idx = len
   while idx > 0 {

@@ -4,10 +4,14 @@ import {
   "Across2005/harness-self-evolution/util",
   "moonbitlang/async",
   "moonbitlang/async/fs",
-  "moonbitlang/core/json",
-  "moonbitlang/core/ref",
   "moonbitlang/core/string",
 }
+
+// 主代码已不直接用 json，仅白盒测试解析 fixture 时需要
+// （放主导入块会在主构建上触发 unused_package 警告）。
+import {
+  "moonbitlang/core/json",
+} for "wbtest"
 
 options(
   // scanner 的用例全部触碰真实文件系统（递归 readdir + 多文件读写）。

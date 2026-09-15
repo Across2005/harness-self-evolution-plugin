@@ -13,7 +13,8 @@
 ///    先 `find` 再 `update`，等于「2 次全量读 + 1 次全量写」。
 ///    新版把记录常驻内存并建三个索引：
 ///    `by_id`（O(1) 查提案）、`by_plugin`（O(k) 查某插件）、
-///    `by_signature`（O(1) 去重）。查询全部走内存，`set_status` 只追加一行。
+///    `by_signature`（O(k) 去重，k = 同签名记录数；★ S1）。
+///    查询全部走内存，`set_status` 只追加一行。
 ///
 /// 2. **append-only + 按 proposal_id 折叠**，取代 TS 的 `rewrite`。
 ///    状态变更不再重写整个文件，而是追加一条该提案的完整新版本；
@@ -21,10 +22,14 @@
 ///    好处：崩溃永远不会留下半截文件（TS 的 `rewrite` 先截断再写，
 ///    中途失败即全量丢失），且写入成本与文件规模无关。
 ///
-/// **缓存一致性**：`loaded_mtime` 记录上次加载时的文件修改时间。
+/// **缓存一致性**：`loaded_mtime` 记录上次加载**开始时**取样的文件修改时间
+/// （★ S3：取样必须先于读取 —— 若在读取之后取样，读取窗口内他人的并发写入
+/// 会被水位吸收，`refresh` 从此再也看不见它）。
 /// `refresh` 只做一次 stat：时间未变 → 内存索引就是最新的，直接返回；
-/// 时间变了（说明有别的进程写过）→ 全量重载。
-/// 自己写入后立即刷新 `loaded_mtime`，于是单进程场景下 `refresh` 恒为 O(1) stat。
+/// 时间变了（他人写过，或本进程又写过一次）→ 全量重载。
+/// 自己写入后水位回到 append 前的取样值 —— 自有记录已 absorb，重复加载幂等；
+/// 代价是每次写入后的下一次 `refresh` 多一次全量重载，用它换
+/// 「他人的并发写入必被捕获」的确定性。
 ///
 /// **并发安全性**：MoonBit 的 async 是单线程协作式调度，只在 await 处让出。
 /// 索引更新与 `items` 写入之间没有 await 点，故进程内不需要互斥锁。
@@ -59,8 +64,10 @@ pub struct ProposalStore {
   by_id : Map[String, Int]
   /// plugin_id → items 下标列表（append-only 保证按 created_at 升序）
   by_plugin : Map[String, Array[Int]]
-  /// signature → items 下标（指向**最近**一条同签名提案）
-  by_signature : Map[String, Int]
+  /// signature → items 下标列表（按折叠顺序追加，同 id 的重复更新会追加重复
+  /// 下标）。★ S1（store 评审）：去重必须看到该签名的**全部**记录 ——
+  /// 只记最近一条时，「较新 rejected + 较旧 pending」会把仍待处理的旧提案遮住。
+  by_signature : Map[String, Array[Int]]
   /// 上次加载时的文件 mtime；`None` 表示「还没加载过」或「文件不存在」
   mut loaded_mtime : (Int64, Int)?
 }
@@ -93,16 +100,19 @@ pub fn ProposalStore::path(self : ProposalStore) -> String {
 ///|
 /// 全量重载并重建索引。按 `proposal_id` 折叠，后出现的记录覆盖先出现的。
 async fn ProposalStore::reload(self : ProposalStore) -> Unit {
+  // ★ S3：水位在读取**之前**取样 —— 读取窗口内他人的并发写入会推高文件
+  // mtime，下次 `refresh` 必然再来一次重载，不会被本次水位吸收。
+  let m0 = self.jsonl.mtime()
   let rows : Array[@types.EvolutionProposal] = self.jsonl.load()
   self.items.clear()
   self.by_id.clear()
   self.by_plugin.clear()
   self.by_signature.clear()
   for row in rows {
-    // 折叠逻辑与 absorb 共用 `fold_row`：同 id 原位覆盖、签名索引指向最近一条
+    // 折叠逻辑与 absorb 共用 `fold_row`：同 id 原位覆盖、签名索引收全下标
     self.fold_row(row)
   }
-  self.loaded_mtime = self.jsonl.mtime()
+  self.loaded_mtime = m0
 }
 
 ///|
@@ -164,18 +174,23 @@ pub async fn ProposalStore::save(
   proposal : @types.EvolutionProposal,
 ) -> Unit {
   self.refresh()
+  // ★ S3：水位取 append **前**的 mtime —— 自有记录已 absorb，重复加载幂等；
+  // append 与取样之间他人并发写入的 mtime > 水位，下次 `refresh` 必然捕获。
+  let m0 = self.jsonl.mtime()
   self.jsonl.append(proposal)
   self.absorb(proposal)
-  // 自己刚写过，刷新水位以免下次 refresh 白白重载一遍
-  self.loaded_mtime = self.jsonl.mtime()
+  self.loaded_mtime = m0
 }
 
 ///|
 /// 把一条记录折叠进内存索引（append-only 折叠的内存侧）。
 /// reload 与 absorb 共用这一份逻辑，避免「两处手写同一折叠」悄悄走样：
 /// 同 proposal_id 的记录**原位覆盖**（保持首次出现的顺序），
-/// 签名索引始终指向最近一条，供去重使用。
-fn ProposalStore::fold_row(
+/// 签名索引收全该签名的下标，供去重遍历使用（★ S1）。
+///
+/// 必须是 async：终态兜底守卫（★ S4）里的 `@util.log_warn` 是 async 函数。
+/// 函数体内没有 await 点，async 化不改变任何时序语义。
+async fn ProposalStore::fold_row(
   self : ProposalStore,
   row : @types.EvolutionProposal,
 ) -> Unit {
@@ -197,14 +212,43 @@ fn ProposalStore::fold_row(
       i
     }
   }
+  // ★ S4（store 评审）终态兜底守卫：内存中该提案已是终态
+  // （Completed / Rejected）而新行试图改成别的状态时，忽略这个迟到的
+  // 状态更新并告警 —— set_status 的校验与 append 跨 await，跨进程相反迁移
+  // 可双双通过校验，终态不能被后写者静默覆盖。初次 load 顺序回放合法历史
+  // 不受影响：合法历史不会出现「终态后再变」（can_transition_to 恒 false）。
+  let existing = self.items[index]
+  let terminal = match existing.status {
+    @types.ProposalStatus::Completed | @types.ProposalStatus::Rejected => true
+    _ => false
+  }
+  if terminal && row.status != existing.status {
+    @util.log_warn(
+      "Store",
+      "Ignoring late status update for \{row.proposal_id}: already terminal (\{existing.status.wire_name()}), incoming \{row.status.wire_name()}",
+    )
+    return
+  }
   self.items[index] = row
-  self.by_signature.set(row.signature, index)
+  // ★ S1：签名索引改为下标数组，每次折叠都追加，
+  // find_duplicate 据此遍历该签名的全部记录。
+  let bucket = match self.by_signature.get(row.signature) {
+    Some(b) => b
+    None => {
+      let fresh : Array[Int] = []
+      self.by_signature.set(row.signature, fresh)
+      fresh
+    }
+  }
+  bucket.push(index)
 }
 
 ///|
 /// 把一条记录并入内存索引（append-only 折叠的内存侧）。
 /// 与 reload 共用 `fold_row` 的折叠实现，本函数只是语义化的调用名。
-fn ProposalStore::absorb(
+/// 随 `fold_row` async 化（其终态守卫要打 async 日志），调用方 save /
+/// set_status 本就是 async，调用链无需再动。
+async fn ProposalStore::absorb(
   self : ProposalStore,
   row : @types.EvolutionProposal,
 ) -> Unit {
@@ -247,9 +291,11 @@ pub async fn ProposalStore::set_status(
   // struct 函数式更新 `..current` 逐字段浅拷贝，等价于 TS 的展开语法，
   // 且不会因 EvolutionProposal 增删字段而漏改这里。
   let updated : @types.EvolutionProposal = { ..current, status, }
+  // ★ S3：水位取 append 前的 mtime，理由同 save
+  let m0 = self.jsonl.mtime()
   self.jsonl.append(updated)
   self.absorb(updated)
-  self.loaded_mtime = self.jsonl.mtime()
+  self.loaded_mtime = m0
   true
 }
 
@@ -271,23 +317,29 @@ pub async fn ProposalStore::find_pending_for_plugin(
 
 ///|
 /// 同签名的**非 rejected** 提案，用于去重。对应 legacy-ts store L163-166。
-/// O(1)（TS 是 O(N) 全量读 + filter）。
+/// O(k)（k = 该签名的记录条数；TS 是 O(N) 全量读 + filter）。
+///
+/// ★ S1（store 评审）：必须遍历该签名的**全部**记录 —— 只看最近一条时，
+/// 「较新 rejected + 较旧 pending」会漏报重复，引擎会给仍待处理的旧签名
+/// 再开一条新提案。仅当该签名**所有**记录都是 Rejected 才返回 `None`；
+/// 有多条非 rejected 时返回**最近**的一条（对齐旧「指向最近一条」的语义）。
 pub async fn ProposalStore::find_duplicate(
   self : ProposalStore,
   signature : String,
 ) -> @types.EvolutionProposal? {
   self.refresh()
+  let mut found : @types.EvolutionProposal? = None
   match self.by_signature.get(signature) {
-    Some(i) => {
-      let p = self.items[i]
-      if p.status == @types.ProposalStatus::Rejected {
-        None
-      } else {
-        Some(p)
+    Some(indices) =>
+      for i in indices {
+        let p = self.items[i]
+        if p.status != @types.ProposalStatus::Rejected {
+          found = Some(p)
+        }
       }
-    }
-    None => None
+    None => ()
   }
+  found
 }
 
 ///|
