@@ -1,6 +1,6 @@
 {
   "name": "@across2005/harness-self-evolution",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Benchmark-driven self-evolution plugin for DeepSeek Harness: iterate on a frozen benchmark, accept only when strictly better, roll back deterministically from verified snapshots.",
   "author": {
     "name": "Across2005",

@@ -1,5 +1,6 @@
 # ROADMAP — harness-self-evolution-plugin
 
+> v2.5.1 已于 2026-09-17 发布（性能优化与缺陷修复：C1 定向重扫 + S1–S6 整改，测试 420→424）。
 > v2.5.0 已于 2026-09-16 发布（工程质量版本：全仓评审修复 56 个问题、测试 383→420）。
 > 原预留的「v2.5 = 跨平台分发」目标顺延至 v2.6，内容不变。
 
@@ -7,7 +8,7 @@
 
 ### 背景
 
-v2.5.0 产物为 Windows native（`bin/harness-evolution.exe`）。Linux/macOS 沙盒首次安装需要 `allowBuilds` 显式放行，这是 L4 Install tested 绿章的主要拦路虎。
+v2.5.x 产物为 Windows native（`bin/harness-evolution.exe`）。Linux/macOS 沙盒首次安装需要 `allowBuilds` 显式放行，这是 L4 Install tested 绿章的主要拦路虎。
 
 ### 路线
 

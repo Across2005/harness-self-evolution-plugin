@@ -5,7 +5,7 @@
 > 支持：DeepSeek Harness（首打）/ Minimax Code / ZCode / Claude Code / OpenClaw
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
-[![Version: 2.5.0](https://img.shields.io/badge/version-2.5.0-1f6feb.svg)](.zcode-plugin/plugin.json)
+[![Version: 2.5.1](https://img.shields.io/badge/version-2.5.1-1f6feb.svg)](.zcode-plugin/plugin.json)
 [![Runtime: MoonBit native](https://img.shields.io/badge/runtime-MoonBit%20native-ff7a18.svg)](moon.mod)
 [![Total tests: 424/424](https://img.shields.io/badge/tests-424%2F424-22cc22.svg)](CONTEXT.md)[![Sandbox: enabled](https://img.shields.io/badge/sandbox-enabled-22cc22.svg)](#安全沙箱)
 [![Gate: 0/0](https://img.shields.io/badge/gate-%20%E2%9C%93%20passing-22cc22.svg)](build.ps1)
@@ -19,6 +19,7 @@
 
 - [一句话定位](#一句话定位)
 - [特性](#特性)
+- [v2.5.1 更新要点](#v251-更新要点)
 - [v2.5.0 更新要点](#v250-更新要点)
 - [兼容性](#兼容性)
 - [架构](#架构)
@@ -56,6 +57,15 @@
 - **学术写作进化**：支持学术写作规范化、反 AI 写作检测、引用规范化三类进化，基于 AI 痕迹检测和学术规范检查
 - **安全沙箱**：executor 写操作前置防护 — 6 类敏感数据扫描（API Key/Token/Password/PrivateKey/EnvAssignment/AuthHeader）、路径边界检查、文件级自动备份与回滚；所有 I/O 沉淀到 `store/sandbox_store.mbt`，满足架构守卫 G3
 
+### v2.5.1 更新要点
+
+> v2.5.1 是性能优化与缺陷修复版本：修复 C1 定向重扫缺陷，完成 S1–S6 六项性能/卫生整改，测试从 420 增至 424（+4 回归用例），三级验证（T0 语法 / T1 功能 / T2 回归）全绿。
+
+- **C1 定向重扫缺陷**：旧实现把插件根当扫描根，与 `discover_plugins` 契约（扫描根本身不算插件）冲突而静默无操作，还会写出 `*.incremental` 垃圾缓存文件；改为按父目录 + `max_depth=1` 发现后逐插件重扫，`force=false` 仍走指纹校验、只读不写
+- **S1 深度检查全局装载缓存**：节流窗口内多个插件共享一次全量读盘（`deep_reloads` 可观测），flush 成功的事件增量并入缓存；乱码注释按原语义重写
+- **S2–S5 热路径与扫描优化**：沙箱敏感扫描小写化循环外只算一次、备份存在性改直查；loop 去重改嵌套 Map 消除 key 拼接；scanner per-root 去重 + discover 清单匹配走内存（大幅减少 stat 与重复扫描）
+- **S6 未知 HOST 告警**：`HARNESS_EVOLUTION_HOST` 未知取值不再静默回落，启动时点名告警（回落行为不变）
+
 ### v2.5.0 更新要点
 
 > v2.5.0 是工程质量版本：全仓代码评审后修复 56 个问题，测试从 383 增至 420（+37 回归用例），三级验证（T0 语法 / T1 功能 / T2 回归）全绿。
@@ -67,19 +77,19 @@
 
 ### DSH 生态提报证据（L1–L3）
 
-> **L1 仓库**：https://github.com/Across2005/harness-self-evolution-plugin（GitHub）/ https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin（GitLink 镜像）— 公开，2026-09-16 发布 v2.5.0，MoonBit native，MIT。
+> **L1 仓库**：https://github.com/Across2005/harness-self-evolution-plugin（GitHub）/ https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin（GitLink 镜像）— 公开，2026-09-16 首发 v2.5.0，2026-09-17 发布 v2.5.1，MoonBit native，MIT。
 >
 > **L2 manifest**：`package.json` 声明 `dsh.bundle`（指向 `.zcode-plugin/plugin.json`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。424 测试全过（0 失败）、11 条架构守卫 G1–G6 机器化卡死。
 >
 > **L3 安装规范**：
 > ```bash
-> dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.5.0"
+> dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.5.1"
 > ```
 > 数据存 `~/.harness-evolution/v2/`（可由 `$HARNESS_EVOLUTION_HOME` 覆盖），配置源链 `$HARNESS_EVOLUTION_CONFIG` → `/.zcode-plugin/plugin.json` → 内置默认。
 
 ### 平台兼容性
 
-> **v2.5.0 产物为 Windows native**（`bin/harness-evolution.exe`，1,513,984 B）。Linux/macOS 沙盒首次安装可能需要 `allowBuilds` 显式放行。跨平台分发是 v2.6 路线图项，详见 [`ROADMAP.md`](ROADMAP.md)。
+> **v2.5.1 产物为 Windows native**（`bin/harness-evolution.exe`，1,532,928 B）。Linux/macOS 沙盒首次安装可能需要 `allowBuilds` 显式放行。跨平台分发是 v2.6 路线图项，详见 [`ROADMAP.md`](ROADMAP.md)。
 
 ### 已知限制
 
@@ -240,7 +250,7 @@ zcode plugin link .
 zcode plugin list
 ```
 
-应该能看到 `harness-self-evolution (v2.5.0) - Active`。
+应该能看到 `harness-self-evolution (v2.5.1) - Active`。
 
 #### 6. 使用插件功能
 
@@ -564,6 +574,15 @@ Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / Ope
 - **DSH Watcher integration**: Optional read-only session observation plugin for visualizing evolution execution
 - **Safety sandbox**: Pre-execution protection for executor write operations — 6-category sensitive data scanning (API Key/Token/Password/PrivateKey/EnvAssignment/AuthHeader), path boundary checks, file-level auto-backup and rollback; all I/O delegated to `store/sandbox_store.mbt`, satisfying architecture guard G3
 
+### What's New in v2.5.1
+
+> v2.5.1 is a performance and defect-fix release: the C1 targeted-rescan defect is fixed, plus six S1–S6 performance/hygiene improvements; tests grew from 420 to 424 (+4 regression cases), with all three verification levels (T0 / T1 / T2) green.
+
+- **C1 targeted-rescan defect**: the old implementation treated the plugin root as the scan root, conflicting with the `discover_plugins` contract ("the scan root itself is not a plugin") — a silent no-op that also wrote a `*.incremental` junk cache file; now it discovers via the parent directory + `max_depth=1` and rescans each plugin, with `force=false` still fingerprint-checked and read-only
+- **S1 global deep-check load cache**: plugins within one throttle window share a single full disk load (`deep_reloads` observable); successfully flushed events are merged into the cache incrementally; garbled comments rewritten per their original semantics
+- **S2–S5 hot-path and scan optimizations**: sandbox sensitive-scan lowercasing computed once outside the loop, backup existence checked directly; loop dedup moved to nested Maps (no key concatenation); scanner per-root dedup + in-memory manifest matching in discover (far fewer stats and rescans)
+- **S6 unknown HOST warning**: an unknown `HARNESS_EVOLUTION_HOST` value no longer falls back silently — a named startup warning is emitted (fallback behavior unchanged)
+
 ### What's New in v2.5.0
 
 > v2.5.0 is an engineering-quality release: 56 issues fixed after a full-repo code review, tests grew from 383 to 420 (+37 regression cases), with all three verification levels (T0 syntax / T1 functional / T2 regression) green.
@@ -575,19 +594,19 @@ Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / Ope
 
 ### DSH Ecosystem Submission Evidence (L1–L3)
 
-> **L1 Repository**: https://github.com/Across2005/harness-self-evolution-plugin (GitHub) / https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin (GitLink 镜像) — public, released 2026-09-16 (v2.5.0), MoonBit native, MIT.
+> **L1 Repository**: https://github.com/Across2005/harness-self-evolution-plugin (GitHub) / https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin (GitLink 镜像) — public, first released 2026-09-16 (v2.5.0), updated 2026-09-17 (v2.5.1), MoonBit native, MIT.
 >
 > **L2 Manifest**: `package.json` declares `dsh.bundle` (pointing at `.zcode-plugin/plugin.json`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 424 tests passing (0 failures), 11 architecture guards G1–G6 enforced by machine.
 >
 > **L3 Install Spec**:
 > ```bash
-> dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.5.0"
+> dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.5.1"
 > ```
 > State stored at `~/.harness-evolution/v2/` (overridable via `$HARNESS_EVOLUTION_HOME`); config resolution chain is `$HARNESS_EVOLUTION_CONFIG` → `/.zcode-plugin/plugin.json` → built-in defaults.
 
 ### Platform Compatibility
 
-> **v2.5.0 artifact is Windows-native** (`bin/harness-evolution.exe`, 1,513,984 B). First-time install on Linux/macOS sandboxes may require an explicit `allowBuilds` allowlist entry. Cross-platform distribution is a v2.6 roadmap item, see [`ROADMAP.md`](ROADMAP.md).
+> **v2.5.1 artifact is Windows-native** (`bin/harness-evolution.exe`, 1,532,928 B). First-time install on Linux/macOS sandboxes may require an explicit `allowBuilds` allowlist entry. Cross-platform distribution is a v2.6 roadmap item, see [`ROADMAP.md`](ROADMAP.md).
 
 ### Known Limitations
 
@@ -655,7 +674,7 @@ The plugin runs as an MCP server, automatically started by the host:
 
 ```powershell
 zcode plugin list
-# Should show: harness-self-evolution (v2.5.0) - Active
+# Should show: harness-self-evolution (v2.5.1) - Active
 ```
 
 #### 6. Use Plugin Features
