@@ -50,10 +50,11 @@ pub let default_protocol_version : String = "2024-11-05"
 /// （`monitoring` 除外 —— 它声明的是宿主侧行为，见 DESIGN.md §4.1）。
 /// 2.5.1：性能优化与缺陷修复批次（C1 定向重扫 + S1–S6 整改）；
 /// 同时补齐 2.5.0 版本升级遗漏的本常量同步（此前停留在 2.4.0）。
+/// 2.6.0：mooncakes 0.2.6 同批发布，产品版本号重对齐（内容即 2.5.1 批次）。
 pub let server_name : String = "harness-self-evolution"
 
 ///|
-pub let server_version : String = "2.5.1"
+pub let server_version : String = "2.6.0"
 
 // JSON-RPC 2.0 的标准错误码
 
