@@ -48,10 +48,12 @@ pub let default_protocol_version : String = "2024-11-05"
 /// 2.2.0：接通 `scan_targets` 配置孤岛（plugin.json 该段真正驱动扫描根，
 /// 向后兼容：未配置时回退默认根）。至此 plugin.json 不再有「写了但没人读」的段
 /// （`monitoring` 除外 —— 它声明的是宿主侧行为，见 DESIGN.md §4.1）。
+/// 2.5.1：性能优化与缺陷修复批次（C1 定向重扫 + S1–S6 整改）；
+/// 同时补齐 2.5.0 版本升级遗漏的本常量同步（此前停留在 2.4.0）。
 pub let server_name : String = "harness-self-evolution"
 
 ///|
-pub let server_version : String = "2.4.0"
+pub let server_version : String = "2.5.1"
 
 // JSON-RPC 2.0 的标准错误码
 
