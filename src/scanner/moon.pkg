@@ -4,6 +4,7 @@ import {
   "Across2005/harness-self-evolution/util",
   "moonbitlang/async",
   "moonbitlang/async/fs",
+  "moonbitlang/core/ref",
   "moonbitlang/core/string",
 }
 

@@ -1068,6 +1068,83 @@ async test "compares windows once each has at least five samples" {
   }
 }
 
+// ============================================================================
+// ★ S1：深度检查的全局装载缓存
+// ============================================================================
+
+///|
+/// ★ S1 回归网（缓存复用）：同一节流窗口内，两个插件先后触发深度检查，
+/// `metrics.load()` 只发生一次 —— 后来者复用前者装载的缓存。
+/// 旧实现每个插件的深度检查都各自全量读盘一次。
+async test "two plugins within one window share a single deep-check reload" {
+  let dir = @fs.tmpdir(prefix="evo-mon-s1-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  // 插件 A 的首次调用：触发首次装载
+  mon.record_tool_call("p-a", "navigate", Json::empty_object(), 10, true)
+  assert_eq(mon.deep_reload_count(), 1)
+  // 插件 B 从未检查过：在窗口内触发，复用缓存，不再装载
+  mon.record_tool_call("p-b", "navigate", Json::empty_object(), 10, true)
+  assert_eq(mon.deep_reload_count(), 1)
+  // 插件 A 再次调用：per-plugin 节流直接拦下，同样不装载
+  mon.record_tool_call("p-a", "navigate", Json::empty_object(), 10, true)
+  assert_eq(mon.deep_reload_count(), 1)
+}
+
+///|
+/// ★ S1 回归网（absorb 可见性）：缓存激活后 flush 的事件必须对后续插件的
+/// 深度检查可见 —— 否则「复用缓存」会让刚写入的样本凭空消失。
+///
+/// 构造：5 条周基线（3 天前、10ms）先直接落盘 → 插件 A 的首次调用触发
+/// 首次装载（激活缓存，reload_count = 1）→ 插件 B 的 5 条当日高延迟
+/// 调用（1000ms，经 flush 的 absorb 进缓存）→ 重置 B 的 per-plugin 节流
+/// 后手动触发深度检查（走窗口内的复用路径）→ 必须发出延迟回归信号。
+/// 若 absorb 缺失：缓存里没有 B 的当日样本 → 日窗口 0 样本 → 无信号。
+async test "events flushed after activation are visible to a later deep check" {
+  let dir = @fs.tmpdir(prefix="evo-mon-s1b-")
+  defer @fs.rmdir(dir, recursive=true)
+  let mon = make_monitor(dir)
+
+  // 周基线：3 天前的低延迟事件（周窗口内、日窗口外）
+  let three_days_ago = @util.now_ms() - @types.TimeRange::LastDay.span_ms() * 3L
+  let baseline : Array[@types.PerformanceEvent] = []
+  for i in 0..<5 {
+    baseline.push(call_event_at("p-b", "navigate", three_days_ago + i.to_int64(), 10))
+  }
+  @store.Jsonl::new(metrics_path(dir)).append_many(baseline)
+
+  // 插件 A 的首次调用：触发首次装载，缓存激活
+  mon.record_tool_call("p-a", "navigate", Json::empty_object(), 10, true)
+  assert_eq(mon.deep_reload_count(), 1)
+
+  // 插件 B 的 5 条当日高延迟调用
+  for _ in 0..<5 {
+    mon.record_tool_call("p-b", "navigate", Json::empty_object(), 1000, true)
+  }
+  // 重置 B 的 per-plugin 节流，手动触发一次深度检查（走复用路径）
+  mon.last_deep_check_at.set("p-b", 0L)
+  mon.maybe_deep_check("p-b")
+  // 复用路径：本窗口内不再发生第二次全量装载
+  assert_eq(mon.deep_reload_count(), 1)
+
+  mon.shutdown()
+  let signals = load_signals(dir)
+  let regress = find_by_category(signals, @types.SignalCategory::Struggle)
+  assert_true(
+    regress is Some(_),
+    msg="缓存激活后 flush 的事件必须对后续深度检查可见（absorb 缺失即失败）",
+  )
+  match regress {
+    Some(s) =>
+      assert_true(
+        s.description.has_prefix("Latency increased by"),
+        msg="got: \{s.description}",
+      )
+    None => ()
+  }
+}
+
 ///|
 /// ★ 评审 W3 的回归网：H1 的**另一半** —— metrics 写失败不拖累 signals
 /// 已有用例（见上），反过来 **signals 写失败也不得拖累 metrics** 此前零覆盖。

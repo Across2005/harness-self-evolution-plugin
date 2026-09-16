@@ -966,3 +966,46 @@ async test "Jsonl::append_many adds multiple data that can be read back" {
   assert_eq(rows2[0].proposal_id, "p-batch-0")
   assert_eq(rows2[4].proposal_id, "p-batch-4")
 }
+
+// ============================================================================
+// ★ S6：未知 HARNESS_EVOLUTION_HOST 的启动告警
+// ============================================================================
+
+///|
+/// 环境变量还原（测试进程内的环境是共享的；本包测试串行执行，
+/// 与 executor_wbtest 的同名 helper 同一模式）。
+fn restore_host_env(saved : String?) -> Unit {
+  match saved {
+    Some(v) => @env.set_env_var("HARNESS_EVOLUTION_HOST", v)
+    None => @env.unset_env_var("HARNESS_EVOLUTION_HOST")
+  }
+}
+
+///|
+/// ★ S6 回归网：未知的 `HARNESS_EVOLUTION_HOST` 不再静默回落 ——
+/// `unknown_host_warning` 返回点名宿主的告警文案，而 `user_agents_dir`
+/// 的回落行为保持不变（未知仍走 DSH 路径）。已识别 / 未设置则无告警。
+async test "unknown host yields a startup warning while the fallback path stays unchanged" {
+  let saved = @env.get_env_var("HARNESS_EVOLUTION_HOST")
+  defer restore_host_env(saved)
+
+  // 未知宿主：有告警（点名宿主名与回落目录），user_agents_dir 仍回落 DSH
+  @env.set_env_var("HARNESS_EVOLUTION_HOST", "cursor")
+  match unknown_host_warning() {
+    Some(w) => {
+      assert_true(w.contains("cursor"))
+      assert_true(w.contains("deepseek"))
+    }
+    None => abort("unknown host must produce a warning")
+  }
+  assert_true(user_agents_dir().contains("deepseek"))
+
+  // 已识别宿主：无告警，且目录跟随宿主
+  @env.set_env_var("HARNESS_EVOLUTION_HOST", "zcode")
+  assert_true(unknown_host_warning() is None)
+  assert_true(user_agents_dir().contains("zcode"))
+
+  // 未设置：无告警
+  @env.unset_env_var("HARNESS_EVOLUTION_HOST")
+  assert_true(unknown_host_warning() is None)
+}

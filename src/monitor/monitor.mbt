@@ -76,10 +76,11 @@ pub struct PerformanceMonitor {
   signal_buffer : @deque.Deque[@types.EvolutionSignal]
   /// 每插件的 O(1) 尾计数器
   trailing : Map[String, TrailingState]
-  /// 已发射过 loop 信号的 `plugin:tool` 集合（对应 TS L38 loopReported）。
-  /// 用 Map 而非 Set：只需存在性，且 Map 的 remove/contains 已确认可用。
-  /// 使用 @ref.Ref 包装，允许 check_threshold_and_report 辅助函数就地修改。
-  loop_reported : @ref.Ref[Map[String, Unit]]
+  /// 已发射过 loop 信号的 `plugin → tool` 两级集合（对应 TS L38 loopReported）。
+  /// 嵌套 Map 而非 `"{plugin}:{tool}"` 拼接键：热路径每次调用都拼一次字符串
+  /// 是纯分配开销，两级查找零分配（★ S4）。
+  /// 使用 @ref.Ref 包装，允许 check_loop_threshold_and_report 就地修改。
+  loop_reported : @ref.Ref[Map[String, Map[String, Unit]]]
   /// 已发射过 struggle 信号的插件集合（解决已知缺陷#11）。
   /// 每个插件只报告一次 struggle 信号，直到连续失败解除后才能再次报告。
   /// 使用 @ref.Ref 包装，允许 check_threshold_and_report 辅助函数就地修改。
@@ -93,6 +94,15 @@ pub struct PerformanceMonitor {
   max_log_bytes : Int
   /// 缓冲区是否有新数据未落盘（脏标记）
   buffers_dirty : @ref.Ref[Bool]
+  /// 深度检查的全局装载缓存（★ S1）：最近一次 `metrics.load()` 的快照
+  /// ∪ 此后所有成功 flush 的事件。跨插件的深度检查在
+  /// `deep_check_interval_ms` 窗口内共享它，把「每个插件各做一次全量读盘」
+  /// 降为「一个窗口一次」。详见 deep_check.mbt 文件头。
+  deep_events : @ref.Ref[Array[@types.PerformanceEvent]]
+  /// 最近一次装载的时刻（毫秒）；0 = 从未装载。
+  deep_cache_at : @ref.Ref[Int64]
+  /// 全量装载的累计次数（测试观测缓存复用行为用）。
+  deep_reloads : @ref.Ref[Int]
 }
 
 ///|
@@ -132,6 +142,9 @@ pub fn PerformanceMonitor::with_thresholds(
     thresholds,
     max_log_bytes,
     buffers_dirty: @ref.Ref(false),
+    deep_events: @ref.Ref([]),
+    deep_cache_at: @ref.Ref(0L),
+    deep_reloads: @ref.Ref(0),
   }
 }
 
@@ -342,10 +355,10 @@ async fn PerformanceMonitor::check_for_signals(
   }
 
   // 连续同名工具（对齐 TS L235-246）
-  let loop_key = "\{plugin_id}:\{tool}"
-  let should_emit_loop = check_threshold_and_report(
+  let should_emit_loop = check_loop_threshold_and_report(
     self.loop_reported,
-    loop_key,
+    plugin_id,
+    tool,
     self.thresholds.loop_detection,
     state.same_tool_run,
   )
@@ -391,6 +404,35 @@ fn check_threshold_and_report(
   } else {
     false
   }
+}
+
+///|
+/// `check_threshold_and_report` 的两级版：loop 标记按 `plugin_id → tool`
+/// 嵌套存放（★ S4），热路径不再拼接 `"{plugin}:{tool}"` 字符串。
+/// 语义与单级版逐条对应：低于阈值清标记、达到阈值首报为 true、否则 false。
+fn check_loop_threshold_and_report(
+  reported : @ref.Ref[Map[String, Map[String, Unit]]],
+  plugin_id : String,
+  tool : String,
+  threshold : Int,
+  current_value : Int,
+) -> Bool {
+  let inner = match reported.val.get(plugin_id) {
+    Some(m) => m
+    None => Map([])
+  }
+  let should_emit = if current_value < threshold {
+    inner.remove(tool)
+    false
+  } else if !inner.contains(tool) {
+    inner.set(tool, ())
+    true
+  } else {
+    false
+  }
+  // Map 是值类型：内层修改后必须写回外层，否则修改丢失
+  reported.val.set(plugin_id, inner)
+  should_emit
 }
 
 ///|
@@ -492,6 +534,15 @@ pub fn PerformanceMonitor::pending_event_count(
   self : PerformanceMonitor,
 ) -> Int {
   self.event_buffer.length()
+}
+
+///|
+/// 深度检查的全量装载次数（★ S1）。测试用它断言同一节流窗口内
+/// 多个插件共享一次装载、窗口过期后才重新装载。
+pub fn PerformanceMonitor::deep_reload_count(
+  self : PerformanceMonitor,
+) -> Int {
+  self.deep_reloads.val
 }
 
 // 深度检查函数已拆分至 deep_check.mbt（fixed1 / maybe_deep_check）。

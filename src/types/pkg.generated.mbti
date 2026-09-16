@@ -26,7 +26,11 @@ pub let error_kind_wire : @util.WireEnum[ErrorKind]
 
 pub let evolution_type_wire : @util.WireEnum[EvolutionType]
 
+pub let evolve_action_wire : @util.WireEnum[EvolveAction]
+
 pub let intensity_wire : @util.WireEnum[Intensity]
+
+pub let manage_action_wire : @util.WireEnum[ManageAction]
 
 pub let max_max_log_bytes : Int
 
@@ -43,6 +47,8 @@ pub let principle_wire : @util.WireEnum[MattPocockPrinciple]
 pub let proposal_status_wire : @util.WireEnum[ProposalStatus]
 
 pub let rollback_complexity_wire : @util.WireEnum[RollbackComplexity]
+
+pub let scan_mode_wire : @util.WireEnum[ScanMode]
 
 pub let signal_category_wire : @util.WireEnum[SignalCategory]
 
@@ -279,6 +285,12 @@ pub fn EvolutionType::wire_name(Self) -> String
 pub impl ToJson for EvolutionType
 pub impl @json.FromJson for EvolutionType
 
+pub(all) enum EvolveAction {
+  Propose
+  Execute
+} derive(Eq, @debug.Debug)
+pub fn EvolveAction::wire_name(Self) -> String
+
 pub(all) struct ExecutionPlan {
   plan_id : String
   proposal_id : String
@@ -318,6 +330,13 @@ pub(all) enum Intensity {
 pub fn Intensity::wire_name(Self) -> String
 pub impl ToJson for Intensity
 pub impl @json.FromJson for Intensity
+
+pub(all) enum ManageAction {
+  Create
+  List
+  Delete
+} derive(Eq, @debug.Debug)
+pub fn ManageAction::wire_name(Self) -> String
 
 pub(all) enum MattPocockPrinciple {
   AlignFirst
@@ -458,6 +477,13 @@ pub(all) enum RollbackComplexity {
 pub fn RollbackComplexity::wire_name(Self) -> String
 pub impl ToJson for RollbackComplexity
 pub impl @json.FromJson for RollbackComplexity
+
+pub(all) enum ScanMode {
+  Scan
+  Metrics
+  Both
+} derive(Eq, @debug.Debug)
+pub fn ScanMode::wire_name(Self) -> String
 
 pub(all) enum SignalCategory {
   Correction

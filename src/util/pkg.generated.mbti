@@ -38,6 +38,8 @@ pub fn path_extname(String) -> String
 
 pub fn path_join(String, String) -> String
 
+pub fn path_lexical_resolve(String) -> String
+
 pub fn path_normalize(String) -> String
 
 // Errors

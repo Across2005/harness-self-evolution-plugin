@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
 [![Version: 2.5.0](https://img.shields.io/badge/version-2.5.0-1f6feb.svg)](.zcode-plugin/plugin.json)
 [![Runtime: MoonBit native](https://img.shields.io/badge/runtime-MoonBit%20native-ff7a18.svg)](moon.mod)
-[![Total tests: 420/420](https://img.shields.io/badge/tests-420%2F420-22cc22.svg)](CONTEXT.md)[![Sandbox: enabled](https://img.shields.io/badge/sandbox-enabled-22cc22.svg)](#安全沙箱)
+[![Total tests: 424/424](https://img.shields.io/badge/tests-424%2F424-22cc22.svg)](CONTEXT.md)[![Sandbox: enabled](https://img.shields.io/badge/sandbox-enabled-22cc22.svg)](#安全沙箱)
 [![Gate: 0/0](https://img.shields.io/badge/gate-%20%E2%9C%93%20passing-22cc22.svg)](build.ps1)
 [![Platform: Windows / Linux / macOS](https://img.shields.io/badge/platform-win%20%7C%20linux%20%7C%20macos-informational.svg)]()
 
@@ -69,7 +69,7 @@
 
 > **L1 仓库**：https://github.com/Across2005/harness-self-evolution-plugin（GitHub）/ https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin（GitLink 镜像）— 公开，2026-09-16 发布 v2.5.0，MoonBit native，MIT。
 >
-> **L2 manifest**：`package.json` 声明 `dsh.bundle`（指向 `.zcode-plugin/plugin.json`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。420 测试全过（0 失败）、11 条架构守卫 G1–G6 机器化卡死。
+> **L2 manifest**：`package.json` 声明 `dsh.bundle`（指向 `.zcode-plugin/plugin.json`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。424 测试全过（0 失败）、11 条架构守卫 G1–G6 机器化卡死。
 >
 > **L3 安装规范**：
 > ```bash
@@ -497,7 +497,7 @@ flowchart LR
 | G2 / G2b | `@stdio.stdout` 只在 `mcp/server.mbt`，`@stdio.stderr` 只在 `util/log.mbt` |
 | G3 / G3b | `@fs` 的写操作只在 `store/` |
 | G4 / G4b | 数据目录字面量只在 `store/paths.mbt` |
-| G5 / G5b | MoonBit 测试覆盖 420 个用例，包含完整的架构守卫验证 |
+| G5 / G5b | MoonBit 测试覆盖 424 个用例，包含完整的架构守卫验证 |
 | G6 | `moon.mod` 只有一个外部依赖，且 native 是首选目标 |
 
 每条守卫都做过**负向探针**验证（人为引入违规确认会变红），否则「永远通过的测试」只是装饰。
@@ -577,7 +577,7 @@ Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / Ope
 
 > **L1 Repository**: https://github.com/Across2005/harness-self-evolution-plugin (GitHub) / https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin (GitLink 镜像) — public, released 2026-09-16 (v2.5.0), MoonBit native, MIT.
 >
-> **L2 Manifest**: `package.json` declares `dsh.bundle` (pointing at `.zcode-plugin/plugin.json`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 420 tests passing (0 failures), 11 architecture guards G1–G6 enforced by machine.
+> **L2 Manifest**: `package.json` declares `dsh.bundle` (pointing at `.zcode-plugin/plugin.json`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 424 tests passing (0 failures), 11 architecture guards G1–G6 enforced by machine.
 >
 > **L3 Install Spec**:
 > ```bash

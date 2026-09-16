@@ -93,6 +93,7 @@ pub struct PluginScanner {
   index : Map[String, Int]
 }
 pub fn PluginScanner::all(Self) -> Array[@types.PluginMetadata]
+pub async fn PluginScanner::cache_entries(Self) -> Array[@store.CachedProfile]
 pub fn PluginScanner::count(Self) -> Int
 pub fn PluginScanner::get(Self, String) -> @types.PluginMetadata?
 pub fn PluginScanner::new(ScanConfig) -> Self

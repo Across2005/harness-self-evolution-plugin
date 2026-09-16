@@ -93,25 +93,60 @@ pub fn DataPaths::agent_defs(self : DataPaths) -> String {
 }
 
 ///|
-/// 宿主的用户级子 Agent 定义目录（v2.1）。**跨出插件数据根**：
-/// 根据宿主类型选择不同的路径，支持多种 harness 平台：
+/// 宿主类型 → 用户级子 Agent 定义目录的**单一来源**（★ S6）。
+/// 返回值 `None` 表示宿主名不被识别（由调用方决定如何回落与是否告警）。
+///
 /// - DeepSeek Harness（默认——本插件是 DSH 插件，DSH 是第一宿主）: `~/.deepseek/harness/agents/`
 /// - ZCode: `~/.zcode/agents/`
 /// - Minimax Code: `~/.minimax/agents/`
+fn host_agents_dir(host : String) -> String? {
+  match host {
+    "zcode" => Some(@util.expand_home("~/.zcode/agents"))
+    "minimax-code" => Some(@util.expand_home("~/.minimax/agents/"))
+    "deepseek-harness" => Some(@util.expand_home("~/.deepseek/harness/agents/"))
+    _ => None
+  }
+}
+
+///|
+/// 宿主的用户级子 Agent 定义目录（v2.1）。**跨出插件数据根**：
+/// 根据宿主类型选择不同的路径，支持多种 harness 平台（见 `host_agents_dir`）。
 /// 默认回落 DeepSeek 路径（★ 修订 S13：v2.5 开发中曾把缺省改为 ZCode 以求与
 /// 文档描述对齐，但默认宿主必须是 DSH —— 这与 v2.4 行为一致，不构成破坏性
 /// 变更；schema/CONTEXT 等处的文档描述已同步改为按宿主列举）。
-/// 可通过环境变量 `HARNESS_EVOLUTION_HOST` 覆盖。
+/// 可通过环境变量 `HARNESS_EVOLUTION_HOST` 覆盖；未知取值仍回落 DSH 路径
+/// （行为不变）—— 告警由 `unknown_host_warning` 在启动序列给出，
+/// 因为本函数是同步函数而 `@util.log_warn` 是 async，不能在这里打日志。
 /// 测试经 `AgentFactory::with_dirs` 注入临时目录，绝不触碰真实的用户 home。
 pub fn user_agents_dir() -> String {
   let host = match @env.get_env_var("HARNESS_EVOLUTION_HOST") {
     Some(h) if h.length() > 0 => h
     _ => "deepseek-harness"
   }
-  match host {
-    "zcode" => @util.expand_home("~/.zcode/agents")
-    "minimax-code" => @util.expand_home("~/.minimax/agents/")
-    _ => @util.expand_home("~/.deepseek/harness/agents/")
+  match host_agents_dir(host) {
+    Some(dir) => dir
+    None => @util.expand_home("~/.deepseek/harness/agents/")
+  }
+}
+
+///|
+/// 未知 `HARNESS_EVOLUTION_HOST` 取值的启动告警（★ S6）。
+///
+/// 旧实现把无法识别的宿主名静默回落到 DSH 路径 —— 用户设了
+/// `HARNESS_EVOLUTION_HOST=cursor` 却拿到 `~/.deepseek/...`，没有任何提示。
+/// 返回 `Some(文案)` 时由 async 的启动序列打 stderr 告警；
+/// 未设置、空串或已识别的宿主都返回 `None`（无需告警）。
+pub fn unknown_host_warning() -> String? {
+  let host = match @env.get_env_var("HARNESS_EVOLUTION_HOST") {
+    Some(h) if h.length() > 0 => h
+    _ => return None
+  }
+  match host_agents_dir(host) {
+    Some(_) => None
+    None =>
+      Some(
+        "Unknown HARNESS_EVOLUTION_HOST '\{host}'; falling back to the default DeepSeek Harness directory (~/.deepseek/harness/agents/). Supported values: zcode, minimax-code, deepseek-harness.",
+      )
   }
 }
 

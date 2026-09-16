@@ -299,25 +299,20 @@ pub async fn sandbox_pre_check(
     // X2: 备份已存在说明此前已 pre_check 过 —— 跳过覆盖写入，
     // 保留最早的原始版本。否则二次备份会把已修改的内容当成
     // 「原始版本」覆盖备份，rollback 恢复的就不是原件。
-    let backup_exists : Result[String, String] = Ok(
-      @store.sandbox_read_text(backup_path),
-    ) catch {
-      _ => Err("backup missing")
-    }
-    match backup_exists {
-      Ok(_) =>
-        @util.log_warn(
-          "sandbox:backup",
-          "备份已存在，跳过覆盖（保留最早原始版本）: \{file_path}",
-        )
-      Err(_) =>
-        match @store.sandbox_backup_file(file_path, backup_path) {
-          Ok(_) => ()
-          Err(msg) => {
-            @util.log_warn("sandbox:backup", "备份跳过: \{msg}")
-            continue
-          }
+    // ★ S3：只用一次 stat 判存在（旧实现读整个备份文件再 catch，纯浪费）。
+    if @store.sandbox_backup_exists(backup_path) {
+      @util.log_warn(
+        "sandbox:backup",
+        "备份已存在，跳过覆盖（保留最早原始版本）: \{file_path}",
+      )
+    } else {
+      match @store.sandbox_backup_file(file_path, backup_path) {
+        Ok(_) => ()
+        Err(msg) => {
+          @util.log_warn("sandbox:backup", "备份跳过: \{msg}")
+          continue
         }
+      }
     }
 
     let original = @store.sandbox_read_text(file_path)
@@ -368,26 +363,29 @@ pub async fn sandbox_atomic_write(
 async fn verify_one_backup(backup : FileBackup) -> Array[String] {
   let errors : Array[String] = []
   let modified = @store.sandbox_read_text(backup.original_path)
+  // ★ S2：小写副本只算一次。旧实现在每个命中项里重复调
+  // `modified.to_lower()`（最多 5 次全文分配），而 `modified` 全程不变。
+  let lower = modified.to_lower()
 
   for hit in backup.sensitive_hits {
     match hit.kind {
       ApiKey => {
-        if !modified.to_lower().contains("api_key") && !modified.to_lower().contains("apikey") && !modified.to_lower().contains("api-key") {
+        if !lower.contains("api_key") && !lower.contains("apikey") && !lower.contains("api-key") {
           errors.push("API Key 模式在 \{backup.original_path} 中消失（原行 \{hit.line}）")
         }
       }
       Token => {
-        if !modified.to_lower().contains("token") && !modified.to_lower().contains("bearer") {
+        if !lower.contains("token") && !lower.contains("bearer") {
           errors.push("Token 模式在 \{backup.original_path} 中消失（原行 \{hit.line}）")
         }
       }
       Password => {
-        if !modified.to_lower().contains("password") && !modified.to_lower().contains("secret") {
+        if !lower.contains("password") && !lower.contains("secret") {
           errors.push("Password/Secret 模式在 \{backup.original_path} 中消失（原行 \{hit.line}）")
         }
       }
       AuthHeader => {
-        if !modified.to_lower().contains("authorization:") {
+        if !lower.contains("authorization:") {
           errors.push("Authorization header 在 \{backup.original_path} 中消失（原行 \{hit.line}）")
         }
       }
@@ -410,7 +408,7 @@ async fn verify_one_backup(backup : FileBackup) -> Array[String] {
         }
       }
       PrivateKey => {
-        if !modified.to_lower().contains("private") {
+        if !lower.contains("private") {
           errors.push("Private key 标记在 \{backup.original_path} 中消失（原行 \{hit.line}）")
         }
       }

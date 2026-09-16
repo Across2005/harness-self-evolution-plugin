@@ -125,8 +125,55 @@ pub async fn read_entries(dir : String) -> Array[(String, Bool)] {
 
 ///|
 /// 按优先级找出该目录的清单；一个都没有则返回 `None`。
+///
+/// ★ S5b：不再对 6 个候选路径逐个 `@fs.exists`（最多 6 次 stat），
+/// 改为基于一次 `read_entries` 的内存匹配（见 `find_manifest_in`）：
+/// · 单段名（`package.json` 等 4 个）直接查 entries 名字 —— 0 次 stat；
+/// · 双段名（`.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`）
+///   先查首段存在于 entries 且为目录，才做 1 次 `@fs.exists` 兜底。
+/// 典型非插件目录从 6 次 stat 降为 0 次。
+/// 保留 pub 薄包装：内部复用 `find_manifest_in`，供已有调用方与测试使用。
 pub async fn find_manifest(dir : String) -> String? {
+  let entries = read_entries(dir)
+  find_manifest_in(dir, entries)
+}
+
+///|
+/// `find_manifest` 的 entries 复用版：调用方已持有 `read_entries(dir)`
+/// 的结果（例如扫描遍历）时直接传入，省掉重复的 readdir。
+///
+/// 匹配语义与逐项 `@fs.exists` 一致：`read_entries` 列出目录的全部
+/// 直接子项（含隐藏），「名字出现在 entries 里」≡「exists(dir/名字)」。
+async fn find_manifest_in(
+  dir : String,
+  entries : Array[(String, Bool)],
+) -> String? {
   for rel in manifest_priority {
+    // 统一先查首段：首段不在 entries 里，整个相对路径就不可能存在
+    let first_seg = match rel.rev_find("/") {
+      Some(i) => rel[:i].to_owned()
+      None => rel
+    }
+    let mut first_exists = false
+    let mut first_is_dir = false
+    for entry in entries {
+      if entry.0 == first_seg {
+        first_exists = true
+        first_is_dir = entry.1
+        break
+      }
+    }
+    if !first_exists {
+      continue
+    }
+    if first_seg == rel {
+      // 单段名：entries 命中即为清单
+      return Some(rel)
+    }
+    if !first_is_dir {
+      // 双段名但首段是文件：路径穿不过去，不可能存在
+      continue
+    }
     if @fs.exists(@util.path_join(dir, rel)) {
       return Some(rel)
     }
@@ -140,23 +187,31 @@ pub async fn find_manifest(dir : String) -> String? {
 /// 与 TS 的 `scanPath` 一致：**扫描根本身不算插件**，从它的直接子项开始判定。
 /// 命中清单的目录被「认领」—— 不再向下寻找嵌套插件，
 /// 于是 `browser-use` 与 `browser-use/0.4.1` 不会被同时计入。
+///
+/// ★ S5b：遍历改为「每目录恰好一次 read_entries」—— root 的 entries 先读一次，
+/// 清单判定与递归共用同一份快照（旧实现每个子目录重复 readdir，
+/// 且清单判定还要最多 6 次 stat）。
 pub async fn discover_plugins(
   root : String,
   max_depth? : Int = max_discovery_depth,
 ) -> Array[DiscoveredPlugin] {
   let out : Array[DiscoveredPlugin] = []
-  scan_children(root, 1, max_depth, out)
+  scan_children(read_entries(root), root, 1, max_depth, out)
   out
 }
 
 ///|
+/// 递归扫描直接子项。`entries` 是 `dir` 的 `read_entries` 快照，
+/// 由调用方（`discover_plugins` 或上一层递归）传入且**只读一次**；
+/// 未命中清单的子目录继续下探时复用同一份 entries（★ S5b）。
 async fn scan_children(
+  entries : Array[(String, Bool)],
   dir : String,
   depth : Int,
   max_depth : Int,
   out : Array[DiscoveredPlugin],
 ) -> Unit {
-  for entry in read_entries(dir) {
+  for entry in entries {
     let (name, is_dir) = entry
     if is_pruned(name) {
       continue
@@ -165,11 +220,13 @@ async fn scan_children(
       continue
     }
     let child = @util.path_join(dir, name)
-    match find_manifest(child) {
+    // 子目录的 entries 先读一次：清单判定与未命中递归共用
+    let child_entries = read_entries(child)
+    match find_manifest_in(child, child_entries) {
       Some(manifest) => out.push({ dir: child, manifest, depth })
       None =>
         if depth < max_depth {
-          scan_children(child, depth + 1, max_depth, out)
+          scan_children(child_entries, child, depth + 1, max_depth, out)
         }
     }
   }

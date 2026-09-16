@@ -26,6 +26,18 @@ pub async fn process_task(@types.SubAgentTask) -> Json
 
 pub async fn real_validation(@types.ValidationLevelTag, @types.EvolutionProposal) -> (Bool, String)
 
+pub async fn sandbox_atomic_write(String, String, String, PreCheckResult) -> Result[Unit, String]
+
+pub async fn sandbox_discard_backups(PreCheckResult) -> Unit
+
+pub async fn sandbox_post_verify(PreCheckResult) -> Array[String]
+
+pub async fn sandbox_pre_check(Array[String], String, String) -> PreCheckResult
+
+pub async fn sandbox_restore_all(PreCheckResult) -> Unit
+
+pub fn scan_sensitive(String) -> Array[SensitiveHit]
+
 pub async fn simulated_task(@types.SubAgentTask) -> Json
 
 pub async fn simulated_validation(@types.ValidationLevelTag, @types.EvolutionProposal) -> (Bool, String)
@@ -41,6 +53,36 @@ pub(all) struct ExecutionResult {
   success : Bool
   results : Array[@types.SubAgentResult]
   error : String?
+} derive(Eq, ToJson, @debug.Debug)
+
+pub(all) struct FileBackup {
+  original_path : String
+  backup_path : String
+  has_sensitive : Bool
+  sensitive_hits : Array[SensitiveHit]
+} derive(ToJson)
+
+pub(all) struct PreCheckResult {
+  sandbox_dir : String
+  boundary_root : String
+  backups : Array[FileBackup]
+  sensitive_summary : Array[SensitiveHit]
+  modified_paths : Array[String]
+} derive(ToJson)
+
+pub(all) struct SensitiveHit {
+  kind : SensitivePatternKind
+  line : Int
+  preview : String
+} derive(ToJson)
+
+pub(all) enum SensitivePatternKind {
+  ApiKey
+  Token
+  Password
+  PrivateKey
+  EnvAssignment
+  AuthHeader
 } derive(Eq, ToJson, @debug.Debug)
 
 pub struct UpgradeExecutor {

@@ -31,11 +31,17 @@ pub let code_parse_error : Int
 
 pub fn create_sub_agent_schema() -> Json
 
+pub let default_analyze_mode : @types.ScanMode
+
 pub let default_dry_run : Bool
+
+pub let default_evolve_action : @types.EvolveAction
 
 pub let default_force_rescan : Bool
 
 pub let default_limit : Int
+
+pub let default_manage_action : @types.ManageAction
 
 pub let default_protocol_version : String
 
@@ -97,10 +103,11 @@ pub fn tools_list_result() -> Json
 
 // Types and methods
 pub(all) struct AnalyzePluginsArgs {
-  mode : String
+  mode : String?
   plugin_id : String?
   force_rescan : Bool?
   target_paths : Array[String]?
+  plugin_ids : Array[String]?
   time_range : @types.TimeRange?
 } derive(@debug.Debug, @json.FromJson)
 
@@ -120,7 +127,7 @@ pub(all) struct DeleteSubAgentArgs {
 } derive(@debug.Debug, @json.FromJson)
 
 pub(all) struct EvolvePluginArgs {
-  action : String
+  action : String?
   plugin_id : String?
   proposal_id : String?
   signals : Array[String]?
@@ -148,7 +155,7 @@ pub(all) struct ListSubAgentsArgs {
 } derive(@debug.Debug, @json.FromJson)
 
 pub(all) struct ManageSubAgentArgs {
-  action : String
+  action : String?
   name : String?
   description : String?
   system_prompt : String?
@@ -177,6 +184,7 @@ pub fn RpcRequest::is_notification(Self) -> Bool
 pub(all) struct ScanPluginsArgs {
   force_rescan : Bool?
   target_paths : Array[String]?
+  plugin_ids : Array[String]?
 } derive(@debug.Debug, @json.FromJson)
 
 pub struct ServerState {

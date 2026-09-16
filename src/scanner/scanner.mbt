@@ -299,8 +299,10 @@ pub async fn PluginScanner::scan_root(
     return
   }
   let found = discover_plugins(root, max_depth=self.cfg.max_depth)
+  // ★ S5：per-root 去重集 —— 同一 root 内重复 plugin_id 不再各自全量扫描
+  let seen : @ref.Ref[Map[String, Unit]] = @ref.Ref(Map([]))
   for plugin in found {
-    match self.scan_plugin_collect(plugin, kind, cache_by_dir) {
+    match self.scan_plugin_collect(plugin, kind, cache_by_dir, seen) {
       Some(scanned) => self.adopt(scanned)
       None => ()
     }
@@ -322,8 +324,11 @@ async fn PluginScanner::scan_root_into(
     return
   }
   let found = discover_plugins(root, max_depth=self.cfg.max_depth)
+  // ★ S5：per-root 去重集（每个 root 的桶各自独立；跨 root 的裁决
+  // 仍由合并阶段 absorb 先到先得，R5 确定性不变）
+  let seen : @ref.Ref[Map[String, Unit]] = @ref.Ref(Map([]))
   for plugin in found {
-    match self.scan_plugin_collect(plugin, kind, cache_by_dir) {
+    match self.scan_plugin_collect(plugin, kind, cache_by_dir, seen) {
       Some(scanned) => sink.push(scanned)
       None => ()
     }
@@ -374,13 +379,22 @@ async fn PluginScanner::scan_plugin_collect(
   plugin : DiscoveredPlugin,
   kind : @types.PluginKind,
   cache_by_dir : Map[String, @store.CachedProfile],
+  seen : @ref.Ref[Map[String, Unit]],
 ) -> ScannedPlugin? {
   let dir = plugin.dir
 
-  // 缓存命中且指纹有效 → 直接采用，一个文件都不读
+  // 缓存命中且指纹有效 → 直接采用，一个文件都不读。
+  // ★ S5：缓存直采也要过去重闸 —— 同一 root 内两个目录映射到同一
+  // plugin_id 时，重复项不再产出（合并阶段的 absorb 虽会丢弃，
+  // 但让候选列表保持无重复更干净，也不再让去重依赖下游）。
   match cache_by_dir.get(dir) {
     Some(entry) =>
       if @store.PluginCache::validate(entry) {
+        let cached_id = entry.profile.plugin_id
+        if self.index.contains(cached_id) || seen.val.contains(cached_id) {
+          return None
+        }
+        seen.val.set(cached_id, ())
         return Some({
           profile: entry.profile,
           raw_tools: 0,
@@ -394,10 +408,14 @@ async fn PluginScanner::scan_plugin_collect(
   let (name, version, dependencies) = read_manifest_meta(dir, plugin.manifest)
   // 对齐 TS L112：plugin_id = `${name}-${version}`
   let plugin_id = "\{name}-\{version}"
-  // 对齐 TS L115-117：同 id 先到先得
-  if self.index.contains(plugin_id) {
+  // 对齐 TS L115-117：同 id 先到先得。
+  // ★ S5：并行阶段各 root 互相看不见彼此的 `self.index`（只读），
+  // 同一 root 内的重复项原先会被全量扫描两遍再在合并时丢弃；
+  // per-root `seen` 把重复挡在扫描之前。
+  if self.index.contains(plugin_id) || seen.val.contains(plugin_id) {
     return None
   }
+  seen.val.set(plugin_id, ())
 
   // 技能文件和源码文件：一次性遍历目录，避免两次遍历
   let capabilities : Array[String] = []
@@ -480,7 +498,10 @@ pub async fn PluginScanner::scan_plugin_dir(
   kind : @types.PluginKind,
   cache_by_dir? : Map[String, @store.CachedProfile] = Map([]),
 ) -> Unit {
-  match self.scan_plugin_collect(plugin, kind, cache_by_dir) {
+  // ★ S5：单目录入口的 seen 是调用内局部的；跨调用去重仍由
+  // `self.index` 承担（第一次 adopt 后 index 已登记该 id）
+  let seen : @ref.Ref[Map[String, Unit]] = @ref.Ref(Map([]))
+  match self.scan_plugin_collect(plugin, kind, cache_by_dir, seen) {
     Some(scanned) => self.adopt(scanned)
     None => ()
   }

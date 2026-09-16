@@ -590,6 +590,18 @@ async fn seed_plugin(root : String) -> Unit {
 }
 
 ///|
+/// 在注册表里按 plugin_id 找插件档案；找不到即测试失败。
+/// 直接读 `state.registry` 而不是解析响应体：断言能精确到 tools 数组内容。
+fn registry_entry(state : ServerState, plugin_id : String) -> @types.PluginMetadata {
+  for p in state.registry {
+    if p.plugin_id == plugin_id {
+      return p
+    }
+  }
+  abort("plugin \{plugin_id} not found in registry")
+}
+
+///|
 /// ★ 全链路端到端。这是整个 mcp 包最重要的一条测试：
 /// 它证明 10 个工具不只是各自能跑，而是**共享同一份状态**
 /// （CONTEXT.md 不变量②：ProposalStore 单一事实来源）。
@@ -996,9 +1008,17 @@ async test "scanning an empty or missing root succeeds with zero plugins" {
 }
 
 ///|
-/// 定向重扫（plugin_ids）：先全量扫描建立注册表，再用 plugin_ids 只重扫一个插件。
-/// 验证：重扫后该插件仍在注册表中，且 plugin_count 正确。
-async test "scan_plugins with plugin_ids performs incremental rescan" {
+/// 定向重扫（plugin_ids）：先全量扫描建立注册表，再用真实 plugin_id 定向重扫，
+/// 且必须**真的重扫**。
+///
+/// ★ C1/W1 修复后的回归网（旧用例传 "demo-plugin" 找不到任何目录、
+/// 恒真通过，什么都测不出）：
+/// · 真实 id 是 `demo-plugin-1.2.3`（`plugin_id = name-version`）；
+/// · 改写 SKILL.md 追加 R5 工具模式 `tool=alpha` 后，重扫必须把 tools 从 0
+///   更新为 1 —— 旧实现把插件根当扫描根（`discover_plugins` 契约
+///   「扫描根本身不算插件」）而 silent no-op，tools 会停在 0；
+/// · 定向重扫不再写 `{plugin_cache}.incremental` 垃圾文件。
+async test "scan_plugins with plugin_ids performs a real incremental rescan" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
   let paths = @store.DataPaths::at(tmp)
@@ -1007,26 +1027,77 @@ async test "scan_plugins with plugin_ids performs incremental rescan" {
     paths,
     @scanner.ScanConfig::custom([tmp], paths.plugin_cache()),
   )
-  // 先全量扫描建立注册表
+  // 先全量扫描建立注册表：SKILL.md 里没有 `tool=` 模式 → tools = 0
   let full = send(state, call_line(1, "scan_plugins", Json::empty_object()))
   assert_false(is_tool_error(full))
   assert_eq(obj(tool_payload(full)).get("plugin_count"), Some(Json::number(1.0)))
+  assert_eq(registry_entry(state, "demo-plugin-1.2.3").tools.length(), 0)
 
-  // 用 plugin_ids 定向重扫
+  // 改写 SKILL.md：追加 R5 工具提取模式 `tool=alpha`
+  @fs.write_file(
+    @util.path_join(tmp, "demo-plugin/SKILL.md"),
+    "# Demo\nThis tool can navigate and supports clicks.\ntool=alpha",
+    create_mode=CreateOrTruncate,
+  )
+
+  // 真实 plugin_id 定向重扫（默认 force_rescan=false，走缓存指纹校验）
   let incr = send(
     state,
     call_line(
       2,
       "scan_plugins",
-      { "plugin_ids": ["demo-plugin"] },
+      { "plugin_ids": ["demo-plugin-1.2.3"] },
     ),
   )
   assert_false(is_tool_error(incr))
   let body = obj(tool_payload(incr))
-  // 定向重扫结果应包含该插件
-  assert_true(body.contains("plugins"))
-  assert_true(body.contains("plugin_count"))
   assert_eq(body.get("plugin_count"), Some(Json::number(1.0)))
+  // ★ 判别力所在：重扫必须真实发生（旧实现 silent no-op → 仍为 0）
+  let rescanned = registry_entry(state, "demo-plugin-1.2.3")
+  assert_eq(rescanned.tools.length(), 1)
+  assert_true(rescanned.tools.contains("alpha"))
+  // ★ C1：不再产生 `.incremental` 垃圾缓存文件
+  assert_false(@fs.exists(paths.plugin_cache() + ".incremental"))
+}
+
+///|
+/// ★ C1 回归网：插件内部的 `skills/<name>/SKILL.md` 不是插件。
+/// 旧实现以插件根为扫描根、最多下探 3 层，会认领 `skills/foo`
+/// 并注入一个伪插件条目（plugin_count 1 → 2）；新实现以父目录为扫描根、
+/// 只下探一层，定向重扫后注册表仍只有 demo-plugin-1.2.3。
+async test "incremental rescan does not inject nested skill directories as plugins" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let paths = @store.DataPaths::at(tmp)
+  seed_plugin(tmp)
+  // 制造嵌套技能目录：demo-plugin/skills/foo/SKILL.md
+  let nested = @util.path_join(tmp, "demo-plugin/skills/foo")
+  @fs.mkdir(nested, recursive=true)
+  @fs.write_file(
+    @util.path_join(nested, "SKILL.md"),
+    "# Foo\nA nested skill file, not a plugin.",
+    create_mode=CreateOrTruncate,
+  )
+  let state = ServerState::with_scan_config(
+    paths,
+    @scanner.ScanConfig::custom([tmp], paths.plugin_cache()),
+  )
+  let full = send(state, call_line(1, "scan_plugins", Json::empty_object()))
+  assert_false(is_tool_error(full))
+  assert_eq(obj(tool_payload(full)).get("plugin_count"), Some(Json::number(1.0)))
+
+  let incr = send(
+    state,
+    call_line(
+      2,
+      "scan_plugins",
+      { "plugin_ids": ["demo-plugin-1.2.3"] },
+    ),
+  )
+  assert_false(is_tool_error(incr))
+  let body = obj(tool_payload(incr))
+  assert_eq(body.get("plugin_count"), Some(Json::number(1.0)))
+  assert_eq(state.registry.length(), 1)
 }
 
 ///|

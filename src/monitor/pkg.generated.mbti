@@ -25,17 +25,20 @@ pub struct PerformanceMonitor {
   signals : @store.Jsonl
   session_id : String
   event_buffer : Array[@types.PerformanceEvent]
-  signal_buffer : Array[@types.EvolutionSignal]
-  session_events : @deque.Deque[@types.PerformanceEvent]
+  signal_buffer : @deque.Deque[@types.EvolutionSignal]
   trailing : Map[String, TrailingState]
-  loop_reported : @ref.Ref[Map[String, Unit]]
+  loop_reported : @ref.Ref[Map[String, Map[String, Unit]]]
   struggle_reported : @ref.Ref[Map[String, Unit]]
   last_deep_check_at : Map[String, Int64]
   thresholds : @types.SignalThresholds
   max_log_bytes : Int
   buffers_dirty : @ref.Ref[Bool]
+  deep_events : @ref.Ref[Array[@types.PerformanceEvent]]
+  deep_cache_at : @ref.Ref[Int64]
+  deep_reloads : @ref.Ref[Int]
 }
 pub fn PerformanceMonitor::at(@store.DataPaths, config? : @types.EngineConfig) -> Self
+pub fn PerformanceMonitor::deep_reload_count(Self) -> Int
 pub async fn PerformanceMonitor::flush_buffers(Self) -> Unit
 pub async fn PerformanceMonitor::get_metrics(Self, String, time_range? : @types.TimeRange) -> Array[@types.PerformanceEvent]
 pub async fn PerformanceMonitor::get_statistics(Self, String, time_range? : @types.TimeRange) -> Statistics

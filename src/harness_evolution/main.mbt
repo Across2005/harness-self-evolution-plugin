@@ -175,6 +175,14 @@ async fn main {
   paths.warn_on_legacy_v1()
   paths.ensure_root()
 
+  // ★ S6：未知 HARNESS_EVOLUTION_HOST 不再静默回落 —— 与 scan_targets
+  // 的退化告警同一惯例，在启动序列点名（`log_warn` 是 async，只能在
+  // 这里打；`user_agents_dir` 自身是同步函数）。
+  match @store.unknown_host_warning() {
+    Some(w) => @util.log_warn("Store", w)
+    None => ()
+  }
+
   let (harness_cfg, scan) = load_config(paths)
   let config = harness_cfg.engine
   let state = @mcp.ServerState::with_harness_config(paths, scan, harness_cfg)

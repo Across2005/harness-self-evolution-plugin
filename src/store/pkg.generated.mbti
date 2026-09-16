@@ -15,6 +15,24 @@ pub async fn fingerprint_of(String) -> DirFingerprint?
 
 pub async fn read_json(String) -> Json?
 
+pub async fn sandbox_atomic_write(String, String) -> Unit
+
+pub async fn sandbox_backup_exists(String) -> Bool
+
+pub async fn sandbox_backup_file(String, String) -> Result[String, String]
+
+pub async fn sandbox_cleanup_dir(String) -> Unit
+
+pub async fn sandbox_ensure_dir(String) -> Unit
+
+pub async fn sandbox_read_text(String) -> String
+
+pub async fn sandbox_remove_backup(String) -> Unit
+
+pub async fn sandbox_restore_file(String, String) -> Unit
+
+pub fn unknown_host_warning() -> String?
+
 pub fn user_agents_dir() -> String
 
 pub async fn write_json_atomic(String, Json) -> Unit
@@ -82,12 +100,12 @@ pub async fn ExecutionLog::read(Self) -> Array[String]
 
 pub struct Jsonl {
   path : String
+  mut tainted : Bool
 }
 pub async fn[T : ToJson] Jsonl::append(Self, T) -> Unit
 pub async fn[T : ToJson] Jsonl::append_many(Self, ArrayView[T]) -> Unit
 pub async fn Jsonl::exists(Self) -> Bool
 pub async fn[T : @json.FromJson] Jsonl::load(Self) -> Array[T]
-pub async fn[T : @json.FromJson] Jsonl::load_since(Self, Int64) -> Array[T]
 pub async fn Jsonl::mtime(Self) -> (Int64, Int)?
 pub fn Jsonl::new(String) -> Self
 pub fn Jsonl::path(Self) -> String
@@ -114,7 +132,7 @@ pub struct ProposalStore {
   items : Array[@types.EvolutionProposal]
   by_id : Map[String, Int]
   by_plugin : Map[String, Array[Int]]
-  by_signature : Map[String, Int]
+  by_signature : Map[String, Array[Int]]
   mut loaded_mtime : (Int64, Int)?
 }
 pub fn ProposalStore::at(DataPaths) -> Self

@@ -71,6 +71,11 @@ pub async fn PerformanceMonitor::flush_buffers(
   // 且走 trim_quietly 兜错 —— append 已成功的事件不能因裁剪出错被
   // 判回填（重复落盘），flush_buffers 更不能因此重新开始抛错（H1 承诺）。
   if events_ok {
+    // ★ S1：成功落盘的事件并入深度检查缓存（见 deep_check.mbt）。
+    // 这是缓存语义的关键一环 —— 缓存 = 最近装载的文件快照 ∪ 此后
+    // 所有成功 flush 的事件，于是复用缓存的后来者也能看到刚写入的事件。
+    // requeue（写失败）的批次不入缓存，缓存始终是文件内容的超集。
+    self.absorb_deep_events(events)
     self.trim_quietly(self.metrics)
   }
   if signals_ok {

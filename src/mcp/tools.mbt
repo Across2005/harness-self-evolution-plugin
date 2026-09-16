@@ -412,7 +412,8 @@ pub fn tools_list_result() -> Json {
 /// `scan_plugins`（对应 server.ts L126-147）。
 ///
 /// 三种扫描模式（用户自主决策，非硬编码全盘扫描）：
-/// 1. **定向重扫**（`plugin_ids`）：只扫描包含指定插件的目录，其他已缓存插件保留
+/// 1. **定向重扫**（`plugin_ids`）：只重扫目标插件目录（以插件根的父目录为
+///    扫描根、只下探一层），其他已缓存插件保留
 /// 2. **路径重定向**（`target_paths`）：扫描指定路径替换默认扫描根
 /// 3. **全量扫描**（默认）：扫描所有配置的根目录
 ///
@@ -461,13 +462,45 @@ async fn handle_scan_plugins(state : ServerState, args : Json) -> Json {
         }
       }
 
-      // 用独立 scanner 扫描目标目录（不影响主缓存）；
-      // force 尊重客户端传入的 force_rescan，定向重扫不再无条件强制
-      let tmp_cache = "\{state.paths.plugin_cache()}.incremental"
+      // ★ C1 修复：`discover_plugins` 的契约是「扫描根本身不算插件」，
+      // 不能把插件根直接当扫描根 —— 旧实现因此 silent no-op
+      // （注册表永不更新），且下探多层会把插件内部的
+      // `skills/<name>/SKILL.md` 误认成嵌套插件注入注册表。
+      // 正确做法：以插件根的**父目录**为扫描根、只下探一层（max_depth=1），
+      // 再把发现结果按 target_dirs 过滤后逐个扫描。
+      // 同时修掉旧实现经 `scan_all` 写 `{cache}.incremental` 垃圾文件的问题：
+      // 定向重扫**只读**主缓存做指纹校验（force=false 时），绝不写任何缓存。
+      let parent_dirs : Array[String] = []
+      let target_set : Map[String, Unit] = Map([])
+      for d in target_dirs {
+        target_set.set(@util.path_normalize(d), ())
+        let parent = @util.path_dirname(d)
+        if parent != "." && parent != "/" && !parent_dirs.contains(parent) {
+          parent_dirs.push(parent)
+        }
+      }
+      // force=false 时按主缓存逐条指纹校验，未变化的插件跳过重扫
+      let cache_by_dir : Map[String, @store.CachedProfile] = Map([])
+      if !force {
+        for entry in state.scanner.cache_entries() {
+          cache_by_dir.set(entry.profile.path, entry)
+        }
+      }
       let scanner = @scanner.PluginScanner::new(
-        @scanner.ScanConfig::custom(target_dirs, tmp_cache),
+        @scanner.ScanConfig::custom(parent_dirs, state.paths.plugin_cache()),
       )
-      scanner.scan_all(force_rescan=force)
+      for parent in parent_dirs {
+        for plugin in @scanner.discover_plugins(parent, max_depth=1) {
+          // 规范化比较，消除路径形态（分隔符/尾斜杠）差异导致的漏扫
+          if target_set.contains(@util.path_normalize(plugin.dir)) {
+            scanner.scan_plugin_dir(
+              plugin,
+              @types.PluginKind::Official,
+              cache_by_dir=cache_by_dir,
+            )
+          }
+        }
+      }
       // merge 模式：不清除已有注册表条目，只更新命中的插件
       state.merge(scanner.all())
 

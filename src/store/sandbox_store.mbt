@@ -32,6 +32,16 @@ pub async fn sandbox_backup_file(
   Ok(backup_path)
 }
 
+/// 备份文件是否存在（★ S3）。
+///
+/// 单次 stat 取代「整文件读取 + catch 判空」：`sandbox_pre_check` 的
+/// 「备份已存在则跳过覆盖」判定只需要存在性，读全文是纯浪费 ——
+/// 备份大小与源文件同量级，每次 pre_check 都白读一遍。
+/// 收口在 store 层，维持不变量①（持久化 I/O 只存在于 store/）。
+pub async fn sandbox_backup_exists(path : String) -> Bool {
+  @fs.exists(path)
+}
+
 /// 读取文件全部文本内容。
 pub async fn sandbox_read_text(path : String) -> String {
   @fs.read_file(path).text()

@@ -46,6 +46,7 @@ pub struct AcademicWritingEngine {
 }
 pub fn AcademicWritingEngine::generate_proposal(Self, String, @types.SkillDomain) -> AcademicProposal?
 pub fn AcademicWritingEngine::new() -> Self
+pub fn AcademicWritingEngine::suggest_for(Self, String, @types.EvolutionType) -> Array[String]
 
 pub struct EvolutionEngine {
   monitor : @monitor.PerformanceMonitor
