@@ -166,11 +166,12 @@
 
 ## 配置
 
-配置来自 `.zcode-plugin/plugin.json` 的 `evolution_config` 段。
+配置来自 `.dsh-plugin/plugin.json` 的 `evolution_config` 段。
+（自述清单原位于 `.zcode-plugin/`，旧路径仍在配置链中兼容读取。）
 查找顺序：
 
 1. `$HARNESS_EVOLUTION_CONFIG` 指向的文件（显式覆盖，多档案场景用）
-2. `<cwd>/.zcode-plugin/plugin.json`
+2. `<cwd>/.dsh-plugin/plugin.json`（旧布局 `<cwd>/.zcode-plugin/plugin.json` 兼容回退）
 3. 内置默认值
 
 配置缺失绝不会导致启动失败。
@@ -274,8 +275,8 @@ cd harness-self-evolution-plugin
 ```
 
 > `metrics.jsonl` / `signals.jsonl` 按 `max_log_bytes`（默认 32 MiB）裁剪；
-> `config.json` **不存在**于数据根 —— 配置只来自 `.zcode-plugin/plugin.json`
-> 的 `evolution_config` 段（见上文「配置」）。
+> `config.json` **不存在**于数据根 —— 配置只来自自述清单（`.dsh-plugin/plugin.json`，
+> 旧布局 `.zcode-plugin/plugin.json` 兼容回退）的 `evolution_config` 段（见上文「配置」）。
 
 ## 许可证
 

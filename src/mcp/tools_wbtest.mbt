@@ -342,7 +342,7 @@ async test "tools/list works before any initialize handshake" {
     Some(Array(a)) => a
     _ => abort("tools must be an array")
   }
-  assert_eq(list.length(), 13)
+  assert_eq(list.length(), 14)
 }
 
 // ============================================================================
@@ -592,7 +592,10 @@ async fn seed_plugin(root : String) -> Unit {
 ///|
 /// 在注册表里按 plugin_id 找插件档案；找不到即测试失败。
 /// 直接读 `state.registry` 而不是解析响应体：断言能精确到 tools 数组内容。
-fn registry_entry(state : ServerState, plugin_id : String) -> @types.PluginMetadata {
+fn registry_entry(
+  state : ServerState,
+  plugin_id : String,
+) -> @types.PluginMetadata {
   for p in state.registry {
     if p.plugin_id == plugin_id {
       return p
@@ -1030,7 +1033,10 @@ async test "scan_plugins with plugin_ids performs a real incremental rescan" {
   // 先全量扫描建立注册表：SKILL.md 里没有 `tool=` 模式 → tools = 0
   let full = send(state, call_line(1, "scan_plugins", Json::empty_object()))
   assert_false(is_tool_error(full))
-  assert_eq(obj(tool_payload(full)).get("plugin_count"), Some(Json::number(1.0)))
+  assert_eq(
+    obj(tool_payload(full)).get("plugin_count"),
+    Some(Json::number(1.0)),
+  )
   assert_eq(registry_entry(state, "demo-plugin-1.2.3").tools.length(), 0)
 
   // 改写 SKILL.md：追加 R5 工具提取模式 `tool=alpha`
@@ -1043,11 +1049,7 @@ async test "scan_plugins with plugin_ids performs a real incremental rescan" {
   // 真实 plugin_id 定向重扫（默认 force_rescan=false，走缓存指纹校验）
   let incr = send(
     state,
-    call_line(
-      2,
-      "scan_plugins",
-      { "plugin_ids": ["demo-plugin-1.2.3"] },
-    ),
+    call_line(2, "scan_plugins", { "plugin_ids": ["demo-plugin-1.2.3"] }),
   )
   assert_false(is_tool_error(incr))
   let body = obj(tool_payload(incr))
@@ -1084,15 +1086,14 @@ async test "incremental rescan does not inject nested skill directories as plugi
   )
   let full = send(state, call_line(1, "scan_plugins", Json::empty_object()))
   assert_false(is_tool_error(full))
-  assert_eq(obj(tool_payload(full)).get("plugin_count"), Some(Json::number(1.0)))
+  assert_eq(
+    obj(tool_payload(full)).get("plugin_count"),
+    Some(Json::number(1.0)),
+  )
 
   let incr = send(
     state,
-    call_line(
-      2,
-      "scan_plugins",
-      { "plugin_ids": ["demo-plugin-1.2.3"] },
-    ),
+    call_line(2, "scan_plugins", { "plugin_ids": ["demo-plugin-1.2.3"] }),
   )
   assert_false(is_tool_error(incr))
   let body = obj(tool_payload(incr))
@@ -1378,7 +1379,7 @@ async test "tools/list advertises the three sub-agent factory tools after the le
     Some(Array(a)) => a
     _ => abort("tools must be an array")
   }
-  assert_eq(list.length(), 13)
+  assert_eq(list.length(), 14)
   let names : Array[String] = []
   for t in list {
     match obj(t).get("name") {
@@ -1625,7 +1626,8 @@ async test "v2.3 merged tools fall back to their schema defaults when arguments 
   }
   // manage_sub_agent 缺省 action=list：成功返回空清单
   let listed = send(
-    state, call_line(1, "manage_sub_agent", Json::empty_object()),
+    state,
+    call_line(1, "manage_sub_agent", Json::empty_object()),
   )
   assert_false(is_tool_error(listed))
   let listed_body = obj(tool_payload(listed))
@@ -1640,7 +1642,8 @@ async test "v2.3 merged tools fall back to their schema defaults when arguments 
   )
   // analyze_plugins 缺省 mode=both：both 缺 plugin_id 一并报错（M6）
   let analyzed = send(
-    state, call_line(3, "analyze_plugins", Json::empty_object()),
+    state,
+    call_line(3, "analyze_plugins", Json::empty_object()),
   )
   assert_eq(is_tool_error(analyzed), true)
   assert_eq(
@@ -1706,7 +1709,8 @@ async test "manage_sub_agent forwards color and tools to the create path" {
   )
   // 落盘的定义里确实带 color 与 tools（委托时丢弃则这两键缺失）
   let listed = send(
-    state, call_line(2, "manage_sub_agent", Json::empty_object()),
+    state,
+    call_line(2, "manage_sub_agent", Json::empty_object()),
   )
   let agents = match obj(tool_payload(listed)).get("agents") {
     Some(Array(a)) => a

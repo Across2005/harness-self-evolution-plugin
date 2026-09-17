@@ -37,7 +37,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Harness Self-Evolution                    │
-│                      (ZCode Plugin)                          │
+│                       (DSH Plugin)                           │
 └─────────────────────────────────────────────────────────────┘
                               │
         ┌─────────────────────┼─────────────────────┐
@@ -352,13 +352,13 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 > | `scan_timestamp` / `status` 字段 | 真实字段名是 `scanned_at`（Unix 毫秒），且没有 `status` |
 > | `main: "./dist/mcp/server.js"` | 2.0 是 `"./bin/harness-evolution.exe"` |
 >
-> **权威来源**：接口契约看 `README.md` 的「API」节与 `.zcode-plugin/plugin.json`；
+> **权威来源**：接口契约看 `README.md` 的「API」节与 `.dsh-plugin/plugin.json`；
 > 词汇与不变量看 `CONTEXT.md`；数据结构看 `src/types/*.mbt`。
 
-下面是 2.0 的真实清单（与仓库里的 `.zcode-plugin/plugin.json` 一致）：
+下面是 2.0 的真实清单（与仓库里的 `.dsh-plugin/plugin.json` 一致）：
 
 ```json
-// .zcode-plugin/plugin.json
+// .dsh-plugin/plugin.json
 {
   "name": "harness-self-evolution",
   "version": "2.6.0",

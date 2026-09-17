@@ -5,7 +5,7 @@
 > 支持：DeepSeek Harness（首打）/ Minimax Code / ZCode / Claude Code / OpenClaw
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
-[![Version: 2.6.0](https://img.shields.io/badge/version-2.6.0-1f6feb.svg)](.zcode-plugin/plugin.json)
+[![Version: 2.6.0](https://img.shields.io/badge/version-2.6.0-1f6feb.svg)](.dsh-plugin/plugin.json)
 [![Runtime: MoonBit native](https://img.shields.io/badge/runtime-MoonBit%20native-ff7a18.svg)](moon.mod)
 [![Total tests: 424/424](https://img.shields.io/badge/tests-424%2F424-22cc22.svg)](CONTEXT.md)[![Sandbox: enabled](https://img.shields.io/badge/sandbox-enabled-22cc22.svg)](#安全沙箱)
 [![Gate: 0/0](https://img.shields.io/badge/gate-%20%E2%9C%93%20passing-22cc22.svg)](build.ps1)
@@ -79,17 +79,17 @@
 
 > **L1 仓库**：https://github.com/Across2005/harness-self-evolution-plugin（GitHub）/ https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin（GitLink 镜像）— 公开，2026-09-16 首发 v2.5.0，2026-09-17 发布 v2.6.0（mooncakes 0.2.6），MoonBit native，MIT。
 >
-> **L2 manifest**：`package.json` 声明 `dsh.bundle`（指向 `.zcode-plugin/plugin.json`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。424 测试全过（0 失败）、11 条架构守卫 G1–G6 机器化卡死。
+> **L2 manifest**：`package.json` 声明 `dsh.bundle`（`dsh.bundle.patch` → `./cordis.patch.yml`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。424 测试全过（0 失败）、11 条架构守卫 G1–G6 机器化卡死。
 >
 > **L3 安装规范**：
 > ```bash
 > dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
 > ```
-> 数据存 `~/.harness-evolution/v2/`（可由 `$HARNESS_EVOLUTION_HOME` 覆盖），配置源链 `$HARNESS_EVOLUTION_CONFIG` → `/.zcode-plugin/plugin.json` → 内置默认。
+> 数据存 `~/.harness-evolution/v2/`（可由 `$HARNESS_EVOLUTION_HOME` 覆盖），配置源链 `$HARNESS_EVOLUTION_CONFIG` → `/.dsh-plugin/plugin.json` → 内置默认。
 
 ### 平台兼容性
 
-> **v2.6.0 产物为 Windows native**（`bin/harness-evolution.exe`，1,532,928 B）。Linux/macOS 沙盒首次安装可能需要 `allowBuilds` 显式放行。跨平台分发是 v2.7 路线图项，详见 [`ROADMAP.md`](ROADMAP.md)。
+> **v2.6.0 产物为 Windows native**（`bin/harness-evolution.exe`，1,532,928 B）。本插件是 MoonBit 项目：能否编译取决于 MoonBit 工具链对目标系统的支持（已支持 Windows / Linux / macOS），在目标平台上用源码包自行构建即可；Linux/macOS 沙盒首次安装可能需要 `allowBuilds` 显式放行。
 
 ### 已知限制
 
@@ -110,6 +110,8 @@
 | **OpenClaw** | — | 作为 MCP 服务器调用 | — |
 
 本插件是 DSH 插件，默认宿主为 **DeepSeek Harness**（user 作用域缺省写 `~/.deepseek/harness/agents/`）；可通过环境变量 `HARNESS_EVOLUTION_HOST` 切换宿主类型（如 `zcode`、`minimax-code`）。
+
+> **清单迁移说明**：本插件的自述清单现位于 `.dsh-plugin/plugin.json`（原 `.zcode-plugin/`，DSH 首打）；旧路径仍被运行时配置链兼容读取。ZCode 等其他宿主的扫描目标与 user 作用域目录不受影响（由 `scan_targets` 与 `HARNESS_EVOLUTION_HOST` 决定）。
 
 ### 架构
 
@@ -193,8 +195,10 @@ cd harness-self-evolution-plugin
 # 构建：check + test + build，产物复制到 bin\harness-evolution.exe
 .\build.ps1 all
 
-# 链接到 ZCode（可选）
-zcode plugin link .
+# 安装到 DeepSeek Harness（DSH，首打宿主）
+dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
+# 或本地安装：
+dsh plugin --profile web add .
 ```
 
 > **为什么锁死 `async@0.20.1`**：0.21.x 开始使用 `noraise + nocancel` 效果注解语法，实测 moon 0.1.20260819 解析它会报 `[3002] Parse error, unexpected token '+'`。当前工具链 moon 0.1.20260904 已实测支持 `errdefer`，但对该 0.21.x 语法未复测，维持锁定；复测通过后方可放开约束。
@@ -226,18 +230,20 @@ cd harness-self-evolution-plugin
 
 构建成功后，产物位于 `bin/harness-evolution.exe`。
 
-#### 3. 链接到宿主（ZCode）
+#### 3. 安装到 DeepSeek Harness（DSH）
 
 ```powershell
-# 将插件链接到 ZCode（使宿主能发现并加载插件）
-zcode plugin link .
+# 将插件安装到 DSH（使宿主能发现并加载插件）
+dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
+# 或本地安装：
+dsh plugin --profile web add .
 ```
 
 #### 4. 启动插件
 
 插件作为 MCP 服务器运行，由宿主自动启动。启动流程：
 
-1. **宿主（ZCode）读取** `.zcode-plugin/plugin.json` 配置
+1. **DSH Host 读取** `package.json` 的 `dsh.bundle`（`cordis.patch.yml`）清单
 2. **宿主启动** `bin/harness-evolution.exe` 进程
 3. **插件通过 stdio JSON-RPC** 与宿主通信
 4. **插件自动扫描** 配置的插件目录（`scan_targets`）
@@ -247,7 +253,7 @@ zcode plugin link .
 
 ```powershell
 # 检查插件是否正常运行
-zcode plugin list
+dsh plugin --profile web list
 ```
 
 应该能看到 `harness-self-evolution (v2.6.0) - Active`。
@@ -285,7 +291,7 @@ const proposal = await callMcpTool('propose_evolution', { plugin_id: 'browser-us
 
 ### 配置
 
-配置只来自 `.zcode-plugin/plugin.json` 的 `evolution_config` 段（查找顺序：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.zcode-plugin/plugin.json` → 内置默认值）。**`AGENTS.md` 不参与任何配置解析**。
+配置只来自 `.dsh-plugin/plugin.json` 的 `evolution_config` 段（查找顺序：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.dsh-plugin/plugin.json` → 旧布局 `<cwd>/.zcode-plugin/plugin.json`（兼容回退）→ 内置默认值）。**`AGENTS.md` 不参与任何配置解析**。
 
 ```json
 {
@@ -428,12 +434,14 @@ harness-self-evolution-plugin/
 │       └── SKILL.md
 ├── bin/                          # 构建产物
 │   └── harness-evolution.exe
+├── dsh-watcher/                  # DSH Web 浮窗观察插件（TypeScript + React 源码副本，只读会话观察）
 ├── docs/                         # 文档
 ├── specs/                        # 规格文档
-├── .zcode-plugin/                # 插件配置
+├── .dsh-plugin/                  # 插件自述清单（原 .zcode-plugin/，旧路径仍被配置链兼容读取）
 │   └── plugin.json
 ├── build.ps1                     # 构建脚本
 ├── moon.mod                      # MoonBit 模块配置
+├── BUILD.md                      # 构建与接手总指南
 ├── CONTEXT.md                    # 领域词汇表
 ├── DESIGN.md                     # 详细设计
 ├── DSH_INTEGRATION.md            # DSH 集成指南
@@ -538,11 +546,13 @@ executor 执行进化提案时，所有写操作经过安全沙箱预处理：
 
 | 文档 | 说明 |
 |------|------|
+| [`BUILD.md`](BUILD.md) | **构建与接手总指南**（两个构建单元、三级验证、已知偏差、接手清单） |
 | [`CONTEXT.md`](CONTEXT.md) | 领域词汇表、设计上下文、缺陷清单、配置来源、架构守卫 |
 | [`DESIGN.md`](DESIGN.md) | 详细设计、模块边界、调用链 |
 | [`DSH_INTEGRATION.md`](DSH_INTEGRATION.md) | DSH Sub-Agent 集成指南（371 行） |
 | [`docs/subagent-factory.md`](docs/subagent-factory.md) | 子 Agent 工厂的设计与研究结论 |
 | [`specs/minimax-code-support.md`](specs/minimax-code-support.md) | Minimax Code 扫描支持规格 |
+| [`dsh-watcher/`](dsh-watcher/README.md) | DSH Watcher 浮窗插件（概述与安装；设计契约见 [`dsh-watcher/DESIGN.md`](dsh-watcher/DESIGN.md)） |
 
 ### 贡献
 
@@ -596,17 +606,17 @@ Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / Ope
 
 > **L1 Repository**: https://github.com/Across2005/harness-self-evolution-plugin (GitHub) / https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin (GitLink 镜像) — public, first released 2026-09-16 (v2.5.0), updated 2026-09-17 (v2.6.0, mooncakes 0.2.6), MoonBit native, MIT.
 >
-> **L2 Manifest**: `package.json` declares `dsh.bundle` (pointing at `.zcode-plugin/plugin.json`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 424 tests passing (0 failures), 11 architecture guards G1–G6 enforced by machine.
+> **L2 Manifest**: `package.json` declares `dsh.bundle` (`dsh.bundle.patch` → `./cordis.patch.yml`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 424 tests passing (0 failures), 11 architecture guards G1–G6 enforced by machine.
 >
 > **L3 Install Spec**:
 > ```bash
 > dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
 > ```
-> State stored at `~/.harness-evolution/v2/` (overridable via `$HARNESS_EVOLUTION_HOME`); config resolution chain is `$HARNESS_EVOLUTION_CONFIG` → `/.zcode-plugin/plugin.json` → built-in defaults.
+> State stored at `~/.harness-evolution/v2/` (overridable via `$HARNESS_EVOLUTION_HOME`); config resolution chain is `$HARNESS_EVOLUTION_CONFIG` → `/.dsh-plugin/plugin.json` → built-in defaults.
 
 ### Platform Compatibility
 
-> **v2.6.0 artifact is Windows-native** (`bin/harness-evolution.exe`, 1,532,928 B). First-time install on Linux/macOS sandboxes may require an explicit `allowBuilds` allowlist entry. Cross-platform distribution is a v2.7 roadmap item, see [`ROADMAP.md`](ROADMAP.md).
+> **v2.6.0 artifact is Windows-native** (`bin/harness-evolution.exe`, 1,532,928 B). This is a MoonBit project: compilability depends on MoonBit toolchain support for the target OS (Windows / Linux / macOS supported) — build from the source package on your own platform. First-time install on Linux/macOS sandboxes may require an explicit `allowBuilds` allowlist entry.
 
 ### Known Limitations
 
@@ -625,6 +635,8 @@ Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / Ope
 | **OpenClaw** | — | Called as MCP server | — |
 
 This is a DSH plugin; the default host is **DeepSeek Harness** (user scope writes to `~/.deepseek/harness/agents/` by default). Switch host type via the `HARNESS_EVOLUTION_HOST` environment variable (e.g. `zcode`, `minimax-code`).
+
+> **Manifest migration note**: the plugin's self-manifest now lives at `.dsh-plugin/plugin.json` (formerly `.zcode-plugin/`, DSH-first); the old path remains a compatible fallback in the runtime config chain. Scan targets and user-scope agent directories for other hosts are unaffected (driven by `scan_targets` and `HARNESS_EVOLUTION_HOST`).
 
 ### Quickstart
 
@@ -654,17 +666,20 @@ cd harness-self-evolution-plugin
 
 The output binary is at `bin/harness-evolution.exe`.
 
-#### 3. Link to Host (ZCode)
+#### 3. Install to DeepSeek Harness (DSH)
 
 ```powershell
-zcode plugin link .
+# Install the plugin to DSH so the host can discover and load it
+dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
+# Or install locally:
+dsh plugin --profile web add .
 ```
 
 #### 4. Run
 
 The plugin runs as an MCP server, automatically started by the host:
 
-1. Host reads `.zcode-plugin/plugin.json` configuration
+1. The DSH Host reads the `dsh.bundle` manifest (`cordis.patch.yml`) from `package.json`
 2. Host launches `bin/harness-evolution.exe`
 3. Plugin communicates via stdio JSON-RPC
 4. Plugin auto-scans configured plugin directories (`scan_targets`)
@@ -673,7 +688,7 @@ The plugin runs as an MCP server, automatically started by the host:
 #### 5. Verify
 
 ```powershell
-zcode plugin list
+dsh plugin --profile web list
 # Should show: harness-self-evolution (v2.6.0) - Active
 ```
 
@@ -744,11 +759,13 @@ The sandbox logic layer lives in `src/executor/sandbox.mbt` (6 functions), and t
 
 | Document | Description |
 |----------|-------------|
+| [`BUILD.md`](BUILD.md) | **Build & takeover guide** (both build units, three-level verification, known drift, onboarding checklist) |
 | [`CONTEXT.md`](CONTEXT.md) | Domain vocabulary, design context, defect ledger, config source, architecture guards |
 | [`DESIGN.md`](DESIGN.md) | Detailed design, module boundaries, call chains |
 | [`DSH_INTEGRATION.md`](DSH_INTEGRATION.md) | DSH Sub-Agent integration guide (371 lines) |
 | [`docs/subagent-factory.md`](docs/subagent-factory.md) | Sub-Agent factory design and research conclusions |
 | [`specs/minimax-code-support.md`](specs/minimax-code-support.md) | Minimax Code scanning support spec |
+| [`dsh-watcher/`](dsh-watcher/README.md) | DSH Watcher floating-panel plugin (overview & install; design contract in [`dsh-watcher/DESIGN.md`](dsh-watcher/DESIGN.md)) |
 
 ### License
 

@@ -27,6 +27,7 @@ Thumbs.db
 _*.py
 _*.txt
 .agnes/
+.qoder-credits/
 
 # Personal application docs (contain name + phone) and local evidence dumps
 项目申报书*.md

@@ -38,14 +38,14 @@ pub fn DataPaths::default() -> DataPaths {
     Some(h) if h.length() > 0 => @util.expand_home(h)
     _ => @util.expand_home("~/.harness-evolution/v2")
   }
-  { root: @util.path_normalize(root) }
+  { root: @util.path_normalize(root), }
 }
 
 ///|
 /// 指定根目录。测试用它把数据隔离到 `@fs.tmpdir` 里，
 /// 从而不必触碰真实的 home 目录 —— 这是全部 store 测试能并行安全的前提。
 pub fn DataPaths::at(root : String) -> DataPaths {
-  { root: @util.path_normalize(@util.expand_home(root)) }
+  { root: @util.path_normalize(@util.expand_home(root)), }
 }
 
 ///|
@@ -82,6 +82,15 @@ pub fn DataPaths::plugin_cache(self : DataPaths) -> String {
 /// 执行日志（executor 经 `ExecutionLog` 追加）。
 pub fn DataPaths::execution_log(self : DataPaths) -> String {
   @util.path_join(self.root, "execution.log")
+}
+
+///|
+/// 结构化执行事件流（v2.7 可视化数据面）。与 `execution.log` **同源双写**：
+/// 文本日志行格式一字不改（保对拍），这份 JSONL 供快照与浮窗机器消费。
+/// 生产路径由 `ExecutionLog::at` 接线；`ExecutionLog::new` 的裸路径构造
+/// 不启用双写（保持既有测试语义）。
+pub fn DataPaths::execution_events(self : DataPaths) -> String {
+  @util.path_join(self.root, "execution.jsonl")
 }
 
 ///|

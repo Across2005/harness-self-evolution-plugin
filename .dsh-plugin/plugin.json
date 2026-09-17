@@ -43,7 +43,11 @@
       "reject_proposal",
       "create_sub_agent",
       "list_sub_agents",
-      "delete_sub_agent"
+      "delete_sub_agent",
+      "analyze_plugins",
+      "evolve_plugin",
+      "manage_sub_agent",
+      "get_runtime_snapshot"
     ]
   },
   "dependencies": {},

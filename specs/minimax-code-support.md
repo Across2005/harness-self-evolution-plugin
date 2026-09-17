@@ -3,6 +3,10 @@
 ## 目标
 为 harness-self-evolution-plugin 添加 Minimax Code 的插件扫描支持，使插件能够发现和管理 Minimax Code 平台的插件。
 
+> **清单位置迁移注记（2026-09-17）**：本文中提到的自述清单 `.zcode-plugin/plugin.json`
+> 现已迁至 `.dsh-plugin/plugin.json`（旧路径仍在配置链中兼容回退）。
+> 正文保留为当时的记录，不再改写。
+
 ## 背景
 Minimax Code 是一款桌面端 AI Agent 应用，支持代码开发、日常工作流、自动化任务和远程控制。其插件系统使用 `.minimax-plugin/plugin.json` 作为清单文件。
 

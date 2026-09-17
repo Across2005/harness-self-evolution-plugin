@@ -156,7 +156,10 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 ├── metrics.jsonl       # 性能事件（monitor）※ 受 max_log_bytes 窗口裁剪
 ├── signals.jsonl       # 进化信号（monitor 写 / engine 读）※ 同上
 ├── proposals.jsonl     # 进化提案（ProposalStore 唯一读写口）
-├── execution.log       # 执行日志（executor）
+├── execution.log       # 执行日志（executor，纯文本，不裁剪）
+├── execution.jsonl     # 结构化执行事件镜像（v2.7，与 execution.log 同源双写；
+│                       # 文本行是事实来源，这份是同一事实的机器可读形状，
+│                       # read_tail 优先读镜像、缺失回落文本）
 └── agents/             # 子 Agent 定义（factory 写，scope=plugin）
                         # scope=user 写宿主的用户级 agents 目录（跨出数据根；
                         # 默认宿主 DSH 为 ~/.deepseek/harness/agents/）
@@ -181,7 +184,7 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 唯一的配置入口是 `EngineConfig`（`types/config.mbt`），读取顺序：
 
 1. `$HARNESS_EVOLUTION_CONFIG` 指向的文件（显式覆盖，多档案与测试场景用）
-2. `<cwd>/.zcode-plugin/plugin.json` 的 `evolution_config` 段
+2. `<cwd>/.dsh-plugin/plugin.json` 的 `evolution_config` 段（旧布局 `<cwd>/.zcode-plugin/plugin.json` 兼容回退）
 3. 内置默认值（`Half` / 24h / `auto_approve=false` / `SignalThresholds::default()`）
 
 配置缺失或字段非法**绝不允许让启动失败** —— 任何读不到的项各自回落默认值。

@@ -232,10 +232,11 @@ test "required fields match the legacy zod shapes" {
 }
 
 ///|
-/// 全部 10 个工具的名字与**顺序**。顺序即 `tools/list` 的返回顺序：
+/// 全部 14 个工具的名字与**顺序**。顺序即 `tools/list` 的返回顺序：
 /// 前 7 个与 legacy-ts/package.json L58-66 的 `mcp.tools` 逐项、同序一致，
 /// 后 3 个是 v2.1 子 Agent 工厂新增（create / list / delete_sub_agent），
 /// 追加在 legacy 顺序之后，绝不打乱前 7 个的相对顺序。
+/// v2.3 追加 3 个合并工具；v2.7 追加 get_runtime_snapshot（运行时快照，只读）。
 test "the tool names keep the legacy order with v2.1 and v2.3 ones appended" {
   let names : Array[String] = []
   for t in tools() {
@@ -244,8 +245,8 @@ test "the tool names keep the legacy order with v2.1 and v2.3 ones appended" {
   assert_eq(names, [
     "scan_plugins", "get_plugin_metrics", "propose_evolution", "execute_evolution",
     "list_proposals", "approve_proposal", "reject_proposal", "create_sub_agent",
-    "list_sub_agents", "delete_sub_agent",
-    "analyze_plugins", "evolve_plugin", "manage_sub_agent",
+    "list_sub_agents", "delete_sub_agent", "analyze_plugins", "evolve_plugin", "manage_sub_agent",
+    "get_runtime_snapshot",
   ])
 }
 
@@ -286,14 +287,14 @@ test "find_tool resolves every declared name and nothing else" {
 
 ///|
 /// `tools_list` 的响应体形状：`{tools:[{name,description,inputSchema}]}`，
-/// 不含 `nextCursor`（13 个工具远小于任何客户端的页大小，不分页）。
+/// 不含 `nextCursor`（14 个工具远小于任何客户端的页大小，不分页）。
 test "tools_list_result has the MCP tool-list shape" {
   let resp = tools_list_result()
   guard resp is Object(o) else { abort("expected an object") }
   assert_false(o.contains("nextCursor"))
   let list = o.get("tools")
   guard list is Some(Array(a)) else { abort("tools must be an array") }
-  assert_eq(a.length(), 13)
+  assert_eq(a.length(), 14)
   for entry in a {
     guard entry is Object(t) else { abort("each tool must be an object") }
     assert_true(t.contains("name"))

@@ -38,7 +38,8 @@ pub struct ScanConfig {
 /// ```
 ///
 /// **配置来源（2.2.0 起接通，此前是已知缺陷第 6 条的配置孤岛）**：
-/// `.zcode-plugin/plugin.json` 的 `scan_targets` 段（6 个路径，含
+/// 自述清单（`.dsh-plugin/plugin.json`；旧布局 `.zcode-plugin/plugin.json`
+/// 仍被兼容读取）的 `scan_targets` 段（6 个路径，含
 /// `~/.deepseek/harness/plugins/`、`~/.agents/skills/` 等）经
 /// `ScanConfig::from_plugin_json` 解析，在 `main.mbt` 装配时替换默认根；
 /// 未配置时回退到这里的 7 个硬编码根。
@@ -74,7 +75,7 @@ pub fn ScanConfig::at(paths : @store.DataPaths) -> ScanConfig {
 ///|
 /// 指定缓存路径，扫描根取默认值。
 pub fn ScanConfig::with_cache(cache_path : String) -> ScanConfig {
-  { roots: default_scan_roots(), cache_path, max_depth: max_discovery_depth }
+  { roots: default_scan_roots(), cache_path, max_depth: max_discovery_depth, }
 }
 
 ///|
@@ -86,11 +87,11 @@ pub fn ScanConfig::custom(
   cache_path : String,
   max_depth? : Int = max_discovery_depth,
 ) -> ScanConfig {
-  { roots, cache_path, max_depth }
+  { roots, cache_path, max_depth, }
 }
 
 ///|
-/// 从整个 `.zcode-plugin/plugin.json` 解析 `scan_targets` 段（2.2.0 接通，
+/// 从自述清单 plugin.json（默认 `.dsh-plugin/plugin.json`）解析 `scan_targets` 段（2.2.0 接通，
 /// 此前它与 `evolution_config` 一样是「写了但没人读」的配置孤岛）。
 ///
 /// 容错语义与 `EngineConfig::from_json_checked` 同一套原则 ——
@@ -268,7 +269,12 @@ pub async fn PluginScanner::scan_all(
     for i, root in self.cfg.roots {
       let sink = buckets[i]
       let _ = group.spawn(allow_failure=true, () => {
-        self.scan_root_into(root, sink, @types.PluginKind::Official, cache_by_dir)
+        self.scan_root_into(
+          root,
+          sink,
+          @types.PluginKind::Official,
+          cache_by_dir,
+        )
       })
     }
   }
@@ -513,7 +519,7 @@ async fn PluginScanner::save_cache(self : PluginScanner) -> Unit {
   let entries : Array[@store.CachedProfile] = []
   for profile in self.profiles {
     match @store.fingerprint_of(profile.path) {
-      Some(fp) => entries.push({ profile, fingerprint: fp })
+      Some(fp) => entries.push({ profile, fingerprint: fp, })
       // 目录在扫描过程中消失了：不值得缓存，下一轮自然会重扫
       None => ()
     }

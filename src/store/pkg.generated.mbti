@@ -13,7 +13,13 @@ pub let exec_event_wire : @util.WireEnum[ExecEvent]
 
 pub async fn fingerprint_of(String) -> DirFingerprint?
 
+pub let max_snapshot_tail : Int
+
+pub fn parse_exec_line(String) -> ExecLogRecord
+
 pub async fn read_json(String) -> Json?
+
+pub async fn runtime_snapshot(DataPaths, ProposalStore, Int) -> Json
 
 pub async fn sandbox_atomic_write(String, String) -> Unit
 
@@ -66,6 +72,7 @@ pub fn DataPaths::agent_defs(Self) -> String
 pub fn DataPaths::at(String) -> Self
 pub fn DataPaths::default() -> Self
 pub async fn DataPaths::ensure_root(Self) -> Unit
+pub fn DataPaths::execution_events(Self) -> String
 pub fn DataPaths::execution_log(Self) -> String
 pub fn DataPaths::metrics(Self) -> String
 pub fn DataPaths::plugin_cache(Self) -> String
@@ -90,13 +97,23 @@ pub(all) enum ExecEvent {
 } derive(Eq, @debug.Debug)
 pub fn ExecEvent::wire_name(Self) -> String
 
+pub(all) struct ExecLogRecord {
+  ts : String
+  proposal_id : String
+  event : String
+  message : String
+  malformed : Bool
+} derive(Eq, ToJson, @debug.Debug, @json.FromJson)
+
 pub struct ExecutionLog {
   path : String
+  events_path : String?
 }
 pub async fn ExecutionLog::append(Self, String, ExecEvent, String) -> Unit
 pub fn ExecutionLog::at(DataPaths) -> Self
 pub fn ExecutionLog::new(String) -> Self
 pub async fn ExecutionLog::read(Self) -> Array[String]
+pub async fn ExecutionLog::read_tail(Self, Int) -> Array[ExecLogRecord]
 
 pub struct Jsonl {
   path : String

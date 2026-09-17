@@ -64,6 +64,17 @@ pub let default_evolve_action : @types.EvolveAction = @types.EvolveAction::Propo
 /// list —— 只读动作做默认值最安全。
 pub let default_manage_action : @types.ManageAction = @types.ManageAction::List
 
+///|
+/// `get_runtime_snapshot.tail_lines` 的默认值（运行时可视化）：
+/// 200 行足以覆盖最近数次执行的全部门面事件；上限在 store 侧收口。
+pub let default_snapshot_tail : Int = 200
+
+///|
+/// `get_runtime_snapshot` 的参数（v2.7 可视化数据面）。
+pub(all) struct GetRuntimeSnapshotArgs {
+  tail_lines : Int?
+} derive(Debug, @json.FromJson)
+
 // ----------------------------------------------------------------------------
 // Schema 构造
 // ----------------------------------------------------------------------------
@@ -415,8 +426,12 @@ pub fn analyze_plugins_schema() -> Json {
         "default": Json::string(default_analyze_mode.wire_name()),
       },
       "plugin_id": str_prop("插件 ID（metrics/both 模式必填）"),
-      "force_rescan": bool_prop("强制重新扫描（scan/both 模式可选）", default_force_rescan),
-      "target_paths": string_array_prop("自定义扫描路径（scan/both 模式可选）"),
+      "force_rescan": bool_prop(
+        "强制重新扫描（scan/both 模式可选）", default_force_rescan,
+      ),
+      "target_paths": string_array_prop(
+        "自定义扫描路径（scan/both 模式可选）",
+      ),
       "plugin_ids": string_array_prop(
         "定向重扫指定插件 ID（scan/both 模式可选）。只扫描包含这些插件的目录，不影响其他已缓存的插件。",
       ),
@@ -462,8 +477,12 @@ pub fn evolve_plugin_schema() -> Json {
       },
       "plugin_id": str_prop("插件 ID（propose 模式必填）"),
       "proposal_id": str_prop("提案 ID（execute 模式必填）"),
-      "signals": string_array_prop("手动提供的信号描述列表（propose 模式可选）"),
-      "dry_run": bool_prop("是否为干运行（execute 模式可选）", default_dry_run),
+      "signals": string_array_prop(
+        "手动提供的信号描述列表（propose 模式可选）",
+      ),
+      "dry_run": bool_prop(
+        "是否为干运行（execute 模式可选）", default_dry_run,
+      ),
     },
     [],
   )
@@ -513,9 +532,30 @@ pub fn manage_sub_agent_schema() -> Json {
         "enum": ToJson::to_json(@types.agent_scope_wire.names()),
         "default": Json::string(default_sub_agent_scope.wire_name()),
       },
-      "overwrite": bool_prop("是否覆盖已有定义（create 模式可选）", default_sub_agent_overwrite),
+      "overwrite": bool_prop(
+        "是否覆盖已有定义（create 模式可选）", default_sub_agent_overwrite,
+      ),
       "color": str_prop("颜色标记（create 模式可选）"),
       "tools": string_array_prop("可用工具列表（create 模式可选）"),
+    },
+    [],
+  )
+}
+
+// ----------------------------------------------------------------------------
+// v2.7 新增：运行时快照（只读，供外部可视化消费）
+// ----------------------------------------------------------------------------
+
+///|
+/// `get_runtime_snapshot`：只读聚合盘上运行时内容（扫描档案 / 提案
+/// 状态计数 / 执行日志尾窗 / 数据缺口说明）。无任何副作用。
+pub fn get_runtime_snapshot_schema() -> Json {
+  object_schema(
+    {
+      "tail_lines": bounded_number_prop(
+        "执行日志尾窗行数（默认 200，上限 5000）", default_snapshot_tail,
+        1,
+      ),
     },
     [],
   )

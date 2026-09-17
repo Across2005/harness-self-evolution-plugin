@@ -120,7 +120,7 @@ pub fn PerformanceMonitor::new(
 }
 
 ///|
-/// 带自定义阈值构造。阈值来自 `.zcode-plugin/plugin.json` 的
+/// 带自定义阈值构造。阈值来自自述清单（`.dsh-plugin/plugin.json`）的
 /// `evolution_config.signal_thresholds`（见 types/config.mbt）。
 /// `max_log_bytes` 来自 `evolution_config.max_log_bytes`，缺省 32 MiB。
 pub fn PerformanceMonitor::with_thresholds(
@@ -539,9 +539,7 @@ pub fn PerformanceMonitor::pending_event_count(
 ///|
 /// 深度检查的全量装载次数（★ S1）。测试用它断言同一节流窗口内
 /// 多个插件共享一次装载、窗口过期后才重新装载。
-pub fn PerformanceMonitor::deep_reload_count(
-  self : PerformanceMonitor,
-) -> Int {
+pub fn PerformanceMonitor::deep_reload_count(self : PerformanceMonitor) -> Int {
   self.deep_reloads.val
 }
 
@@ -549,5 +547,3 @@ pub fn PerformanceMonitor::deep_reload_count(
 
 // 落盘与生命周期相关函数已拆分至 flush.mbt（flush_buffers / trim_quietly /
 // bounded_requeue / requeue_into / shutdown / run_flush_loop）。
-
-

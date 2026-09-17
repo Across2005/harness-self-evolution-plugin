@@ -45,6 +45,8 @@ pub let default_manage_action : @types.ManageAction
 
 pub let default_protocol_version : String
 
+pub let default_snapshot_tail : Int
+
 pub let default_sub_agent_overwrite : Bool
 
 pub let default_sub_agent_scope : @types.AgentScope
@@ -62,6 +64,8 @@ pub fn execute_evolution_schema() -> Json
 pub fn find_tool(String) -> Tool?
 
 pub fn get_metrics_schema() -> Json
+
+pub fn get_runtime_snapshot_schema() -> Json
 
 pub async fn handle_message(ServerState, RpcRequest) -> Json?
 
@@ -142,6 +146,10 @@ pub(all) struct ExecuteEvolutionArgs {
 pub(all) struct GetMetricsArgs {
   plugin_id : String
   time_range : @types.TimeRange?
+} derive(@debug.Debug, @json.FromJson)
+
+pub(all) struct GetRuntimeSnapshotArgs {
+  tail_lines : Int?
 } derive(@debug.Debug, @json.FromJson)
 
 pub(all) struct ListProposalsArgs {

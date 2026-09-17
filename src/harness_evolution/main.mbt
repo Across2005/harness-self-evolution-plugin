@@ -5,7 +5,7 @@
 /// 启动序列：
 /// 1. 定位数据目录（`$HARNESS_EVOLUTION_HOME` 或 `~/.harness-evolution/v2`）
 /// 2. 若发现 v1 遗留目录 → stderr 提示一行（只提示、不迁移，见 store/paths.mbt）
-/// 3. 读取 `.zcode-plugin/plugin.json` 的 `evolution_config`（修配置孤岛）
+/// 3. 读取 `.dsh-plugin/plugin.json` 的 `evolution_config`（修配置孤岛）
 /// 4. 装配 `ServerState`（ProposalStore 只构造一次，三方共享）
 /// 5. 在一个 task group 里同时跑「周期性 flush」「配置文件监听」与「stdio 服务循环」
 /// 6. stdin EOF → 取消两个后台循环 → group 退出 → `add_defer` 做最后一次 flush → 幂等 shutdown
@@ -19,8 +19,9 @@
 ///|
 /// 解析**实际生效**的配置文件路径。查找顺序：
 /// 1. `$HARNESS_EVOLUTION_CONFIG`（显式覆盖；指向的文件**存在**才生效）
-/// 2. `<cwd>/.zcode-plugin/plugin.json`
-/// 3. `.zcode-plugin/plugin.json`（相对路径兜底，此时文件可能尚不存在）
+/// 2. `<cwd>/.dsh-plugin/plugin.json`（DSH 自述清单）
+/// 3. `<cwd>/.zcode-plugin/plugin.json`（旧布局兼容回退）
+/// 4. `.dsh-plugin/plugin.json`（相对路径兜底，此时文件可能尚不存在）
 ///
 /// `load_config` 与 `config_watcher_loop` **共用本函数**：若监听器自行解析路径，
 /// env 指向不存在的文件时它仍会盯 env 路径，而实际生效的是 cwd 的 plugin.json
@@ -35,11 +36,14 @@ async fn effective_config_path() -> String {
     _ => ()
   }
   match @env.current_dir() {
-    Some(cwd) =>
+    Some(cwd) => {
+      candidates.push(@util.path_join(cwd, ".dsh-plugin/plugin.json"))
+      // 旧布局兼容：自述清单曾位于 .zcode-plugin/，已部署实例继续生效
       candidates.push(@util.path_join(cwd, ".zcode-plugin/plugin.json"))
+    }
     None => ()
   }
-  candidates.push(".zcode-plugin/plugin.json")
+  candidates.push(".dsh-plugin/plugin.json")
   for path in candidates {
     if @fs.exists(path) {
       return path
@@ -50,12 +54,13 @@ async fn effective_config_path() -> String {
 
 ///|
 /// 读取 `evolution_config`、`scan_targets` 和 `monitoring`。配置文件路径由
-/// `effective_config_path` 解析（env 指向存在文件 → cwd 的 plugin.json →
-/// 相对路径兜底）。
+/// `effective_config_path` 解析（env 指向存在文件 → cwd 的 .dsh-plugin →
+/// 旧布局 cwd 的 .zcode-plugin → 相对路径兜底）。
 ///
 /// 都找不到就用默认配置 —— 配置缺失绝不能让插件启动失败。
 ///
-/// **这一步修掉了 legacy 的一处配置孤岛**：`.zcode-plugin/plugin.json` L48-66
+/// **这一步修掉了 legacy 的一处配置孤岛**：自述清单（原 `.zcode-plugin/`，
+/// 现 `.dsh-plugin/`）L48-66
 /// 写了完整的 `evolution_config`（含 `signal_thresholds`），
 /// 但 legacy 的 `src/**` 里没有任何代码读它，改配置等于空操作。
 /// 新版由 `EngineConfig::from_json` 真正读取，配置文件重新生效。
@@ -74,10 +79,7 @@ async fn load_config(
   let path = effective_config_path()
   match @store.read_json(path) {
     Some(json) => {
-      @util.log_info(
-        "HarnessEvolution",
-        "Loaded config from \{path}",
-      )
+      @util.log_info("HarnessEvolution", "Loaded config from \{path}")
       let (harness_cfg, warns) = @types.HarnessConfig::from_json_checked(json)
       // 越界取值会**回落默认值**，但必须让人看见：配置孤岛是 2.0 才接通的，
       // 退化值（`consecutive_failures: 0` 等）过去会被静默兜底，
@@ -126,9 +128,7 @@ async fn load_config(
 /// `cancel()` 本任务 —— 循环体在每轮 sleep 后检查取消状态再干活
 /// （与 monitor 的 flush 循环同款写法），靠该检查 break，否则 task group
 /// 会永远等它结束，进程挂死。
-async fn config_watcher_loop(
-  config_path : String,
-) -> Unit {
+async fn config_watcher_loop(config_path : String) -> Unit {
   let poll_interval_ms = 5000
   let mut last_mtime : (Int64, Int)? = None
 
@@ -145,7 +145,9 @@ async fn config_watcher_loop(
 
     // 获取当前修改时间
     let current_mtime = if @fs.exists(config_path) {
-      Some(@fs.mtime(config_path)) catch { _ => None }
+      Some(@fs.mtime(config_path)) catch {
+        _ => None
+      }
     } else {
       None
     }
@@ -161,8 +163,7 @@ async fn config_watcher_loop(
 
     if changed {
       @util.log_info(
-        "ConfigWatcher",
-        "Config file changed, restart required to apply new configuration",
+        "ConfigWatcher", "Config file changed, restart required to apply new configuration",
       )
       last_mtime = current_mtime
     }
@@ -199,10 +200,9 @@ async fn main {
     let flush_task = state.run_background_tasks(group)
     // 启动配置文件监听（仅记录变化，不自动重载）。
     // allow_failure 与 flush 任务一致：watcher 自身抛错不连累整个 group。
-    let watcher_task = group.spawn(
-      allow_failure=true,
-      async fn() { config_watcher_loop(config_path) },
-    )
+    let watcher_task = group.spawn(allow_failure=true, async fn() {
+      config_watcher_loop(config_path)
+    })
     @mcp.serve_stdio(state)
     // ★ stdin EOF → 必须显式取消两个后台循环，否则 group 永远等不结束。
     // 实测教训：未取消 flush 时，客户端关闭 stdin 后进程挂死（烟雾测试超时 600 s）。

@@ -1,5 +1,5 @@
 # cordis.patch.yml — DSH 生态标准 manifest
-# 将 .zcode-plugin/plugin.json 翻译为 YAML 数组格式
+# 将 .dsh-plugin/plugin.json 翻译为 YAML 数组格式
 # 文档要求：顶层 YAML 数组，- insert: / - replace: 开头，name 字段为 npm 包名
 
 - insert:

@@ -270,7 +270,7 @@ pub fn EngineConfig::from_json_checked(
 }
 
 ///|
-/// 监控配置。对应 `.zcode-plugin/plugin.json` 的 `monitoring` 段。
+/// 监控配置。对应 `.dsh-plugin/plugin.json` 的 `monitoring` 段。
 ///
 /// **当前状态**：声明但未被插件自身消费（已知缺陷 #9）。
 /// 监控事件由宿主经 MCP 工具调用链埋点（`record_tool_call` / `record_user_feedback`），
@@ -292,13 +292,17 @@ pub fn MonitoringConfig::default() -> MonitoringConfig {
   {
     enabled: true,
     sample_rate: 1.0,
-    metrics: ["latency", "success_rate", "token_usage", "retry_count", "user_feedback"],
+    metrics: [
+      "latency", "success_rate", "token_usage", "retry_count", "user_feedback",
+    ],
   }
 }
 
 ///|
 /// 从 JSON 对象解析监控配置。缺失或类型不符的字段回退默认值。
-pub fn MonitoringConfig::from_json_obj(obj : Map[String, Json]) -> MonitoringConfig {
+pub fn MonitoringConfig::from_json_obj(
+  obj : Map[String, Json],
+) -> MonitoringConfig {
   let defaults = MonitoringConfig::default()
   let enabled = match bool_field(obj, "enabled") {
     Some(b) => b
@@ -317,11 +321,15 @@ pub fn MonitoringConfig::from_json_obj(obj : Map[String, Json]) -> MonitoringCon
           _ => ()
         }
       }
-      if out.length() > 0 { out } else { defaults.metrics }
+      if out.length() > 0 {
+        out
+      } else {
+        defaults.metrics
+      }
     }
     _ => defaults.metrics
   }
-  { enabled, sample_rate, metrics }
+  { enabled, sample_rate, metrics, }
 }
 
 ///|
@@ -338,7 +346,7 @@ pub fn MonitoringConfig::from_json(json : Json) -> MonitoringConfig {
 ///|
 /// 统一的 Harness 配置。包装 `EngineConfig`、`ScanConfig` 和 `MonitoringConfig`。
 ///
-/// **设计意图**：将 `.zcode-plugin/plugin.json` 的三个配置段合并为一个结构体，
+/// **设计意图**：将自述清单（`.dsh-plugin/plugin.json`，原 `.zcode-plugin/`）的三个配置段合并为一个结构体，
 /// 消除配置来源的碎片化。`load_config` 返回此结构体，`ServerState` 接受此结构体。
 /// 向后兼容：`ServerState::with_scan_config` 和 `ServerState::at` 仍然工作，
 /// 内部转换为 `HarnessConfig`。
@@ -352,10 +360,7 @@ pub struct HarnessConfig {
 ///|
 /// 统一配置的默认值。
 pub fn HarnessConfig::default() -> HarnessConfig {
-  {
-    engine: EngineConfig::default(),
-    monitoring: MonitoringConfig::default(),
-  }
+  { engine: EngineConfig::default(), monitoring: MonitoringConfig::default(), }
 }
 
 ///|
@@ -364,26 +369,28 @@ pub fn HarnessConfig::from_json(json : Json) -> HarnessConfig {
   let engine = EngineConfig::from_json(json)
   let root = match json {
     Object(o) => o
-    _ => return { engine, monitoring: MonitoringConfig::default() }
+    _ => return { engine, monitoring: MonitoringConfig::default(), }
   }
   let monitoring = match obj_field(root, "monitoring") {
     Some(m) => MonitoringConfig::from_json_obj(m)
     None => MonitoringConfig::default()
   }
-  { engine, monitoring }
+  { engine, monitoring, }
 }
 
 ///|
 /// 从 JSON 解析统一配置，返回告警列表。
-pub fn HarnessConfig::from_json_checked(json : Json) -> (HarnessConfig, Array[String]) {
+pub fn HarnessConfig::from_json_checked(
+  json : Json,
+) -> (HarnessConfig, Array[String]) {
   let (engine, warns) = EngineConfig::from_json_checked(json)
   let root = match json {
     Object(o) => o
-    _ => return ({ engine, monitoring: MonitoringConfig::default() }, warns)
+    _ => return ({ engine, monitoring: MonitoringConfig::default(), }, warns)
   }
   let monitoring = match obj_field(root, "monitoring") {
     Some(m) => MonitoringConfig::from_json_obj(m)
     None => MonitoringConfig::default()
   }
-  ({ engine, monitoring }, warns)
+  ({ engine, monitoring, }, warns)
 }

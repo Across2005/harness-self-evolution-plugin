@@ -99,7 +99,10 @@ pub fn ServerState::with_harness_config(
   harness_cfg : @types.HarnessConfig,
 ) -> ServerState {
   let proposals = @store.ProposalStore::at(paths)
-  let monitor = @monitor.PerformanceMonitor::at(paths, config=harness_cfg.engine)
+  let monitor = @monitor.PerformanceMonitor::at(
+    paths,
+    config=harness_cfg.engine,
+  )
   {
     paths,
     scanner: @scanner.PluginScanner::new(scan),
@@ -182,10 +185,9 @@ fn ServerState::merge(
 ) -> Unit {
   for p in profiles {
     match self.registry_index.get(p.plugin_id) {
-      Some(i) => {
+      Some(i) =>
         // 更新已有条目
         self.registry[i] = p
-      }
       None => {
         // 追加新条目
         let i = self.registry.length()
@@ -287,8 +289,9 @@ pub async fn call_tool(state : ServerState, tool : Tool, args : Json) -> Json {
 }
 
 // ----------------------------------------------------------------------------
-// 13 个工具（前 7 个与 legacy-ts/package.json mcp.tools 逐项同序，
-// 后 3 个为 2.1 子 Agent 工厂新增，再后 3 个为 2.3 合并工具）
+// 14 个工具（前 7 个与 legacy-ts/package.json mcp.tools 逐项同序，
+// 后 3 个为 2.1 子 Agent 工厂新增，再 3 个为 2.3 合并工具，
+// 最后 1 个为 v2.7 运行时快照——可视化数据面，只读）
 // ----------------------------------------------------------------------------
 
 ///|
@@ -376,11 +379,18 @@ pub fn tools() -> Array[Tool] {
       schema: manage_sub_agent_schema(),
       handler: handle_manage_sub_agent,
     },
+    // v2.7 运行时快照（只读，供外部可视化消费）
+    {
+      name: "get_runtime_snapshot",
+      description: "读取运行时快照（纯只读、无副作用）：数据根回显、扫描缓存摘要、提案按状态计数与最近条目、execution.log 尾窗记录、以及数据缺口说明（如指标链未接线时如实点名，不把未接线呈现为无活动）。外部可视化（DSH 浮窗/脚本/宿主 LLM）的统一数据入口。",
+      schema: get_runtime_snapshot_schema(),
+      handler: handle_get_runtime_snapshot,
+    },
   ]
 }
 
 ///|
-/// 按名字找工具。O(n) 但 n == 13，比维护一张 Map 更直白。
+/// 按名字找工具。O(n) 但 n == 14，比维护一张 Map 更直白。
 pub fn find_tool(name : String) -> Tool? {
   for t in tools() {
     if t.name == name {
@@ -391,7 +401,7 @@ pub fn find_tool(name : String) -> Tool? {
 }
 
 ///|
-/// `tools/list` 的响应体。不分页（省略 `nextCursor`）—— 13 个工具远小于任何客户端的页大小。
+/// `tools/list` 的响应体。不分页（省略 `nextCursor`）—— 14 个工具远小于任何客户端的页大小。
 pub fn tools_list_result() -> Json {
   let list : Array[Json] = []
   for t in tools() {
@@ -449,14 +459,19 @@ async fn handle_scan_plugins(state : ServerState, args : Json) -> Json {
           }
         }
         if !found {
-          @util.log_warn("Scanner", "插件 \{pid} 不在注册表或缓存中，跳过定向重扫")
+          @util.log_warn(
+            "Scanner",
+            "插件 \{pid} 不在注册表或缓存中，跳过定向重扫",
+          )
         }
       }
 
       if target_dirs.is_empty() {
         return {
           "success": Json::boolean(true),
-          "message": Json::string("所有指定的 plugin_ids 均未找到，无目录可扫描"),
+          "message": Json::string(
+            "所有指定的 plugin_ids 均未找到，无目录可扫描",
+          ),
           "plugin_count": Json::number(state.registry.length().to_double()),
           "plugins": Json::array([]),
         }
@@ -496,7 +511,7 @@ async fn handle_scan_plugins(state : ServerState, args : Json) -> Json {
             scanner.scan_plugin_dir(
               plugin,
               @types.PluginKind::Official,
-              cache_by_dir=cache_by_dir,
+              cache_by_dir~,
             )
           }
         }
@@ -509,7 +524,7 @@ async fn handle_scan_plugins(state : ServerState, args : Json) -> Json {
         "Incremental rescan: \{ids.length()} plugin_ids → \{target_dirs.length()} dirs → \{scanner.count()} plugins",
       )
     }
-    _ => {
+    _ =>
       // 模式 2：路径重定向
       match a.target_paths {
         Some(custom) if !custom.is_empty() => {
@@ -525,7 +540,6 @@ async fn handle_scan_plugins(state : ServerState, args : Json) -> Json {
           state.adopt(state.scanner.all())
         }
       }
-    }
   }
 
   let plugins : Array[Json] = []
@@ -886,18 +900,26 @@ async fn handle_analyze_plugins(state : ServerState, args : Json) -> Json {
       let scan_args : Json = if has_ids && has_paths {
         {
           "force_rescan": Json::boolean(force_val),
-          "plugin_ids": Json::array(a.plugin_ids.unwrap().map(fn(s) { Json::string(s) })),
-          "target_paths": Json::array(a.target_paths.unwrap().map(fn(s) { Json::string(s) })),
+          "plugin_ids": Json::array(
+            a.plugin_ids.unwrap().map(fn(s) { Json::string(s) }),
+          ),
+          "target_paths": Json::array(
+            a.target_paths.unwrap().map(fn(s) { Json::string(s) }),
+          ),
         }
       } else if has_ids {
         {
           "force_rescan": Json::boolean(force_val),
-          "plugin_ids": Json::array(a.plugin_ids.unwrap().map(fn(s) { Json::string(s) })),
+          "plugin_ids": Json::array(
+            a.plugin_ids.unwrap().map(fn(s) { Json::string(s) }),
+          ),
         }
       } else if has_paths {
         {
           "force_rescan": Json::boolean(force_val),
-          "target_paths": Json::array(a.target_paths.unwrap().map(fn(s) { Json::string(s) })),
+          "target_paths": Json::array(
+            a.target_paths.unwrap().map(fn(s) { Json::string(s) }),
+          ),
         }
       } else {
         { "force_rescan": Json::boolean(force_val) }
@@ -916,7 +938,9 @@ async fn handle_analyze_plugins(state : ServerState, args : Json) -> Json {
         Some(plugin_id) => {
           let metrics_args : Json = {
             "plugin_id": Json::string(plugin_id),
-            "time_range": Json::string(a.time_range.unwrap_or(default_time_range).wire_name()),
+            "time_range": Json::string(
+              a.time_range.unwrap_or(default_time_range).wire_name(),
+            ),
           }
           return handle_get_plugin_metrics(state, metrics_args)
         }
@@ -963,7 +987,9 @@ async fn handle_evolve_plugin(state : ServerState, args : Json) -> Json {
           let propose_args = match a.signals {
             Some(sig) =>
               with_key(
-                base, "signals", Json::array(sig.map(fn(s) { Json::string(s) })),
+                base,
+                "signals",
+                Json::array(sig.map(fn(s) { Json::string(s) })),
               )
             None => base
           }
@@ -1010,8 +1036,12 @@ async fn handle_manage_sub_agent(state : ServerState, args : Json) -> Json {
             "name": Json::string(name),
             "description": Json::string(description),
             "system_prompt": Json::string(system_prompt),
-            "scope": Json::string(a.scope.unwrap_or(default_sub_agent_scope).wire_name()),
-            "overwrite": Json::boolean(a.overwrite.unwrap_or(default_sub_agent_overwrite)),
+            "scope": Json::string(
+              a.scope.unwrap_or(default_sub_agent_scope).wire_name(),
+            ),
+            "overwrite": Json::boolean(
+              a.overwrite.unwrap_or(default_sub_agent_overwrite),
+            ),
           }
           // color / tools 已声明就透传，委托时不得丢弃；无则省键（None → 不写 null）
           let with_color = match a.color {
@@ -1021,13 +1051,18 @@ async fn handle_manage_sub_agent(state : ServerState, args : Json) -> Json {
           let create_args = match a.tools {
             Some(t) =>
               with_key(
-                with_color, "tools", Json::array(t.map(fn(s) { Json::string(s) })),
+                with_color,
+                "tools",
+                Json::array(t.map(fn(s) { Json::string(s) })),
               )
             None => with_color
           }
           return handle_create_sub_agent(state, create_args)
         }
-        _ => raise Failure("name, description, and system_prompt are required for create action")
+        _ =>
+          raise Failure(
+            "name, description, and system_prompt are required for create action",
+          )
       }
     @types.ManageAction::List => {
       let list_args : Json = Json::empty_object()
@@ -1038,13 +1073,34 @@ async fn handle_manage_sub_agent(state : ServerState, args : Json) -> Json {
         Some(name) => {
           let delete_args : Json = {
             "name": Json::string(name),
-            "scope": Json::string(a.scope.unwrap_or(default_sub_agent_scope).wire_name()),
+            "scope": Json::string(
+              a.scope.unwrap_or(default_sub_agent_scope).wire_name(),
+            ),
           }
           return handle_delete_sub_agent(state, delete_args)
         }
         None => raise Failure("name is required for delete action")
       }
   }
+}
+
+///|
+/// `get_runtime_snapshot`（v2.7 运行时可视化数据面）。
+///
+/// 纯只读：不写文件、不触发扫描/执行。尾窗行数在此夹到
+/// `[1, @store.max_snapshot_tail]` —— Schema 只声明 minimum，
+/// 上限收口保证一次快照不会把无界日志塞进 MCP 响应。
+async fn handle_get_runtime_snapshot(state : ServerState, args : Json) -> Json {
+  let a : GetRuntimeSnapshotArgs = @json.from_json(args)
+  let requested = a.tail_lines.unwrap_or(default_snapshot_tail)
+  let tail = if requested < 1 {
+    1
+  } else if requested > @store.max_snapshot_tail {
+    @store.max_snapshot_tail
+  } else {
+    requested
+  }
+  @store.runtime_snapshot(state.paths, state.proposals, tail)
 }
 
 // ----------------------------------------------------------------------------

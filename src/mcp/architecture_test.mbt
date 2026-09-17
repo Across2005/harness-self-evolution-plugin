@@ -617,12 +617,11 @@ async test "G5: MoonBit test suite has sufficient coverage" {
 async test "G5b: MoonBit test suite maintains minimum size" {
   let root = module_root()
   let mb_names = moonbit_test_names(root)
-  // 硬编码的 424 —— 当前 MoonBit 测试用例数（性能优化与缺陷修复计划
-  // 新增 4 条：C1 定向重扫回归 +1、S1 深度检查缓存 +2、S6 未知 HOST 告警 +1；
-  // 420 为上一锚点——v2.5 评审修复 56 项问题时新增约 37 个回归/守卫用例，
-  // 383 为再上一锚点）。
+  // 硬编码的 432 —— 当前 MoonBit 测试用例数（v2.7 可视化数据面两批共 8 条
+  // 新增 6 条 + 双写镜像/文本回落 2 条；
+  // 424 为上一锚点——v2.6 性能整改新增 4 条；420 为再上一锚点）。
   // 这个数字变了说明测试增删，必须重新核对。
-  assert_eq(mb_names.length(), 424)
+  assert_eq(mb_names.length(), 432)
 }
 
 ///|

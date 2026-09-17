@@ -2,39 +2,26 @@
 
 > v2.6.0 已于 2026-09-17 发布（性能优化与缺陷修复：C1 定向重扫 + S1–S6 整改，测试 420→424；同批发布 mooncakes 0.2.6）。
 > v2.5.0 已于 2026-09-16 发布（工程质量版本：全仓评审修复 56 个问题、测试 383→420）。
-> 原预留的「v2.5 = 跨平台分发」目标顺延至 v2.7（v2.6.0 已由本次发布占用），内容不变。
 
-## v2.7（目标：跨平台分发）
+## v2.7（进行中：运行时可视化 + 清单迁移）
 
-### 背景
+**主线一：运行时内容可视化**（计划见 `fluid-horizon-wagtail`，浮窗载体 = DSH Web）
 
-v2.6.0 产物仍为 Windows native（`bin/harness-evolution.exe`）。Linux/macOS 沙盒首次安装需要 `allowBuilds` 显式放行，这是 L4 Install tested 绿章的主要拦路虎。
+| 切片 | 内容 | 状态 |
+|------|------|------|
+| 数据面 A | `get_runtime_snapshot` 第 14 个 MCP 工具：四段快照 + `data_gaps` 如实点名缺陷 9 | ✅ 落地，测试 424→432 |
+| 数据面 B | `execution.jsonl` 同源双写（文本行一字不改）+ `read_tail` 优先镜像/回落 | ✅ 落地 |
+| 呈现面 | `dsh-evolution-panel/` DSH Web 浮窗（管道总览 / DAG 实时时间线 / 指标卡） | ⏳ 阻塞：需 DSH `0.1.2-rc.1` 源码 checkout |
+| 待决 | `.dsh-plugin/plugin.json` 是否列为 scanner 第 7 种清单形态（BUILD §5 偏差 10） | ⏳ 需决策 |
 
-### 路线
+**主线二：`.dsh-plugin` 清单迁移**——自述清单改名（配置链保留旧路径兼容回退），文档同步进行中。
 
-1. **CI 构建矩阵**：在 GitHub Actions 上为 Windows / Linux / macOS 各构建一份 native 二进制
-2. **Release 附件**：`v2.7.0` release 附带三平台二进制（`harness-evolution-windows.exe` / `harness-evolution-linux` / `harness-evolution-macos`）
-3. **安装脚本**：提供 `install.sh`（Linux/macOS）和 `install.ps1`（Windows），自动检测平台并下载对应二进制
-4. **dsh plugin 集成**：`dsh plugin --profile web add` 命令改为下载平台对应二进制，而非构建
-5. **L4 验证**：在 dsh.so / dsh-market 沙盒中跑通 `allowBuilds` 免安装路径
+**v2.7.0 发版核对清单**（既有先例：五处解耦推进）：`moon.mod` 0.2.6→0.3.0、`package.json` 与 `.dsh-plugin/plugin.json` 2.6.0→2.7.0、`jsonrpc.mbt` server_version、`DESIGN.md` §4.1 镜像块、`skills/harness-evolution/SKILL.md` frontmatter；**`cordis.patch.yml` version 2.4.0 一并同步**（BUILD §5 偏差 1 在此销账）；README 徽章与工具表 424/13→432/14。
 
-### 里程碑
+**候选（先 grill 对齐再立项）**：monitor 数据源接通（缺陷 9，依赖宿主回调）、M7 真实派发（`docs/subagent-factory.md` §4 设计就绪）。
 
-| 里程碑 | 目标 | 状态 |
-|--------|------|------|
-| v2.7.0-alpha.1 | CI 构建矩阵 + 三平台二进制 | 待开始 |
-| v2.7.0-beta.1 | 安装脚本 + dsh plugin 集成 | 待开始 |
-| v2.7.0-rc.1 | L4 沙盒验证通过 | 待开始 |
-| v2.7.0 | 正式发布 + L5 端到端测试 | 待开始 |
+## 已取消：跨平台分发（原 v2.6 / v2.7 预留目标）
 
-### 依赖
+> 2026-09-17 决策取消。本项目是 MoonBit 项目，能否编译取决于 MoonBit 工具链对目标系统的支持——工具链（moon 0.1.20260904）已支持 Windows / Linux / macOS，用户在目标平台上用源码包（GitHub / GitLink / mooncakes）自行构建即可，项目无需维护预编译三平台二进制。
 
-- GitHub Actions 构建矩阵配置
-- MoonBit 工具链跨平台支持（当前 moon 0.1.20260904 已支持 Windows/Linux/macOS）
-- dsh.so / dsh-market 沙盒环境更新
-
-### 已知风险
-
-- MoonBit native 后端在不同平台的链接行为可能有差异
-- `moonbitlang/async` 库的跨平台兼容性需要验证
-- DSH 沙盒的 `allowBuilds` 机制可能随版本变化
+原路线（不再执行）：GitHub Actions CI 构建矩阵 → v2.7.0 release 三平台二进制附件 → `install.sh` / `install.ps1` 安装脚本 → `dsh plugin` 免构建集成 → L4 沙盒验证。
