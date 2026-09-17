@@ -1,0 +1,10 @@
+id: dsh-evolution-panel
+entry: src/evolution-panel.ts
+marker: "[dsh-evolution-panel] loaded"
+kind: client
+profile: web
+hotReload:
+  artifacts:
+    - src/evolution-panel.ts
+    - src/host/runtime-read.ts
+    - src/host/view.ts

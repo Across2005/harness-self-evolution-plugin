@@ -1,0 +1,5 @@
+# portable overlay: relative name only. Cold-boot validation goes through
+# the DSH profile (`dsh plugin --profile web add`), not raw pnpm/npm launches.
+- insert:
+    - id: dsh-evolution-panel
+      name: './src/evolution-panel.ts'
