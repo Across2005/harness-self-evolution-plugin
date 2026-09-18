@@ -3,8 +3,10 @@
 ## 目标
 为 harness-self-evolution-plugin 添加 Minimax Code 的插件扫描支持，使插件能够发现和管理 Minimax Code 平台的插件。
 
-> **清单位置迁移注记（2026-09-17）**：本文中提到的自述清单 `.zcode-plugin/plugin.json`
-> 现已迁至 `.dsh-plugin/plugin.json`（旧路径仍在配置链中兼容回退）。
+> **清单位置迁移注记（2026-09-17，2026-09-18 更新）**：本文中提到的自述清单
+> `.zcode-plugin/plugin.json` 现已迁至 `.dsh-plugin/plugin.json`，且本版**已取消旧路径的
+> 兼容回退**（破坏性变更，见 `BUILD.md` §2.3）：旧文件不再被读取，需改名为
+> `.dsh-plugin/plugin.json`（内容无需改）。
 > 正文保留为当时的记录，不再改写。
 
 ## 背景
@@ -23,7 +25,7 @@ Minimax Code 是一款桌面端 AI Agent 应用，支持代码开发、日常工
 - 在 `default_scan_roots()` 函数中添加 Minimax Code 的插件目录
 - 添加路径：`~/.minimax/plugins/` 和 `~/.minimax/extensions/`
 
-#### 2.2 `.zcode-plugin/plugin.json`
+#### 2.2 `.dsh-plugin/plugin.json`
 - 在 `scan_targets` 数组中添加 Minimax Code 的路径
 - 在 `engines` 对象中添加 `minimax-code` 支持
 
@@ -33,7 +35,7 @@ Minimax Code 是一款桌面端 AI Agent 应用，支持代码开发、日常工
 
 #### 2.4 `README.md`
 - 更新兼容性部分，添加 Minimax Code 说明
-- 更新多宿主支持表格
+- 更新宿主支持表格（DSH / Minimax Code 两行）
 
 ### 3. 预期行为
 
@@ -48,7 +50,7 @@ Minimax Code 是一款桌面端 AI Agent 应用，支持代码开发、日常工
 
 #### 3.3 兼容性
 - 支持 Minimax Code 的插件清单格式
-- 与现有 DeepSeek Harness、ZCode、Claude Code 等平台兼容
+- 与现有 DeepSeek Harness、Claude Code 等平台的插件清单格式兼容
 
 ## 验证标准
 
@@ -60,7 +62,7 @@ Minimax Code 是一款桌面端 AI Agent 应用，支持代码开发、日常工
 ## 实现步骤
 
 1. 修改 `src/scanner/scanner.mbt` 的 `default_scan_roots()`
-2. 修改 `.zcode-plugin/plugin.json` 的 `scan_targets` 和 `engines`
+2. 修改 `.dsh-plugin/plugin.json` 的 `scan_targets` 和 `engines`
 3. 修改 `src/store/paths.mbt` 的 `user_agents_dir()`
 4. 更新 `README.md` 的兼容性文档
 5. 运行测试验证

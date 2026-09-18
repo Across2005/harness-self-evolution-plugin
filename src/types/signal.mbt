@@ -130,7 +130,7 @@ pub(all) struct EvolutionSignal {
 /// 信号触发阈值。
 ///
 /// **这里收拢了一处配置孤岛**：legacy-ts 里同一组阈值存在两份平行定义 ——
-/// `.zcode-plugin/plugin.json` L53-65 的 `signal_thresholds`，与
+/// 自述清单（`plugin.json`）L53-65 的 `signal_thresholds`，与
 /// `types/index.ts` L107-119 的 `SignalThresholds` interface，而**后者全仓无读取点**，
 /// 真正生效的是 monitor 里的硬编码常量（L227 的 3、L238 的 5、L267 的 0.2）。
 /// 新版只保留这一份定义，默认值即那三个硬编码常量，并可由 plugin.json 覆盖。

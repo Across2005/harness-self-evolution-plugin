@@ -29,8 +29,7 @@
 /// （见 `docs/dsh-compatibility.md §4.4` 反模式 1）。
 ///
 /// 完整的分路径加载架构说明：`docs/code-architecture.md`。
-/// 每个宿主的部署指南：`docs/deploy/<host>.md`（DSH 已验证、Mavis 已验证、
-/// ZCode 声明待验证）。
+/// 每个宿主的部署指南：`docs/deploy/<host>.md`（DSH 已验证、Minimax Code 已验证）。
 
 ///|
 /// 全部数据文件的根目录。
@@ -123,23 +122,19 @@ pub fn DataPaths::agent_defs(self : DataPaths) -> String {
 /// 返回值 `None` 表示宿主名不被识别（由调用方决定如何回落与是否告警）。
 ///
 /// 每个分支前的注释标了**实证日期**与**已验证的宿主版本**——这是计划落地代码层的
-/// 唯一收口点。DSH 与 Minimax Code 已端到端验证；ZCode 是声明支持，**未在真机
-/// 上验证**。详情：
+/// 唯一收口点。当前支持的两个宿主都已在真机上端到端验证：撤销「声明式支持」的宿主
+/// 之后，分支里只保留已验证项，不再有 declared/awaiting 状态。详情：
 ///
 /// - DSH: `docs/deploy/deepseek-harness.md` § 验证
 /// - Minimax Code: `docs/deploy/mavis.md` § 验证
-/// - ZCode: `docs/deploy/zcode.md` § 待验证清单（5 项检查需真机跑）
 ///
 /// - DeepSeek Harness（默认——本插件是 DSH 插件，DSH 是第一宿主）: `~/.dsh/skills/`
 ///   （DSH 0.1.6 真实用户目录是 `~/.dsh`，且**没有独立的「用户级 agents 目录」概念**——
 ///   宿主只从 `~/.dsh/skills/` 扫描发现 skill。故 user-scope 定义以 skill 形式落盘，
 ///   宿主在后续会话经 skills 发现加载，见 `docs/subagent-factory.md`。）
-/// - ZCode: `~/.zcode/agents/`
 /// - Minimax Code: `~/.minimax/agents/`
 fn host_agents_dir(host : String) -> String? {
   match host {
-    // DECLARED, awaiting verification — see docs/deploy/zcode.md for the 5-step checklist
-    "zcode" => Some(@util.expand_home("~/.zcode/agents"))
     // Verified 2026-09-17 (Minimax Code — MCP + Plugin V1 + Mini App end-to-end)
     "minimax-code" => Some(@util.expand_home("~/.minimax/agents/"))
     // Verified 2026-09-17 (DSH 0.1.6-alpha.1 web profile — propose→approve→execute loop)
@@ -151,7 +146,7 @@ fn host_agents_dir(host : String) -> String? {
 ///|
 /// 宿主的用户级子 Agent 定义目录（v2.1）。**跨出插件数据根**：
 /// 根据宿主类型选择不同的路径，支持多种 harness 平台（见 `host_agents_dir`）。
-/// 默认回落 DeepSeek 路径（★ 修订 S13：v2.5 开发中曾把缺省改为 ZCode 以求与
+/// 默认回落 DeepSeek 路径（★ 修订 S13：v2.5 开发中曾把缺省改成**非主宿主**以求与
 /// 文档描述对齐，但默认宿主必须是 DSH —— 这与 v2.4 行为一致，不构成破坏性
 /// 变更；schema/CONTEXT 等处的文档描述已同步改为按宿主列举）。
 /// 可通过环境变量 `HARNESS_EVOLUTION_HOST` 覆盖；未知取值仍回落 DSH 路径
@@ -202,7 +197,7 @@ pub fn unknown_host_warning() -> String? {
       match host_agents_dir("deepseek-harness") {
         Some(fallback) =>
           Some(
-            "Unknown HARNESS_EVOLUTION_HOST '\{host}'; falling back to the default DeepSeek Harness directory (\{fallback}). Supported values: zcode, minimax-code, deepseek-harness.",
+            "Unknown HARNESS_EVOLUTION_HOST '\{host}'; falling back to the default DeepSeek Harness directory (\{fallback}). Supported values: minimax-code, deepseek-harness.",
           )
         None => None
       }
@@ -214,15 +209,15 @@ pub fn unknown_host_warning() -> String? {
 /// （propose→approve→execute 闭环 + 落盘 + 宿主热发现）。返回 `Some(文案)` 时由
 /// `main.mbt::main` 打到日志（INFO 级别；已验证的宿主可被宿主页面/Mini App 看到）。
 ///
-/// 这是「计划落地代码层」—— DSH 与 Minimax Code 已验证；ZCode **只是声明支持，
-/// 未在真机上跑过端到端**。任何在这台机器上跑 `HARNESS_EVOLUTION_HOST=zcode` 的
-/// 运维都应看到这一行，避免误以为已验证。
+/// 这是「计划落地代码层」—— 当前支持的两个宿主都已端到端验证，因此每个分支的文案
+/// 都以 `verified` 开头，并写明**在哪个宿主版本、哪一天**验证的。
 ///
 /// 与 `unknown_host_warning` 互补：本函数返回 `Some` 表示宿主**已被识别**，
 /// 但是否已实证是另一回事；`unknown_host_warning` 处理的是宿主名未识别的情况。
 ///
-/// 验证状态变更流程：见 `docs/deploy/zcode.md` § 待验证清单的 5 项检查 + 在
-/// 该页底部报告结果，更新本函数的对应分支与 `host_agents_dir` 的注释。
+/// 新增宿主或改变验证状态时：更新本函数的对应分支、`host_agents_dir` 的注释，以及
+/// `src/store/store_wbtest.mbt` 里钉住验证矩阵的用例（那份用例会强制两份文件同时改，
+/// 见 `docs/code-architecture.md` § Adding a new host）。
 pub fn host_verification_notice() -> String? {
   let host = match @env.get_env_var("HARNESS_EVOLUTION_HOST") {
     Some(h) if h.length() > 0 => h
@@ -245,14 +240,6 @@ pub fn host_verification_notice() -> String? {
     "minimax-code" =>
       Some(
         "Host: Minimax Code — verified end-to-end 2026-09-17 (MCP server + Plugin V1 + Mini App floating panel with 14-tool live grid).",
-      )
-    // DECLARED, awaiting verification on a real ZCode installation.
-    // The code path in host_agents_dir and default_scan_roots exists, but no
-    // end-to-end test has run against a real ZCode. See the 5-step checklist
-    // in docs/deploy/zcode.md before trusting the host's behavior.
-    "zcode" =>
-      Some(
-        "Host: ZCode ≥ 0.5.0 — DECLARED, awaiting verification. Code path exists but no real-machine test. Run the 5-step checklist in docs/deploy/zcode.md and report results before relying on this host.",
       )
     _ => None  // unknown hosts are handled by unknown_host_warning; do not double-warn
   }

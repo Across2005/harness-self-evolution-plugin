@@ -70,16 +70,16 @@
 
 ### 2.3 宿主注册与数据目录
 
-- **宿主清单**：DSH 侧权威 manifest 是 `package.json` 的 `dsh.bundle`（→ `cordis.patch.yml`）；`.dsh-plugin/plugin.json` 是自述清单与运行时配置载体（`mcp.transport: stdio`、protocolVersion `2024-11-05`、`scan_targets`、`evolution_config`；旧布局 `.zcode-plugin/` 仍被配置链兼容读取）。
+- **宿主清单**：DSH 侧权威 manifest 是 `package.json` 的 `dsh.bundle`（→ `cordis.patch.yml`）；`.dsh-plugin/plugin.json` 是自述清单与运行时配置载体（`mcp.transport: stdio`、protocolVersion `2024-11-05`、`scan_targets`、`evolution_config`）。
 - **DSH bundle patch**：`cordis.patch.yml`（顶层 YAML 数组、`- insert:` 形式），是 **loader 挂载行**（`insert: [{id, name, config}]`，`name` = npm 包名），**不是** plugin.json 的元数据翻译——元数据只存在于 `package.json` 与 `.dsh-plugin/plugin.json`。
 - **安装**（公开渠道）：
   ```sh
   dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
   ```
   Linux/macOS 沙箱首次安装可能需要在宿主侧显式放行构建（`allowBuilds`）。
-- **配置链**：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.dsh-plugin/plugin.json` → 旧布局 `<cwd>/.zcode-plugin/plugin.json`（兼容回退）→ 内置默认。`AGENTS.md` 不参与配置解析。
+- **配置链**：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.dsh-plugin/plugin.json` → `.dsh-plugin/plugin.json`（相对插件根兜底）→ 内置默认。`AGENTS.md` 不参与配置解析。**破坏性变更（v2.7.0，开发中）**：旧布局 `<cwd>/.zcode-plugin/plugin.json` 的回退已移除，该文件不再被读取；已部署实例需把它改名为 `.dsh-plugin/plugin.json`（内容无需改），否则其中的 `evolution_config` / `scan_targets` 静默失效、回落内置默认。
 - **数据目录**：唯一 `~/.harness-evolution/v2/`（`$HARNESS_EVOLUTION_HOME` 可覆盖），内含 `plugin-cache.json` / `metrics.jsonl` / `signals.jsonl` / `proposals.jsonl` / `execution.log` / `execution.jsonl`（v2.7 结构化执行事件镜像，与 execution.log 同源双写）/ `sandbox/` / `agents/`。
-- **宿主切换**：环境变量 `HARNESS_EVOLUTION_HOST`（`deepseek-harness` 缺省 / `minimax-code` / `zcode`）；未知取值会启动时点名告警后回落。
+- **宿主切换**：环境变量 `HARNESS_EVOLUTION_HOST`（`deepseek-harness` 缺省 / `minimax-code`）；未知取值会启动时点名告警后回落到 DSH 目录。
 
 ### 2.4 修改禁区（架构不变量）
 
@@ -215,7 +215,7 @@ Session 事件流（assistant/chunk·reasoning-delta 等）
 8. **`moon check` 必须带 `--deny-warn --target native`**：任何新警告都算 T0 失败（Validator 约定），不要为了绿灯去掉 `--deny-warn`。
 
 9. **HEAD 不是 fmt-clean**：当前工具链（moon 0.1.20260904）的 `moon fmt` 会重排全仓约 50 个未改动文件（换行样式、结构体字面量尾逗号等）——v2.6 提交时的「fmt 零 churn」结论对新工具链已失效。混跑 `moon fmt` 前先把功能 diff 提交干净，或事后回退无关 churn（v2.7 可视化首批即按此处理）；全仓统一格式化应单独走一个 `chore: fmt` 提交。
-10. **`.dsh-plugin` 清单迁移进行中**：自述清单已从 `.zcode-plugin/plugin.json` 迁到 `.dsh-plugin/plugin.json`（配置链保留旧路径兼容回退），但该迁移尚在工作区未提交；且 **scanner 识别第三方插件的清单形态仍是 6 种、不含 `.dsh-plugin/plugin.json`**——本插件自己的新门牌对同类扫描暂不可见。是否列为第 7 种形态属待决项（见任务清单），在决定前不要把「DSH 插件互见」当作既有能力。
+10. **~~`.dsh-plugin` 清单迁移进行中~~（迁移已完成；并列的待决项仍在）**：自述清单已从旧布局 `.zcode-plugin/plugin.json` 迁到 `.dsh-plugin/plugin.json`，且本版配置链**已删除旧路径回退**（破坏性，迁移动作见 §2.3：把旧文件改名为 `.dsh-plugin/plugin.json`），故「两个门牌并存」的中间态不复存在。另一件并列的事**仍未决**：移除 ZCode 相关形态后，插件清单形态由 6 种收敛为 **4 种**（`package.json` / `.claude-plugin/plugin.json` / `.mcp.json` / `SKILL.md`），而 scanner 依旧不识别本插件自己的门牌 `.dsh-plugin/plugin.json` —— **是否把它列为第 5 种形态仍需决策**；在决定前不要把「DSH 插件互见」当作既有能力。
 
 > 文档整理记录：`dsh-watcher/QUICKSTART.md` 与 `dsh-watcher/INTEGRATION.md` 曾与 `dsh-watcher/README.md` 重复且携带未经验证的 `npm install` 构建路径，已在整理中删除；其唯一增量（来源说明与协同使用场景）并入本文 §3.1。
 

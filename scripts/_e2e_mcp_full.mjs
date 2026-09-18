@@ -24,10 +24,10 @@ const a = path.join(scanRoot, 'demo-skill');
 mkdirSync(a, { recursive: true });
 writeFileSync(path.join(a, 'package.json'), JSON.stringify({ name: 'demo-skill', version: '1.0.0', description: 'demo plugin for E2E' }));
 writeFileSync(path.join(a, 'SKILL.md'), '---\nname: demo-skill\ndescription: browse the web and generate code\n---\n\n# Demo\nUse a browser, write code.\n');
-// Plugin B: .zcode-plugin/plugin.json manifest (depth 2, mimosa-style).
+// Plugin B: .claude-plugin/plugin.json manifest (depth 2, secondary-form style).
 const b = path.join(scanRoot, 'mimosa-like');
-mkdirSync(path.join(b, '.zcode-plugin'), { recursive: true });
-writeFileSync(path.join(b, '.zcode-plugin', 'plugin.json'), JSON.stringify({ name: 'mimosa-like', version: '2.0.0' }));
+mkdirSync(path.join(b, '.claude-plugin'), { recursive: true });
+writeFileSync(path.join(b, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'mimosa-like', version: '2.0.0' }));
 writeFileSync(path.join(b, 'SKILL.md'), '---\nname: mimosa-like\ndescription: academic writing helper\n---\n\n# Mimosa\nHelps write academic papers.\n');
 // Plugin C: fresh plugin (no cooldown) for merged-tool propose happy path.
 const c = path.join(scanRoot, 'fresh-plugin');

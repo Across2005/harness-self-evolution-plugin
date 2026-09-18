@@ -1,6 +1,6 @@
 ///|
 /// factory 包的行为测试。全部经 `AgentFactory::with_dirs` 把两个作用域
-/// 指向 `@fs.tmpdir`，**绝不触碰真实的 `~/.zcode/agents`** ——
+/// 指向 `@fs.tmpdir`，**绝不触碰真实的宿主用户目录**（`~/.dsh/skills`、`~/.minimax/agents`）——
 /// user 作用域的磁盘后果在这里是可回收的临时目录。
 
 // ============================================================================
@@ -296,7 +296,7 @@ test "parse accepts a YAML subset with unknown keys and CRLF tolerated" {
 
 ///|
 test "parse strips paired quotes from frontmatter values" {
-  // 真实世界的 agent 文件普遍给值加引号（实测 ~/.zcode/agents/coder.md
+  // 真实世界的 agent 文件普遍给值加引号（实测某个已部署宿主的 agents/coder.md
   // 写的是 `name: "coder"`），不剥引号会让 list 返回 "\"coder\"" 这种名字
   let parsed = parse(
     "---\nname: \"coder\"\ndescription: \"负责代码编辑和编后审查\"\ncolor: 'red'\ntools: [\"Read\", 'Bash']\n---\n\n正文\n",

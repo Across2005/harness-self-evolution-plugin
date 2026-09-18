@@ -1,10 +1,10 @@
-# DSH 插件兼容性：成功实践、兼容原理与多平台方法论
+# DSH 插件兼容性：成功实践、兼容原理与双宿主方法论
 
 > 本文档沉淀 2026-09-17 对 `harness-self-evolution-plugin`（MoonBit 编译的原生 stdio MCP
 > server，v2.6.0）与 DeepSeek Harness 0.1.6-alpha.1 的兼容性修复全过程。
 >
 > 五部分：① 成功实践记录（2026-09-17 的三处接缝修复）；② 为什么兼容（DSH 底层契约）；
-> ③ 怎么做兼容（方法论与判据）；④ 如何做多平台兼容（多宿主抽象设计）；
+> ③ 怎么做兼容（方法论与判据）；④ 双宿主差异收拢与新宿主接入；
 > ⑤ 实践记录二：把插件接进正在运行的 DSH（2026-09-18，多 home 现实与生效时机）。
 >
 > 所有结论都有源码或实测依据，不靠文档假设。
@@ -223,19 +223,19 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 
 ---
 
-## 四、如何做多平台兼容（多宿主抽象设计）
+## 四、双宿主差异收拢与新宿主接入
 
-本插件宣称支持 DeepSeek Harness / ZCode / Minimax Code 多宿主。多平台兼容的本质是：
+本插件当前支持两个宿主：DeepSeek Harness 与 Minimax Code。双宿主兼容的本质是：
 **把「随宿主变化的接缝」收拢成可枚举、可覆盖、可测试的单一来源，把「与宿主无关的内核」彻底隔离。**
 
 ### 4.1 随宿主变化的接缝（差异清单）
 
-| 接缝 | DeepSeek Harness | ZCode | Minimax Code |
-|------|------------------|-------|--------------|
-| 用户级定义目录 | `~/.dsh/skills/`（skill 形式） | `~/.zcode/agents/` | `~/.minimax/agents/` |
-| 插件扫描根 | `~/.dsh/profiles/` | `~/.zcode/cli/plugins/`、`~/.zcode/skills/` | `~/.minimax/plugins/`、`~/.minimax/extensions/` |
-| 安装方式 | `dsh plugin add` + `cordis.patch.yml`（mcp-client 挂载） | 自有 loader | 自有 loader |
-| 子 Agent 载体 | skill（`SKILL.md`/`.md`） | agent `.md`（ZCode agent 格式） | agent `.md` |
+| 接缝 | DeepSeek Harness | Minimax Code |
+|------|------------------|--------------|
+| 用户级定义目录 | `~/.dsh/skills/`（skill 形式） | `~/.minimax/agents/` |
+| 插件扫描根 | `~/.dsh/profiles/` | `~/.minimax/plugins/`、`~/.minimax/extensions/` |
+| 安装方式 | `dsh plugin add` + `cordis.patch.yml`（mcp-client 挂载） | 自有 loader |
+| 子 Agent 载体 | skill（`SKILL.md`/`.md`） | agent `.md` |
 
 关键观察：**内核（扫描/监控/提案/执行/状态机）与宿主无关；只有「目录路径」和「落盘载体」随宿主变。**
 
@@ -243,7 +243,7 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 
 本次已在代码里落地的三个机制：
 
-1. **`host_agents_dir(host)` 单一来源**（`src/store/paths.mbt`）：`match host { "zcode" => ..., "minimax-code" => ..., "deepseek-harness" => ..., _ => None }`。
+1. **`host_agents_dir(host)` 单一来源**（`src/store/paths.mbt`）：`match host { "minimax-code" => ..., "deepseek-harness" => ..., _ => None }`。
    新增宿主时编译器会在 match 穷尽处报错，逼实现者决定该宿主的目录。
 2. **`HARNESS_EVOLUTION_HOST` 切换 + `HARNESS_EVOLUTION_USER_DIR` 显式覆盖**：
    前者按宿主名选目录，后者允许用户直接指定 user 作用域目录，避免再次硬编码漂移。
@@ -268,12 +268,12 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 6. **文档对齐**：README 宿主目录表、SKILL 工具描述、`docs/` 各处的路径逐字核对。
 7. **实机闭环**：install → dump-config/boot → 端到端最小闭环 → 目录硬判据 → remove。
 
-### 4.4 多平台兼容的反模式（要避免的坑）
+### 4.4 双宿主兼容的反模式（要避免的坑）
 
 - **反模式 1：把宿主差异散落到多处硬编码。** 这次修复前，`~/.deepseek/harness` 散落在
   `paths.mbt`、`scanner.mbt`、`agent_scope.mbt`、`tools.mbt`、`schema.mbt`、`plugin.json`、
   README 等十几处——改一处漏一处。正确做法是单一来源 + 单一枚举。
-- **反模式 2：默认为「最熟悉的宿主」。** 曾有版本把缺省从 DSH 改成 ZCode 以求对齐某处文档，
+- **反模式 2：默认为「最熟悉的宿主」。** 曾有版本把缺省从主宿主改成非主宿主以求对齐某处文档，
   造成行为漂移。默认宿主必须是声明的主宿主（DSH），其余经显式切换。
 - **反模式 3：为「未来可能支持」的宿主预写路径而不验证。** `~/.deepseek/harness` 就是
   「想象中」的目录，实测不存在。每写一个宿主路径，都要先证明宿主真的读它。
@@ -336,7 +336,7 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
    本次三处接缝（patch 方言、mcp-client schema、宿主目录模型）逐一用源码核实 + 实机复现闭合。
 2. **原生二进制插件进 DSH 的正道是「桥梁插件 + stdio MCP」**：`dsh-mcp-client` 负责进程与
    工具注册，插件只需保证 patch 方言正确、config schema 合法、落盘目录真实。
-3. **多平台兼容靠「差异收拢 + 单一来源 + 穷尽枚举」**，而非把宿主差异散落硬编码；
+3. **双宿主兼容靠「差异收拢 + 单一来源 + 穷尽枚举」**，而非把宿主差异散落硬编码；
    新宿主接入是清单化、可测试的流程。
 4. **验证靠强判据 + 闭环**：`failOnStartupError: true`、`--dump-config` 静态合成、
    `add`/`remove` 闭环、`create_sub_agent(scope=user)` 落盘 + 宿主热发现，四者合起来才是

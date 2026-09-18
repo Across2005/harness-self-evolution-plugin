@@ -6,22 +6,18 @@
 /// **本文件修掉三个实测缺陷：**
 ///
 /// · **F1 —— TS 版在生产中发现 0 个插件。**
-///   实测 `~/.zcode/cli/plugins/cache/zcode-plugins-official` 下 10 个插件
-///   （android-emulator / browser-use / computer-use / document-skills /
-///   ios-simulator / mimosa / restore-legacy-sessions / skill-creator /
-///   zcode-cua / zcode-guide）**第 1 层全部零文件**，真实布局是
-///   `<plugin>/<version>/`（browser-use 有 4 个版本、document-skills 有 3 个）。
+///   实测某个已部署宿主的插件缓存根下 10 个插件**第 1 层全部零文件**，真实布局是
+///   `<plugin>/<version>/`（其中两个插件分别有 4 个和 3 个版本）。
 ///   而 TS 的 `scanPath`（L69-74）只下探一层就调 `scanPluginDirectory`，
 ///   后者在 L83-91 直接找 `<root>/<entry>/package.json|SKILL.md` →
 ///   被「无清单目录不是插件」（CONTEXT.md 不变量⑤）全部误杀。
 ///   修法：清单发现深度可配（默认 3 层），命中后**认领子树**不再下探。
 ///
 /// · **F3 —— 清单形态覆盖不足。**
-///   实测 `browser-use\0.4.1\` 根目录**没有** SKILL.md（清单在
-///   `.zcode-plugin/plugin.json`，技能文件在 `skills/*/SKILL.md`）；
-///   `mimosa\1.0.3\` **既无 package.json 也无根 SKILL.md**，只有
-///   `.zcode-plugin/plugin.json`、`.claude-plugin/`、`.mcp.json`。
-///   修法：清单集合从 2 种扩到 6 种，按优先级取元数据。
+///   实测样本里有插件根目录**没有** SKILL.md（清单在 `.claude-plugin/plugin.json`，
+///   技能文件在 `skills/*/SKILL.md`）；还有插件**既无 package.json 也无根 SKILL.md**，
+///   只有 `.claude-plugin/`、`.mcp.json` 这类清单。
+///   修法：清单集合从 2 种扩到 4 种，按优先级取元数据。
 ///   **注意这不是放松不变量⑤** —— 「无清单目录不是插件」依然成立，
 ///   只是「清单」的定义变准确了。
 ///
@@ -48,8 +44,7 @@ pub let max_discovery_depth : Int = 3
 /// 清单文件的相对路径，按优先级排列（F3）。
 /// 第一个存在的即为该插件的元数据来源。
 pub let manifest_priority : Array[String] = [
-  ".zcode-plugin/plugin.json", "package.json", ".claude-plugin/plugin.json", ".mcp.json",
-  ".zcode-plugin-seed.json", "SKILL.md",
+  "package.json", ".claude-plugin/plugin.json", ".mcp.json", "SKILL.md",
 ]
 
 ///|
@@ -126,12 +121,12 @@ pub async fn read_entries(dir : String) -> Array[(String, Bool)] {
 ///|
 /// 按优先级找出该目录的清单；一个都没有则返回 `None`。
 ///
-/// ★ S5b：不再对 6 个候选路径逐个 `@fs.exists`（最多 6 次 stat），
+/// ★ S5b：不再对全部候选路径逐个 `@fs.exists`（最多 4 次 stat），
 /// 改为基于一次 `read_entries` 的内存匹配（见 `find_manifest_in`）：
-/// · 单段名（`package.json` 等 4 个）直接查 entries 名字 —— 0 次 stat；
-/// · 双段名（`.zcode-plugin/plugin.json`、`.claude-plugin/plugin.json`）
+/// · 单段名（`package.json` 等 3 个）直接查 entries 名字 —— 0 次 stat；
+/// · 双段名（`.claude-plugin/plugin.json`）
 ///   先查首段存在于 entries 且为目录，才做 1 次 `@fs.exists` 兜底。
-/// 典型非插件目录从 6 次 stat 降为 0 次。
+/// 典型非插件目录从 4 次 stat 降为 0 次。
 /// 保留 pub 薄包装：内部复用 `find_manifest_in`，供已有调用方与测试使用。
 pub async fn find_manifest(dir : String) -> String? {
   let entries = read_entries(dir)
@@ -236,7 +231,7 @@ async fn scan_children(
 /// 从清单文件读出 `(name, version, dependencies)`。
 ///
 /// 取代 TS L100-109：那里只认 `package.json`，其余情况一律回退到
-/// `basename(dir)` + `"0.0.0"`。新版按 `manifest_priority` 认 6 种清单，
+/// `basename(dir)` + `"0.0.0"`。新版按 `manifest_priority` 认 4 种清单，
 /// 但**元数据提取规则不变**：读 JSON 的 `name` / `version` / `dependencies`，
 /// 缺失或类型不符就回退。
 ///

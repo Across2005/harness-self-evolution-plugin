@@ -107,9 +107,9 @@
 # DeepSeek Harness 插件目录（真实挂载点：profiles/<name>/node_modules）
 ~/.dsh/profiles/
 
-# ZCode 插件目录
-~/.zcode/cli/plugins/
-~/.zcode/skills/
+# Minimax Code 插件目录
+~/.minimax/plugins/
+~/.minimax/extensions/
 
 # 用户自定义插件
 <workspace>/.harness/plugins/
@@ -413,7 +413,8 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
   "dependencies": {},
   "devDependencies": {},
   "engines": {
-    "zcode": ">=0.5.0"
+    "deepseek-harness": ">=0.1.6",
+    "minimax-code": ">=1.0.0"
   },
   "evolution_config": {
     "intensity": "50%",
@@ -428,8 +429,8 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
   },
   "scan_targets": [
     "~/.dsh/profiles/",
-    "~/.zcode/cli/plugins/",
-    "~/.zcode/skills/",
+    "~/.minimax/plugins/",
+    "~/.minimax/extensions/",
     "~/.agents/skills/",
     "~/.openclaw-autoclaw/skills/"
   ],

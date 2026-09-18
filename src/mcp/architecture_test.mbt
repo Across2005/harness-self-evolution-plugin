@@ -621,8 +621,9 @@ async test "G5b: MoonBit test suite maintains minimum size" {
   // 新增 1 条 `HARNESS_EVOLUTION_USER_DIR` 覆盖用例，432→433；
   // 432 为上一锚点——v2.7 可视化数据面两批共 8 条新增 6 条 + 双写镜像/文本回落 2 条；
   // 433 为上一锚点——验证矩阵落地：新增 1 条 `host verification notice reflects the current verification matrix` 用例把
-  // DSH / Minimax Code / ZCode 的验证状态固化进测试网，433→434。
+  // DSH / Minimax Code 的验证状态固化进测试网，433→434。
   // 424 为再上一锚点——v2.6 性能整改新增 4 条；420 为更早锚点）。
+  // v2.7 撤销 ZCode 宿主支持时**没有增删用例**（只改断言与夹具），故锚点保持 434。
   // 这个数字变了说明测试增删，必须重新核对。
   assert_eq(mb_names.length(), 434)
 }

@@ -2,7 +2,7 @@
 /// 进化引擎配置。取代 legacy-ts/src/types/index.ts L293-299 的 `EvolutionConfig`
 /// 与 engine/index.ts L29-49 的内联 config 字段。
 ///
-/// **这里修掉了一处配置孤岛**：legacy-ts 的 `.zcode-plugin/plugin.json` L48-66
+/// **这里修掉了一处配置孤岛**：legacy-ts 的自述清单（`plugin.json`）L48-66
 /// 写了一整段 `evolution_config`（含 `signal_thresholds`），
 /// 但 `src/**` 里**没有任何代码读取它** —— engine 用的是构造函数默认值
 /// （L45-47 的 `'50%'` / 3 / 24），monitor 用的是硬编码常量（L227/238/267）。
@@ -346,7 +346,7 @@ pub fn MonitoringConfig::from_json(json : Json) -> MonitoringConfig {
 ///|
 /// 统一的 Harness 配置。包装 `EngineConfig`、`ScanConfig` 和 `MonitoringConfig`。
 ///
-/// **设计意图**：将自述清单（`.dsh-plugin/plugin.json`，原 `.zcode-plugin/`）的三个配置段合并为一个结构体，
+/// **设计意图**：将自述清单（`.dsh-plugin/plugin.json`）的三个配置段合并为一个结构体，
 /// 消除配置来源的碎片化。`load_config` 返回此结构体，`ServerState` 接受此结构体。
 /// 向后兼容：`ServerState::with_scan_config` 和 `ServerState::at` 仍然工作，
 /// 内部转换为 `HarnessConfig`。

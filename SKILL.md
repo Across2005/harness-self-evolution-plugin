@@ -135,7 +135,7 @@
 ```
 
 ### create_sub_agent / list_sub_agents / delete_sub_agent（v2.1 子 Agent 工厂）
-管理子 Agent 定义文件（Markdown + YAML frontmatter，ZCode 的 agent 载体格式）。
+管理子 Agent 定义文件（Markdown + YAML frontmatter，与 DSH skill 同构的载体格式）。
 
 - `create_sub_agent`：写入一个定义文件。`scope=plugin` 写入插件数据目录（默认）；`scope=user` 写入宿主的用户级定义目录（默认宿主 DeepSeek Harness 为 `~/.dsh/skills/`——DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘，经 `HARNESS_EVOLUTION_HOST` 切换）—— 后者跨出插件数据根，宿主会在后续会话中加载该定义。创建只是产出定义文件，不等于立即派发执行。
 - `list_sub_agents`：列出定义，缺省同时列出两个作用域；解析失败的文件被跳过并告警。
@@ -167,14 +167,18 @@
 ## 配置
 
 配置来自 `.dsh-plugin/plugin.json` 的 `evolution_config` 段。
-（自述清单原位于 `.zcode-plugin/`，旧路径仍在配置链中兼容读取。）
 查找顺序：
 
 1. `$HARNESS_EVOLUTION_CONFIG` 指向的文件（显式覆盖，多档案场景用）
-2. `<cwd>/.dsh-plugin/plugin.json`（旧布局 `<cwd>/.zcode-plugin/plugin.json` 兼容回退）
-3. 内置默认值
+2. `<cwd>/.dsh-plugin/plugin.json`
+3. `.dsh-plugin/plugin.json`（相对插件根的兜底路径）
+4. 内置默认值
 
 配置缺失绝不会导致启动失败。
+
+> **破坏性变更（v2.7.0，开发中）**：旧布局 `<cwd>/.zcode-plugin/plugin.json`
+> 兼容回退已取消，不再被读取。已部署实例把该文件改名为 `.dsh-plugin/plugin.json`
+> 即可（内容无需改）。
 
 ```json
 {
@@ -227,7 +231,7 @@ cd harness-self-evolution-plugin
 构建需要 MoonBit 工具链与 MSVC（Visual Studio 的 C++ 生成工具 + Windows SDK）；
 `build.ps1` 会自动探测并注入环境，不需要手工跑 `vcvars64.bat`。
 
-在 ZCode 中配置：
+在 DSH / Minimax Code 中配置：
 
 ```json
 {
@@ -275,8 +279,8 @@ cd harness-self-evolution-plugin
 ```
 
 > `metrics.jsonl` / `signals.jsonl` 按 `max_log_bytes`（默认 32 MiB）裁剪；
-> `config.json` **不存在**于数据根 —— 配置只来自自述清单（`.dsh-plugin/plugin.json`，
-> 旧布局 `.zcode-plugin/plugin.json` 兼容回退）的 `evolution_config` 段（见上文「配置」）。
+> `config.json` **不存在**于数据根 —— 配置只来自自述清单（`.dsh-plugin/plugin.json`）
+> 的 `evolution_config` 段（见上文「配置」）。
 
 ## 许可证
 

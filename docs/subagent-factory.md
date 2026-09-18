@@ -32,10 +32,11 @@ defending-code-reference-harness（本机 `~/.agents/skills/sec-sandbox-test/` �
 **那边的"子 agent" = 每任务一个 CLI 子进程 + 沙箱 + 流式 JSONL 回传；
 本插件的"子 agent" = 100ms sleep + 恒成功 JSON。**
 
-### 1.3 ZCode/DSH 里 agent 的真实载体（本机实证）
+### 1.3 DSH / Minimax Code 里 agent 的真实载体（本机实证）
 
-- **用户级**：`~/.zcode/agents/<name>.md` —— Markdown + YAML frontmatter
+- **用户级**：`<用户级定义目录>/agents/<name>.md` —— Markdown + YAML frontmatter
   （`name` / `description` / `color` / `tools`），正文是系统提示词。
+  （实测样本取自某个已部署宿主的 user 作用域定义。）
 - **插件级**：官方插件 document-skills 携带 `agents/judge.md`，frontmatter 同上
   （`tools: [Read, Bash]`）；其 plugin.json **没有**显式 `agents` 键 ——
   loader 缺省扫描插件根的 `agents/` 目录（与 `skills/`、`commands/` 同一模式），
@@ -134,7 +135,7 @@ agents/                  出厂 5 角色模板（Markdown，非 MoonBit，随 lo
 ```
 process_task(task) : Json
   1. 命令模板取自环境变量 HARNESS_EVOLUTION_AGENT_CMD
-     （如 "zcode -p --output-format stream-json {prompt}"），未设置时回退 simulated_task
+     （如 "dsh --profile headless \"{prompt}\""），未设置时回退 simulated_task
   2. @process.collect_output 执行，stdin 喂 task.input，stdout 按 JSONL 收事件
   3. transcript 逐行落 execution.log 同目录的 transcripts/<task-id>.jsonl（走 store）
   4. 超时：现有 run_with_timeout / with_timeout_opt 原样生效

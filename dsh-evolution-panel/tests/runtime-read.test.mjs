@@ -66,6 +66,26 @@ test('foldProposals: later rows win per proposal_id; recent newest-first', () =>
   assert.equal(folded.recent[0].proposalId, 'b')
 })
 
+test('foldProposals: created_at accepts epoch digits as string, a number, and ISO', () => {
+  // Regression (measured 2026-09-18): the writer emits created_at as a STRING,
+  // so a number-only test zeroed every row and degenerated `recent` ordering.
+  const rows = [
+    execLine({ proposal_id: 'iso', plugin_id: 'pl', status: 'completed', created_at: '2026-09-18T00:19:38.117Z' }),
+    execLine({ proposal_id: 'digits', plugin_id: 'pl', status: 'completed', created_at: '1789690778118' }),
+    execLine({ proposal_id: 'number', plugin_id: 'pl', status: 'completed', created_at: 1789690778119 }),
+    execLine({ proposal_id: 'junk', plugin_id: 'pl', status: 'completed', created_at: 'not-a-date' }),
+  ].join('\n')
+  const folded = foldProposals(rows, 10)
+  assert.equal(folded.total, 4)
+  const byId = Object.fromEntries(folded.recent.map((p) => [p.proposalId, p.createdAt]))
+  assert.equal(byId.number, 1789690778119)
+  assert.equal(byId.digits, 1789690778118)
+  assert.equal(byId.iso, Date.parse('2026-09-18T00:19:38.117Z'))
+  assert.equal(byId.junk, 0)
+  // real ordering again: number > digits > iso > unparseable
+  assert.deepEqual(folded.recent.map((p) => p.proposalId), ['number', 'digits', 'iso', 'junk'])
+})
+
 test('readEvolutionView: jsonl preferred, honest gaps, zod-stable shape', () => {
   const dir = tmp()
   try {

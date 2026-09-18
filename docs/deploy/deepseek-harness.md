@@ -199,7 +199,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 | `Cannot find module '@deepseek-ai/dsh-mcp-client'` | web profile 没装 mcp-client | 用 `--patch` overlay 注入（见 § Install: the --patch overlay path） |
 | `dsh: failed to read overlay …ENOENT` | `--patch` 用了逗号分隔多文件 | 单文件参数可重复传：`--patch a.yml --patch b.yml` |
 | `duplicate loader entry id: <id>` | profile 已装该 bundle，overlay 又注入同一 id | 二者留一（bundle 内已有则删掉 overlay 的注入行） |
-| `HarnessEvolution] Unknown HARNESS_EVOLUTION_HOST` | 环境变量拼写错或未识别 | 用 `deepseek-harness` / `minimax-code` / `zcode` 三选一 |
+| `HarnessEvolution] Unknown HARNESS_EVOLUTION_HOST` | 环境变量拼写错或未识别 | 用 `deepseek-harness` / `minimax-code` 二选一 |
 | 装了插件但会话里没有 `mcp__harness-evolution__*` 工具 | 装到了另一棵树，或 host 未重启 | 见 § Which tree?：确认宿主的 `DSH_HOME`，装进这一棵，然后重启 |
 | 同一个 exe 出现多个进程 | 多个宿主各自拉起（DSH + Minimax Code） | 正常：父进程分别是各宿主；需要隔离就给各自设 `HARNESS_EVOLUTION_HOME` |
 | `bin/harness-evolution.exe` 被覆盖失败 | 进程占用 | `Get-Process harness-evolution \| Stop-Process` 后再 build |

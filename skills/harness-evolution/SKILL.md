@@ -37,12 +37,11 @@ version: 2.6.0
 
 **步骤**：
 1. 扫描配置的插件目录 —— 扫描根来自自述清单 `.dsh-plugin/plugin.json`
-   （旧布局 `.zcode-plugin/plugin.json` 兼容回退）的
-   `scan_targets` 段（2.2.0 起真正生效；未配置时回退内置默认根），
+   的 `scan_targets` 段（2.2.0 起真正生效；未配置时回退内置默认根），
    出厂配置列出：
    - `~/.dsh/profiles/`
-   - `~/.zcode/cli/plugins/`
-   - `~/.zcode/skills/`
+   - `~/.minimax/plugins/`
+   - `~/.minimax/extensions/`
    - `~/.agents/skills/`
    - `~/.openclaw-autoclaw/skills/`
 
@@ -403,8 +402,12 @@ browser-use-0.4.1 进化分析：
 
 配置来自自述清单 `.dsh-plugin/plugin.json` 的 `evolution_config` 段
 （查找顺序：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.dsh-plugin/plugin.json` →
-旧布局 `<cwd>/.zcode-plugin/plugin.json` 兼容回退 → 内置默认值；
+`.dsh-plugin/plugin.json`（相对插件根兜底）→ 内置默认值；
 配置缺失绝不会导致启动失败）。**AGENTS.md 不参与任何配置解析。**
+
+> **破坏性变更（v2.7.0，开发中）**：旧布局 `<cwd>/.zcode-plugin/plugin.json`
+> 兼容回退已取消 —— 该路径不再被读取，其中的 `evolution_config` / `scan_targets`
+> 也不再生效。已部署实例把该文件改名为 `.dsh-plugin/plugin.json` 即可（内容无需改）。
 
 ```json
 {

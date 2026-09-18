@@ -128,7 +128,8 @@ pub async fn hanging_task(task : @types.SubAgentTask) -> Json {
 ///
 /// **环境变量**：
 /// - `HARNESS_EVOLUTION_AGENT_CMD`：命令模板，支持 `{prompt}` 和 `{input}` 占位符
-///   示例：`zcode -p --output-format stream-json {prompt}`
+///   示例：`dsh --profile headless "{prompt}"`（DSH 单任务模式；也可换成任何
+///   CLI 形态的宿主命令）
 ///
 /// **扩展点**：
 /// - 沙箱执行：可通过 Docker/gVisor 包装命令

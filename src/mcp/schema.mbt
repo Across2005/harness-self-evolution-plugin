@@ -271,7 +271,7 @@ pub fn create_sub_agent_schema() -> Json {
       ),
       "scope": {
         "type": "string",
-        "description": "写入位置：plugin 写入插件数据目录（默认）；user 会写入宿主的用户级定义目录（默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，ZCode 为 ~/.zcode/agents/；DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘，宿主在后续会话经 skills 发现加载；跨出插件数据根）",
+        "description": "写入位置：plugin 写入插件数据目录（默认）；user 会写入宿主的用户级定义目录（默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，Minimax Code 为 ~/.minimax/agents/；DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘，宿主在后续会话经 skills 发现加载；跨出插件数据根）",
         "enum": ToJson::to_json(@types.agent_scope_wire.names()),
         "default": Json::string(default_sub_agent_scope.wire_name()),
       },
@@ -304,7 +304,7 @@ pub fn delete_sub_agent_schema() -> Json {
     {
       "name": str_prop("要删除的子 Agent 名称（不含 .md 后缀）"),
       "scope": agent_scope_prop(
-        "在哪个作用域里删除：plugin（默认，插件数据目录）或 user（宿主的用户级定义目录，默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，ZCode 为 ~/.zcode/agents/）",
+        "在哪个作用域里删除：plugin（默认，插件数据目录）或 user（宿主的用户级定义目录，默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，Minimax Code 为 ~/.minimax/agents/）",
       ),
     },
     ["name"],

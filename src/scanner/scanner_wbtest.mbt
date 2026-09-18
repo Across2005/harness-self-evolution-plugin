@@ -182,8 +182,8 @@ async test "writes the cache and keeps results stable across scanner instances" 
 
 ///|
 /// **缺陷 F1 的回归测试。**
-/// 实测 `~/.zcode/cli/plugins/cache/zcode-plugins-official` 下 10 个插件
-/// 第 1 层全部零文件，真实布局是 `<plugin>/<version>/`；
+/// 实测某个已部署宿主的插件缓存根下 10 个插件第 1 层全部零文件，
+/// 真实布局是 `<plugin>/<version>/`；
 /// 而 TS 的 `scanPath` 只下探一层，于是**生产中发现 0 个插件**。
 async test "F1: discovers plugins nested at <plugin>/<version>/" {
   let tmp = @fs.tmpdir(prefix="evo-scan-")
@@ -199,14 +199,10 @@ async test "F1: discovers plugins nested at <plugin>/<version>/" {
   let seed_inner =
     #|{"name":"inner","version":"9.9.9"}
   ignore(
-    make_plugin(tmp, "browser-use/0.4.1", [
-      (".zcode-plugin/plugin.json", seed_041),
-    ]),
+    make_plugin(tmp, "browser-use/0.4.1", [("package.json", seed_041)]),
   )
   ignore(
-    make_plugin(tmp, "browser-use/0.3.1", [
-      (".zcode-plugin/plugin.json", seed_031),
-    ]),
+    make_plugin(tmp, "browser-use/0.3.1", [("package.json", seed_031)]),
   )
   // 第 3 层也要能发现（max_discovery_depth = 3）
   ignore(make_plugin(tmp, "deep/nest/inner", [("package.json", seed_inner)]))
@@ -226,58 +222,48 @@ async test "F1: discovers plugins nested at <plugin>/<version>/" {
 
 ///|
 /// **缺陷 F3 的回归测试。**
-/// 实测 `mimosa\1.0.3\` 既无 `package.json` 也无根 `SKILL.md`，
-/// 只有 `.zcode-plugin/plugin.json`、`.claude-plugin/`、`.mcp.json`；
-/// TS 的清单集合只有 `{package.json, SKILL.md}`，会把它整个漏掉。
-async test "F3: accepts the six manifest forms, in priority order" {
+/// 实测样本里有插件既无 `package.json` 也无根 `SKILL.md`，只有
+/// `.claude-plugin/plugin.json`、`.mcp.json` 这类清单；
+/// TS 的清单集合只有 `{package.json, SKILL.md}`，会把它们整个漏掉。
+async test "F3: accepts the four manifest forms, in priority order" {
   let tmp = @fs.tmpdir(prefix="evo-scan-")
   defer @fs.rmdir(tmp, recursive=true)
 
-  // mimosa 形态：只有 .zcode-plugin/plugin.json
-  let mimosa_seed =
-    #|{"name":"mimosa","version":"1.0.3"}
-  let zcode_seed =
-    #|{"name":"from-zcode","version":"1.1.1"}
   let package_seed =
     #|{"name":"from-package","version":"2.2.2"}
+  let claude_seed =
+    #|{"name":"from-claude","version":"3.3.3"}
+  let mcp_seed =
+    #|{"mcpServers":{"demo":{"command":"demo"}}}
+  let loser_seed =
+    #|{"name":"should-lose","version":"9.9.9"}
+  let winner_seed =
+    #|{"name":"should-win","version":"8.8.8"}
+
+  // ① package.json（manifest_priority 第一项）
+  ignore(make_plugin(tmp, "pkg-form", [("package.json", package_seed)]))
+  // ② 只有 .claude-plugin/plugin.json —— 无 package.json、无根 SKILL.md
   ignore(
-    make_plugin(tmp, "mimosa/1.0.3", [
-      (".zcode-plugin/plugin.json", mimosa_seed),
-    ]),
+    make_plugin(tmp, "claude-form", [(".claude-plugin/plugin.json", claude_seed)]),
   )
-  // browser-use 形态：同时有 .zcode-plugin/plugin.json 与 package.json，
-  // 前者优先（manifest_priority 的第一项）
-  ignore(
-    make_plugin(tmp, "browser-use/0.4.1", [
-      (".zcode-plugin/plugin.json", zcode_seed),
-      ("package.json", package_seed),
-    ]),
-  )
-  // 只有 SKILL.md（最低优先级）：没有 JSON 元数据 → 回退到目录名 + 0.0.0
+  // ③ 只有 .mcp.json：结构无 name/version → 回退目录名 + 0.0.0
+  ignore(make_plugin(tmp, "mcp-only", [(".mcp.json", mcp_seed)]))
+  // ④ 只有 SKILL.md（最低优先级）：没有 JSON 元数据 → 同样回退
   ignore(
     make_plugin(tmp, "skill-only", [("SKILL.md", "# Just a skill\ncan read")]),
   )
-
-  // ★ 评审 W6 补齐：余下三种清单形态此前从未在测试里出现过。
-  // · .claude-plugin/plugin.json（Claude 插件的清单）
-  // · .mcp.json（MCP server 清单，结构无 name/version → 回退目录名 + 0.0.0）
-  // · .zcode-plugin-seed.json（seed 清单，优先级高于 SKILL.md）
-  let claude_seed =
-    #|{"name":"from-claude","version":"3.3.3"}
+  // ⑤ 同时存在 package.json 与 .claude-plugin/plugin.json：前者优先
   ignore(
-    make_plugin(tmp, "claude-form", [
-      (".claude-plugin/plugin.json", claude_seed),
+    make_plugin(tmp, "priority-form", [
+      (".claude-plugin/plugin.json", loser_seed),
+      ("package.json", winner_seed),
     ]),
   )
-  let mcp_seed =
-    #|{"mcpServers":{"demo":{"command":"demo"}}}
-  ignore(make_plugin(tmp, "mcp-only", [(".mcp.json", mcp_seed)]))
-  let seed_seed =
-    #|{"name":"from-seed","version":"4.4.4"}
+  // ⑥ .mcp.json 与 SKILL.md 同目录：清单胜出，SKILL.md 不顶掉它
   ignore(
-    make_plugin(tmp, "seed-form", [
-      (".zcode-plugin-seed.json", seed_seed),
-      ("SKILL.md", "# seed\ncan read"), // SKILL.md 优先级最低，不应胜出
+    make_plugin(tmp, "manifest-above-skill", [
+      (".mcp.json", mcp_seed),
+      ("SKILL.md", "# seed\ncan read"),
     ]),
   )
 
@@ -285,21 +271,20 @@ async test "F3: accepts the six manifest forms, in priority order" {
   scanner.scan_root(tmp, @types.PluginKind::Official)
 
   assert_eq(scanner.count(), 6)
-  assert_true(scanner.get("mimosa-1.0.3") is Some(_))
-  // .zcode-plugin/plugin.json 胜出
-  assert_true(scanner.get("from-zcode-1.1.1") is Some(_))
-  assert_eq(scanner.get("from-package-2.2.2"), None)
+  assert_true(scanner.get("from-package-2.2.2") is Some(_))
+  assert_true(scanner.get("from-claude-3.3.3") is Some(_))
+  // .mcp.json 无 name/version → 回退
+  assert_true(scanner.get("mcp-only-0.0.0") is Some(_))
   // SKILL.md 只能证明「这是个插件」，提供不了 name/version → 回退
   let fallback = scanner.get("skill-only-0.0.0").unwrap()
   assert_eq(fallback.name, "skill-only")
   assert_eq(fallback.version, "0.0.0")
   json_inspect(fallback.capabilities, content=["read"])
-  // 三种新形态：
-  assert_true(scanner.get("from-claude-3.3.3") is Some(_))
-  // .mcp.json 无 name/version → 回退
-  assert_true(scanner.get("mcp-only-0.0.0") is Some(_))
-  // .zcode-plugin-seed.json 提供元数据，且不被同目录的 SKILL.md 顶掉
-  assert_true(scanner.get("from-seed-4.4.4") is Some(_))
+  // 优先级方向：package.json 胜过 .claude-plugin/plugin.json
+  assert_true(scanner.get("should-win-8.8.8") is Some(_))
+  assert_eq(scanner.get("should-lose-9.9.9"), None)
+  // 清单与 SKILL.md 同目录时只算一个插件（count()==6 已钉住），且用清单目录名回退
+  assert_true(scanner.get("manifest-above-skill-0.0.0") is Some(_))
 }
 
 ///|

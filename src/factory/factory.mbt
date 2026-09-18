@@ -2,7 +2,7 @@
 /// 子 Agent 工厂（v2.1，`docs/subagent-factory.md`）。
 ///
 /// 职责：把结构化的 `AgentDefinition` 变成磁盘上的定义文件
-/// （Markdown + YAML frontmatter，ZCode 的 agent 载体格式），
+/// （Markdown + YAML frontmatter，与 DSH skill 同构的载体格式），
 /// 以及列出现有定义、按名删除。**创建 ≠ 派发** —— 本包只管理定义文件，
 /// 定义由宿主在其后的会话中发现加载；真实派发是 M7 的进程型扩展缝
 /// （见设计文档 §4），刻意不放在这里：管理平面与数据平面分开，
@@ -208,7 +208,7 @@ pub fn AgentDefinition::validate(self : AgentDefinition) -> Unit raise Failure {
 // ----------------------------------------------------------------------------
 
 ///|
-/// 渲染为 Markdown + YAML frontmatter 文本（ZCode 的 agent 载体格式，
+/// 渲染为 Markdown + YAML frontmatter 文本（与 DSH skill 同构的载体格式，
 /// 与官方 document-skills 插件的 `agents/judge.md` 同一形状）：
 ///
 /// ```
@@ -255,7 +255,7 @@ pub fn render(def : AgentDefinition) -> String {
 
 ///|
 /// 剥掉值两侧**成对**的一层引号（双或单）。真实世界的 agent 文件普遍给
-/// frontmatter 值加引号（实测 `~/.zcode/agents/coder.md` 写的是
+/// frontmatter 值加引号（实测某个已部署宿主的 `agents/coder.md` 写的是
 /// `name: "coder"`），不剥的话 `list_sub_agents` 会把 `"coder"` 连引号
 /// 一起当名字返回，与 create 侧校验通过的裸名对不上。只在两侧引号
 /// **互相配对**时剥，值内部含引号（如 `say "hi"`）不受影响。

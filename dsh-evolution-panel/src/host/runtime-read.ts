@@ -81,6 +81,29 @@ export function parseExecutionLog(text: string, tailLines: number): ExecRecordVi
 }
 
 /**
+ * Normalize one JSONL `created_at` to epoch milliseconds.
+ *
+ * The writer's wire form is a **string**: epoch-millis digits on today's rows,
+ * ISO-8601 on some older ones. A bare `typeof === 'number'` test therefore
+ * zeroed every row and quietly collapsed `recent` ordering to file order
+ * (measured 2026-09-18: 12/12 rows were strings ⇒ every `createdAt: 0`).
+ * Numbers, digit strings, and ISO strings are all accepted; anything else
+ * becomes 0 — which keeps the row visible instead of dropping it.
+ */
+function createdAtMillis(raw: unknown): number {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : 0
+  if (typeof raw !== 'string') return 0
+  const text = raw.trim()
+  if (text === '') return 0
+  if (/^\d+$/.test(text)) {
+    const n = Number(text)
+    return Number.isFinite(n) ? n : 0
+  }
+  const parsed = Date.parse(text)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+/**
  * proposals.jsonl fold: append-only ledger, rows sharing proposal_id
  * collapse with the **later** row winning (mirrors unit A ProposalStore).
  */
@@ -108,7 +131,7 @@ export function foldProposals(
         proposalId: j.proposal_id,
         pluginId: typeof j.plugin_id === 'string' ? j.plugin_id : '',
         status: typeof j.status === 'string' ? j.status : 'unknown',
-        createdAt: typeof j.created_at === 'number' ? j.created_at : 0,
+        createdAt: createdAtMillis(j.created_at),
       })
     } catch {
       malformedLines += 1

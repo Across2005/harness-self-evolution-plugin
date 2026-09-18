@@ -18,8 +18,8 @@
 /// Per-host scan-root split（分路径加载的另一收口点）
 /// ──────────────────────────────────────────────────────────────────────
 ///
-/// `default_scan_roots` 返回的 6 个根跨 3 个宿主族（DSH / Minimax Code /
-/// ZCode）。这是「分路径加载」的第二个收口点 —— 与 `store/paths.mbt` 的
+/// `default_scan_roots` 返回的 4 个根跨 2 个宿主（DSH / Minimax Code）加一个
+/// 通用约定根。这是「分路径加载」的第二个收口点 —— 与 `store/paths.mbt` 的
 /// `host_agents_dir` 配对。两者共同决定了：
 /// - 运行时扫描哪些宿主级插件目录
 /// - user 作用域子代理写到哪个宿主目录
@@ -41,31 +41,21 @@ pub struct ScanConfig {
 }
 
 ///|
-/// 默认扫描根。兼容多种 harness 平台，每个根前的注释标了**实证状态**
-/// （verified / declared-awaiting / speculative），与 `paths.mbt::host_verification_notice`
+/// 默认扫描根。只覆盖两个已被真机验证的宿主，每个根前的注释标了**实证状态**
+/// （verified / speculative），与 `paths.mbt::host_verification_notice`
 /// 在启动序列共同打印当前宿主验证状态。
 ///
 /// ```text
-/// ~/.dsh/profiles/                                          # Verified 2026-09-17 (DSH 0.1.6-alpha.1)
-/// ~/.minimax/plugins/                                       # Verified 2026-09-17 (Minimax Code)
-/// ~/.minimax/extensions/                                    # Verified 2026-09-17 (Minimax Code)
-/// ~/.zcode/cli/plugins/cache/zcode-plugins-official         # DECLARED, awaiting verification (ZCode)
-/// ~/.zcode/plugins                                          # DECLARED, awaiting verification (ZCode)
-/// ~/.agents/plugins                                         # Speculative — generic plugin convention; not tied to any host
-/// ```
-/// ```text
-/// ~/.dsh/profiles/                     # DeepSeek Harness 插件挂载点（profiles/<name>/node_modules）
-/// ~/.minimax/plugins/                   # Minimax Code 插件
-/// ~/.minimax/extensions/                # Minimax Code 扩展
-/// ~/.zcode/cli/plugins/cache/zcode-plugins-official
-/// ~/.zcode/plugins
-/// ~/.agents/plugins
+/// ~/.dsh/profiles/                     # Verified 2026-09-17 (DSH 0.1.6-alpha.1)
+/// ~/.minimax/plugins/                  # Verified 2026-09-17 (Minimax Code)
+/// ~/.minimax/extensions/               # Verified 2026-09-17 (Minimax Code)
+/// ~/.agents/plugins                    # Speculative — generic convention, not tied to any host
 /// ```
 ///
 /// **配置来源（2.2.0 起接通，此前是已知缺陷第 6 条的配置孤岛）**：
-/// 自述清单（`.dsh-plugin/plugin.json`；旧布局 `.zcode-plugin/plugin.json`
-/// 仍被兼容读取）的 `scan_targets` 段经 `ScanConfig::from_plugin_json` 解析，
-/// 在 `main.mbt` 装配时替换默认根；未配置时回退到这里的 6 个硬编码根。
+/// 自述清单（`.dsh-plugin/plugin.json`）的 `scan_targets` 段经
+/// `ScanConfig::from_plugin_json` 解析，在 `main.mbt` 装配时替换默认根；
+/// 未配置时回退到这里的 4 个硬编码根。
 /// 接通它会**改变发现哪些插件** —— 这是 2.2.0 经用户「全面升级」授权后
 /// 做出的显式行为变更， rationale 与回退语义见 `from_plugin_json`。
 ///
@@ -80,10 +70,6 @@ pub fn default_scan_roots() -> Array[String] {
     @util.expand_home("~/.minimax/plugins/"),
     // Verified 2026-09-17 (Minimax Code): extension-style plugin layout
     @util.expand_home("~/.minimax/extensions/"),
-    // DECLARED, awaiting verification (ZCode): speculative path from CLAUDE.md claims
-    @util.expand_home("~/.zcode/cli/plugins/cache/zcode-plugins-official"),
-    // DECLARED, awaiting verification (ZCode): speculative path from CLAUDE.md claims
-    @util.expand_home("~/.zcode/plugins"),
     // Speculative: generic plugin convention not tied to any host; verify before relying on it
     @util.expand_home("~/.agents/plugins"),
   ]
@@ -138,7 +124,7 @@ pub fn ScanConfig::custom(
 ///
 /// 本函数是**纯解析**：不做任何文件系统存在性检查 —— 不存在的路径由
 /// `scan_root` 在扫描时打一行 `Path does not exist` 后跳过，与默认根的
-/// 行为一致（`~/.zcode/plugins` 在多数机器上同样不存在）。
+/// 行为一致（`~/.agents/plugins` 在多数机器上同样不存在）。
 ///
 /// 返回 `(config, warns)`；告警由调用方（`main.mbt` 的启动序列）打到 stderr。
 pub fn ScanConfig::from_plugin_json(

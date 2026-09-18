@@ -1,6 +1,6 @@
 # Code architecture: shared core + per-host split-path loading
 
-This doc is for readers who want to understand how the plugin supports multiple AI harness platforms from a single binary, and for new contributors adding host support.
+This doc is for readers who want to understand how the plugin supports two AI harness hosts from a single binary, and for new contributors adding host support.
 
 ## The one-line principle
 
@@ -12,15 +12,14 @@ At boot, after the unknown-host warning, `main.mbt::main` calls `host_verificati
 
 - **DSH**: `Host: DeepSeek Harness ≥ 0.1.6 — verified end-to-end 2026-09-17 (web profile, propose→approve→execute loop + user-scope skill hot discovery).`
 - **Minimax Code**: `Host: Minimax Code — verified end-to-end 2026-09-17 (MCP server + Plugin V1 + Mini App floating panel with 14-tool live grid).`
-- **ZCode**: `Host: ZCode ≥ 0.5.0 — DECLARED, awaiting verification. Code path exists but no real-machine test. Run the 5-step checklist in docs/deploy/zcode.md and report results before relying on this host.`
 - **Unknown host**: no notice (handled by `unknown_host_warning`; do not double-warn).
 
-The matrix is pinned by a regression test (`host verification notice reflects the current verification matrix`, in `src/store/store_wbtest.mbt`). When you finish verifying a declared host, two files change in lockstep:
+The matrix is pinned by a regression test (`host verification notice reflects the current verification matrix`, in `src/store/store_wbtest.mbt`). Both recognized hosts are already verified end-to-end, so when you add a host or re-verify one, two files change in lockstep:
 
-1. `src/store/paths.mbt::host_verification_notice` — flip the arm from "DECLARED" to "verified ...", quote the date and the specific behaviors you exercised
-2. `src/store/store_wbtest.mbt` — the test enforces that ZCode still reads as DECLARED unless the wording changes, so the test will fail at your change and force you to remove the ZCode assertion that is now wrong
+1. `src/store/paths.mbt::host_verification_notice` — write the `verified ...` wording, quoting the date and the specific behaviors you exercised
+2. `src/store/store_wbtest.mbt` — the test asserts the exact wording, so it will fail at your change and force you to update the assertion alongside
 
-Do not flip one without the other. The test exists to make that mistake expensive.
+Do not change one without the other. The test exists to make that mistake expensive.
 
 Everything in `src/` except the small handful of files listed in the next section:
 
@@ -46,7 +45,7 @@ Three things, all small:
 
 The runtime picks the host at startup. Two env vars control the split:
 
-- `HARNESS_EVOLUTION_HOST` — `deepseek-harness` (default), `minimax-code`, or `zcode`. Unknown values log a warning and fall back to the DSH path.
+- `HARNESS_EVOLUTION_HOST` — `deepseek-harness` (default) or `minimax-code`. Unknown values log a warning and fall back to the DSH path.
 - `HARNESS_EVOLUTION_USER_DIR` — explicit override for the user-scope sub-agent directory. When set, it wins over `HARNESS_EVOLUTION_HOST`. Use this when a host's user directory is in a non-standard location (CI, containerized installs, multi-profile setups).
 
 The resolution priority is `HARNESS_EVOLUTION_USER_DIR` > `HARNESS_EVOLUTION_HOST` > default DSH. The implementation is in `src/store/paths.mbt::user_agents_dir` and is unit-tested with a temporary directory injection (the test never touches the real home).
@@ -62,14 +61,14 @@ The resolution priority is `HARNESS_EVOLUTION_USER_DIR` > `HARNESS_EVOLUTION_HOS
 
 ## Adding a new host
 
-Three files to edit, in this order:
+Four files to edit, in this order:
 
 1. **`src/store/paths.mbt::host_agents_dir`** — add a `match` arm returning the host's user-level sub-agent directory. The MoonBit compiler will fail the match-exhaustiveness check at every call site that uses the return type, so you cannot forget this step.
 2. **`src/scanner/scanner.mbt::default_scan_roots`** — add the host's plugin scan roots. Order matters: put the most-likely-to-exist roots first.
 3. **`.dsh-plugin/plugin.json::scan_targets`** — add the same roots to the manifest so `ScanConfig::from_plugin_json` reads them at boot. Without this, the runtime will warn and fall back to the hardcoded defaults.
 4. **`src/store/paths.mbt::unknown_host_warning`** — update the supported-values list in the warning message.
 
-Then write a deploy guide under `docs/deploy/<host>.md` modeled on `docs/deploy/mavis.md`. The guide should distinguish verified from declared, list the paths the host actually uses (from the host's source bundles, not from documentation), and end with verification steps.
+Then write a deploy guide under `docs/deploy/<host>.md` modeled on `docs/deploy/mavis.md`. The guide should state the verification status, list the paths the host actually uses (from the host's source bundles, not from documentation), and end with verification steps.
 
 ## What "verified end-to-end" means
 
@@ -81,7 +80,7 @@ A host is verified when, on a fresh install, the following loop completes withou
 4. `execute_evolution` runs the proposal to `completed`
 5. `create_sub_agent(scope=user)` writes a file that the host actually loads in a subsequent session
 
-DSH 0.1.6-alpha.1 and Mavis have this. ZCode has the runtime code paths but has not been run end-to-end on a real ZCode installation.
+DSH 0.1.6-alpha.1 and Minimax Code both have this. No host is shipped on code paths alone.
 
 ## Anti-patterns to avoid
 
@@ -91,4 +90,4 @@ These come from real mistakes in this repo's history. Don't repeat them:
 - Treating documentation as the source of truth for host paths. Documentation drifts. Source bundles don't.
 - Adding a host to the README before the code path exists. Add the match arm first, then the README claim.
 - Adding a host to the README without a deploy guide. Users will not know how to install.
-- Hiding the fact that some hosts are declared but unverified. The README and the deploy guide both have to say so.
+- Hiding a host's verification status. Every host in the README has actually completed the loop above; a host that has not is not listed, and the README says so.

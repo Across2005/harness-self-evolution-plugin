@@ -1003,9 +1003,9 @@ async test "unknown host yields a startup warning while the fallback path stays 
   assert_true(user_agents_dir().contains(".dsh"))
 
   // 已识别宿主：无告警，且目录跟随宿主
-  @env.set_env_var("HARNESS_EVOLUTION_HOST", "zcode")
+  @env.set_env_var("HARNESS_EVOLUTION_HOST", "minimax-code")
   assert_true(unknown_host_warning() is None)
-  assert_true(user_agents_dir().contains("zcode"))
+  assert_true(user_agents_dir().contains("minimax"))
 
   // 未设置：无告警
   @env.unset_env_var("HARNESS_EVOLUTION_HOST")
@@ -1031,14 +1031,14 @@ async test "explicit user dir override wins over host-derived directory" {
   defer restore_host_env(saved_host)
   defer restore_user_dir_env(saved_dir)
 
-  // 覆盖优先级：USER_DIR 覆盖 HOST 推导（即使 HOST=zcode）
-  @env.set_env_var("HARNESS_EVOLUTION_HOST", "zcode")
+  // 覆盖优先级：USER_DIR 覆盖 HOST 推导（即使 HOST=minimax-code）
+  @env.set_env_var("HARNESS_EVOLUTION_HOST", "minimax-code")
   @env.set_env_var("HARNESS_EVOLUTION_USER_DIR", "~/explicit/agents")
   assert_true(user_agents_dir().contains("explicit"))
 
   // 空串覆盖视为未设置，回落到 HOST 推导
   @env.set_env_var("HARNESS_EVOLUTION_USER_DIR", "")
-  assert_true(user_agents_dir().contains("zcode"))
+  assert_true(user_agents_dir().contains("minimax"))
 }
 
 ///|
@@ -1051,8 +1051,10 @@ async test "explicit user dir override wins over host-derived directory" {
 /// `host_agents_dir` 每个分支前的注释，以及 `docs/deploy/<host>.md`）：
 /// - deepseek-harness: verified 2026-09-17 (DSH 0.1.6-alpha.1 web profile)
 /// - minimax-code:     verified 2026-09-17 (MCP + Plugin V1 + Mini App panel)
-/// - zcode:            DECLARED, awaiting verification
 /// - 未设置 / 未识别:    None（由 `unknown_host_warning` 兜底，不重复告警）
+///
+/// 受支持宿主集合本身也有判据：`host_agents_dir` 只认这两个名字，
+/// 别的取值一律走「未识别」分支（下面的 `totally-fake-host` 用例钉住这一点）。
 async test "host verification notice reflects the current verification matrix" {
   let saved = @env.get_env_var("HARNESS_EVOLUTION_HOST")
   defer restore_host_env(saved)
@@ -1077,18 +1079,6 @@ async test "host verification notice reflects the current verification matrix" {
       assert_true(n.contains("2026-09-17"))
     }
     None => abort("Mavis is verified; notice must be present")
-  }
-
-  // ZCode：声明待验证，文案必须显式标「DECLARED」且不含「verified」，
-  // 否则本测试会在 ZCode 被验证后第一时刻爆出来，强制人去更新两份文件
-  @env.set_env_var("HARNESS_EVOLUTION_HOST", "zcode")
-  match host_verification_notice() {
-    Some(n) => {
-      assert_true(n.contains("DECLARED"))
-      assert_true(n.contains("awaiting verification"))
-      assert_false(n.contains(" verified"))
-    }
-    None => abort("ZCode is declared; notice must be present")
   }
 
   // 未识别宿主：本函数返回 None（避免与 `unknown_host_warning` 重复告警）

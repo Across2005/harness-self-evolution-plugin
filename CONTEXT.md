@@ -14,7 +14,7 @@
 |------|------|----------|
 | **Plugin（插件）** | Harness 生态中可被扫描、监控、进化的功能单元，以 `plugin_id`（`name-version`）唯一标识 | `scanner/` |
 | **Plugin Profile（插件档案）** | 扫描得到的插件元数据：工具列表、能力、依赖、初始指标 | `types/plugin.mbt` 的 `PluginMetadata` |
-| **Manifest（清单）** | 认定「这个目录是一个插件」的证据文件，共 6 种形态，按优先级取元数据 | `scanner/discover.mbt` 的 `manifest_priority` |
+| **Manifest（清单）** | 认定「这个目录是一个插件」的证据文件，共 4 种形态，按优先级取元数据 | `scanner/discover.mbt` 的 `manifest_priority` |
 | **Performance Event（性能事件）** | 一次工具调用/事件触发/能力使用的原始记录，写入 `metrics.jsonl` | `monitor/`、`types/event.mbt` 的 `EventPayload` |
 | **Evolution Signal（进化信号）** | 从事件中提炼的进化触发证据，分 `strong / medium / weak` 三级，写入 `signals.jsonl` | `monitor/`、`types/signal.mbt` |
 | **Evidence（证据）** | 信号的来源，是闭合类型：`Session` / `Metrics` / `UserManual` / `FilePath` | `types/signal.mbt` 的 `Evidence` |
@@ -31,7 +31,7 @@
 | **DAG Layer（DAG 层）** | Sub-Agent 任务按依赖拓扑排序后的分层，同层可并行 | `executor/dag.mbt` 的 `topo_layers` |
 | **Agent Definition（子 Agent 定义）** | Markdown + YAML frontmatter 的 agent 载体文件（name / description / 可选 color / tools，正文为系统提示词），工厂只产出定义文件——**创建 ≠ 派发** | `factory/factory.mbt` 的 `AgentDefinition` |
 | **Sub-Agent Factory（子 Agent 工厂）** | 校验、渲染、解析定义文件并管理两个作用域的工厂（v2.1 新增，`docs/subagent-factory.md`） | `factory/`、`store/agent_defs.mbt` |
-| **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主的用户级定义目录，跨出数据根，宿主在后续会话加载；默认宿主 DeepSeek Harness 为 `~/.dsh/skills/`——DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘，ZCode 为 `~/.zcode/agents/`，经 `HARNESS_EVOLUTION_HOST` 切换） | `types/agent_scope.mbt`、`store/paths.mbt`、wire 表 `agent_scope_wire` |
+| **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主的用户级定义目录，跨出数据根，宿主在后续会话加载；默认宿主 DeepSeek Harness 为 `~/.dsh/skills/`——DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘；Minimax Code 为 `~/.minimax/agents/`，经 `HARNESS_EVOLUTION_HOST` 切换） | `types/agent_scope.mbt`、`store/paths.mbt`、wire 表 `agent_scope_wire` |
 
 ## 提案状态机
 
@@ -132,9 +132,9 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 4. **MCP 工具处理器不写 try/catch** — 错误统一由 `call_tool` 这**一处**
    包装器转标准响应。　*（1.0 里这个角色叫 `defineTool`）*
 5. **无清单目录不是插件** — scanner 跳过不含任何清单文件的目录。
-   清单共 **6 种**形态，按优先级取元数据：
-   `.zcode-plugin/plugin.json` > `package.json` > `.claude-plugin/plugin.json`
-   > `.mcp.json` > `.zcode-plugin-seed.json` > `SKILL.md`。
+   清单共 **4 种**形态，按优先级取元数据：
+   `package.json` > `.claude-plugin/plugin.json`
+   > `.mcp.json` > `SKILL.md`。
    *（1.0 只认 2 种，见下面 F3）*
 6. **stdout 只承载协议字节** — `@stdio.stdout` 只允许出现在
    `mcp/server.mbt`；`@stdio.stderr` 只允许出现在 `util/log.mbt`
@@ -184,10 +184,16 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 唯一的配置入口是 `EngineConfig`（`types/config.mbt`），读取顺序：
 
 1. `$HARNESS_EVOLUTION_CONFIG` 指向的文件（显式覆盖，多档案与测试场景用）
-2. `<cwd>/.dsh-plugin/plugin.json` 的 `evolution_config` 段（旧布局 `<cwd>/.zcode-plugin/plugin.json` 兼容回退）
-3. 内置默认值（`Half` / 24h / `auto_approve=false` / `SignalThresholds::default()`）
+2. `<cwd>/.dsh-plugin/plugin.json` 的 `evolution_config` 段
+3. `.dsh-plugin/plugin.json`（相对插件根的兜底路径）
+4. 内置默认值（`Half` / 24h / `auto_approve=false` / `SignalThresholds::default()`）
 
 配置缺失或字段非法**绝不允许让启动失败** —— 任何读不到的项各自回落默认值。
+
+> **破坏性变更（v2.7.0，开发中）**：旧布局 `<cwd>/.zcode-plugin/plugin.json`
+> 兼容回退已从配置链移除 —— 该文件不再被读取，其中的 `evolution_config` /
+> `scan_targets` 也随之一并失效（静默回落到内置默认值）。**迁移动作**：已部署实例
+> 把该文件改名为 `.dsh-plugin/plugin.json` 即可，内容无需修改。
 
 `signal_thresholds` 同时接受两种形状：**扁平**（`consecutive_failures` /
 `loop_detection` / `latency_regression`，2.0 规范，键名与 `SignalThresholds`
@@ -230,7 +236,7 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 |----|------|----------|------|
 | **F1** | **scanner 在生产中发现 0 个插件** | 真实布局是 `<plugin>/<version>/`（browser-use 有 4 个版本、document-skills 有 3 个），第 1 层全部零文件；而 1.0 只下探 1 层，直接在 `<root>/<entry>/` 找清单 → 被不变量⑤全部误杀 | 发现深度改为可配置（默认 3 层），命中清单后「认领子树」避免父子重复计入。**实机验证：同一台机器上 2.0 发现 15 个插件，1.0 发现 0 个** |
 | **F2** | **扫描缓存永久毒化，启动即返回幽灵档案** | 本机 `~/.harness-evolution/plugin-cache.json`（526 B）唯一条目的 `path` 指向一个早已被 jest `afterEach` 删除的临时目录；而 1.0 的命中条件仅为 `cached.size > 0` → 每次启动直接返回，永不重扫 | 缓存条目增加 `DirFingerprint`，逐条校验：目录消失 → 丢弃并 stderr 告警；指纹变化 → 只重扫该子树 |
-| **F3** | **清单形态覆盖不足** | `browser-use\0.4.1\` 根目录**无** `SKILL.md`；`mimosa\1.0.3\` **无** `package.json`、也无根 `SKILL.md`，只有 `.zcode-plugin/plugin.json`、`.claude-plugin/`、`.mcp.json` | 清单集合从 2 种扩到 6 种，按优先级取元数据（见不变量⑤） |
+| **F3** | **清单形态覆盖不足** | 实测样本 `browser-use\0.4.1\` 根目录**无** `SKILL.md`（清单在插件根的双段名清单文件里，技能文件在 `skills/*/SKILL.md`）；实测样本 `mimosa\1.0.3\` **无** `package.json`、也无根 `SKILL.md`，只有双段名清单、`.claude-plugin/`、`.mcp.json` | 清单集合从 2 种扩到 4 种，按优先级取元数据（见不变量⑤） |
 | **F4** | **14 处 `console.log` 会污染 MCP 协议通道** | 1.0 的 `src/**` 实测：`console.log` 14 处、`console.warn` 1 处、`console.error` 8 处。它没炸只是因为 `@modelcontextprotocol/sdk` 的 `StdioServerTransport` 接管并 patch 了 `console.*`；**自研 stdio server 没有这层魔法** | 新增 `util/log.mbt` 作为**唯一**日志出口，物理上只写 stderr；不变量⑥ + 守卫 G2 机器化封死 |
 | **F5** | **`propose_evolution` 的 `signals` 参数在默认配置下永远无效** | 手动信号按设计是 **medium**，而默认强度 **50%** 只放行 **strong** → 两者相乘，出厂配置下手动信号永远产生不了提案，客户端只会收到一句笼统的 "insufficient signals, cooldown, or duplicate" | **行为原样保留**（见下一节），但 2.0 追加了 `reason` 字段说清真因，并用一条专门测试把它钉死 |
 
@@ -294,7 +300,7 @@ mcp/harness_evolution/types）。修复分三类：**4 个真 bug**（有回归�
 | **W10** | 加固 | `scanner/discover.mbt` 的 `walk_into` **无深度上限** —— Windows 目录 junction 可成环（`a/junction → a`），递归无限下钻直到栈溢出 | 新增 `max_files_depth = 32` 上限，越界告警后停止（与 `discover_plugins` 的 `max_discovery_depth` 分工）；junction 无法在 MoonBit 测试里创建，用 40 层深链等价踩同一条代码路径 |
 | **W4** | 加固 | `store/agent_defs.mbt` 的 `write(overwrite=true)` 用 `CreateOrTruncate` **原地截断** —— 写中途崩溃留下半截文件；且 exists 检查与写入间有竞态窗口 | 统一走 **tmp + rename 原子替换**（与 `Jsonl::write_json_atomic` 同配方），返回覆盖与否由写入前的 exists 判定 |
 | **W2(monitor)/W3(monitor)** | 加固 | monitor 两条路径**零测试覆盖**：延迟回归信号（TS L255-277 的深度检查）与「signals 写失败不拖累 metrics」（H1 只测了反向） | 新增 3 条用例：周基线低延迟 + 今日高延迟 → strong/struggle 信号（证据 `Metrics`、描述 `Latency increased by X%`）；负例（涨幅为 0 不触发）；signals 路径被目录占住时 metrics 照常落盘、信号回填后补写不重复 |
-| **W6** | 加固 | `scanner_wbtest.mbt` 的 F3 用例只覆盖 3/6 种清单形态 —— `.claude-plugin/plugin.json`、`.mcp.json`、`.zcode-plugin-seed.json` 从未在测试里出现过 | F3 用例扩到 6 种形态（断言含优先级与回退） |
+| **W6** | 加固 | `scanner_wbtest.mbt` 的 F3 用例只覆盖 3/4 种清单形态 —— `.claude-plugin/plugin.json`、`.mcp.json` 从未在测试里出现过 | F3 用例扩到 4 种形态（断言含优先级与回退） |
 | **WEAK 4** | 加固 | `executor` 的 `items_of` 认 7 种 Change 种类，`push_task` 只派发 6 种 —— `SimplifyParams` 被接受却不产生任务，仅含它的提案分解出 0 个代码生成任务直接滑到 Completed | 补 `cg-params` 任务（`plan_changes` 目前还发不出该类，属预埋缺口）；新增「参数简化提案分解出 cg-params + tw + integ」用例 |
 | **WEAK 9** | 加固 | `dag.mbt` 的 `topo_layers` 用 `Map.set` 建索引，**重复任务 id 被静默覆盖** —— 依赖引用被遮蔽的 id 会解析到后一个同名任务 | 入口直接拒绝重复 id（消息带 id 与两个下标）；新增拒绝用例 + 「真·双父钻石」正例（`[c] → [a,b]` 两层） |
 | **WEAK 3** | 加固 | 空变更集提案的「仅验证」完成路径无测试（零任务 → 直接三级验证 → Completed） | 新增端到端用例：结果恰为 3 条 Validator、状态 Completed |
@@ -354,7 +360,7 @@ OSError("@fs.readdir(): ... The directory name is invalid."); reporting no defin
 | ID | 类型 | 问题 | 修复 |
 |----|------|------|------|
 | **W11** | 加固 | `store/agent_defs.mbt` 的 `list()` 用 `catch { _ => [] }` 吞掉 `@fs.readdir` 失败 —— 权限故障、竞态删除、目录位置被文件占据，都会被 MCP `list_sub_agents` 读成「一个子 Agent 都没定义」。store/ 其余吞错处（jsonl 跳坏行、cache 忽略坏缓存）一律留一行日志，只有这里是静默的 | 失败改走 `Result` + `match`：仍返回空数组，但必须先 `@util.log_warn("Store", "Cannot list agent definitions in ...")`。日志只经 `src/util/log.mbt`（全仓唯一的 `@stdio.stderr` 出口，守 G2），不污染 MCP 的 stdout 协议通道。新增用例 `AgentDefStore lists nothing when the directory cannot be read` 钉住这条新分支 |
-| **VER** | 一致性 | 仓库正文与代码注释早已把这一版称为 **v2.1**（`docs/subagent-factory.md:3`「状态：v2.1 落地」、`src/mcp/schema.mbt`、`src/factory/factory.mbt` 等 40+ 处），但机器可读元数据仍停在 2.0.0：`moon.mod`、`.zcode-plugin/plugin.json`、`src/mcp/jsonrpc.mbt` 的 `server_version`、`DESIGN.md` 里的 plugin.json 镜像块、`skills/harness-evolution/SKILL.md` 的 frontmatter | 五处一并升 **2.1.0**（factory 是向后兼容的功能级新增，按 semver 走 minor）。`jsonrpc.mbt` 的版本注释补一行 2.1.0 说明，保留「随 Node→native 这一 breaking change 升到 2.0.0」那句历史陈述 |
+| **VER** | 一致性 | 仓库正文与代码注释早已把这一版称为 **v2.1**（`docs/subagent-factory.md:3`「状态：v2.1 落地」、`src/mcp/schema.mbt`、`src/factory/factory.mbt` 等 40+ 处），但机器可读元数据仍停在 2.0.0：`moon.mod`、`.dsh-plugin/plugin.json`、`src/mcp/jsonrpc.mbt` 的 `server_version`、`DESIGN.md` 里的 plugin.json 镜像块、`skills/harness-evolution/SKILL.md` 的 frontmatter | 五处一并升 **2.1.0**（factory 是向后兼容的功能级新增，按 semver 走 minor）。`jsonrpc.mbt` 的版本注释补一行 2.1.0 说明，保留「随 Node→native 这一 breaking change 升到 2.0.0」那句历史陈述 |
 
 **两条评审意见经实证撤回**：
 
@@ -390,7 +396,7 @@ OSError("@fs.readdir(): ... The directory name is invalid."); reporting no defin
 **scan → metrics → propose → approve → execute → list** 全链路：
 
 - 默认根扫描发现 **18 个真实插件**（browser-use ×5 个版本、document-skills ×3、
-  computer-use ×2、mimosa、zcode-cua、zcode-guide、skill-creator 等）；
+  computer-use ×2、mimosa、cua、guide、skill-creator 等）；
 - `get_plugin_metrics` 返回全零统计 —— 已知缺陷第 9 条（无生产数据源）的实机再现；
 - 手动信号（intensity 100%）生成提案
   `evo-2026-09-08-browser-use-0.4.2-performance-tuning`（零指标插件路由到
@@ -399,19 +405,19 @@ OSError("@fs.readdir(): ... The directory name is invalid."); reporting no defin
   `completed`，`proposals.jsonl` 留下完整的 pending → approved → executing →
   completed 四行审计轨迹，`execution.log` 记录 start/complete；
 - 子 Agent 工厂实机验证：`create_sub_agent`（scope=plugin）→ `list_sub_agents`
-  （同时发现了宿主 `~/.zcode/agents/coder.md` 的 user 作用域定义）→
+  （同时发现了某个已部署宿主 user 作用域下的 `agents/coder.md` 定义）→
   `delete_sub_agent`，创建与删除都落盘可见。
 
 **接通 `scan_targets`**：dogfood 中「全面扫描」靠 `scan_plugins` 的
 `target_paths` 参数手动传路径完成 —— 而插件出厂自带的 `scan_targets` 配置
-（6 个路径）仍是孤岛，恰是本轮要修的主体。语义见「配置来源」一节的表格；
+（5 个路径）仍是孤岛，恰是本轮要修的主体。语义见「配置来源」一节的表格；
 实现三处：`ScanConfig::from_plugin_json`（纯解析）、`main.mbt` 的
 `load_config` 改为同时返回 `(EngineConfig, ScanConfig)` 并经
 `ServerState::with_scan_config` 注入、G1 守卫的声明图补上
 `harness_evolution → scanner` 这条向下边。8 个新用例全绿，全量
 **Total tests: 334, passed: 334, failed: 0**，`moon check --deny-warn` 通过。
 版本按 semver（向后兼容的功能级新增）五处一并升 **2.2.0**（同第五轮 VER 的
-口径：`moon.mod`、`.zcode-plugin/plugin.json`、`jsonrpc.mbt` 的
+口径：`moon.mod`、`.dsh-plugin/plugin.json`、`jsonrpc.mbt` 的
 `server_version`、`DESIGN.md` 镜像块、`skills/harness-evolution/SKILL.md`
 frontmatter）。
 
@@ -471,7 +477,7 @@ frontmatter）。
    但 1.0 就是如此（`execute()` 是 `return` 而不是 `throw`）。
    三条失败通道的分界见 `mcp/tools_wbtest.mbt` 里的表格注释。
 6. **`scan_targets` 曾是一处未接通的配置孤岛（2.2.0 已接通）**。
-   `.zcode-plugin/plugin.json` 列了 6 个扫描路径，但 1.0/2.0/2.1 的代码用的是
+   出厂自述清单列了 5 个扫描路径，但 1.0/2.0/2.1 的代码用的是
    `scanner/scanner.mbt` 里 3 个硬编码根 —— 与 `evolution_config` 同源的孤岛。
    接通它会**改变发现哪些插件**（超出移植范围的行为变更），故 2.0/2.1 刻意保留缺口。
    2.2.0 经「全面升级」授权后接通：装配期 `ScanConfig::from_plugin_json`

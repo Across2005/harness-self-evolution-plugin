@@ -1,5 +1,5 @@
 ///|
-/// 子 Agent 定义文件（Markdown + YAML frontmatter，ZCode 的 agent 载体格式）
+/// 子 Agent 定义文件（Markdown + YAML frontmatter，与 DSH skill 同构的载体格式）
 /// 的读写删列 —— v2.1 子 Agent 工厂（`docs/subagent-factory.md`）的持久层。
 ///
 /// 与 Jsonl / cache 同理，**fs 写操作只存在于本包**（CONTEXT.md 不变量① /

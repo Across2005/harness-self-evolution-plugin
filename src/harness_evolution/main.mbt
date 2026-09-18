@@ -20,8 +20,10 @@
 /// 解析**实际生效**的配置文件路径。查找顺序：
 /// 1. `$HARNESS_EVOLUTION_CONFIG`（显式覆盖；指向的文件**存在**才生效）
 /// 2. `<cwd>/.dsh-plugin/plugin.json`（DSH 自述清单）
-/// 3. `<cwd>/.zcode-plugin/plugin.json`（旧布局兼容回退）
-/// 4. `.dsh-plugin/plugin.json`（相对路径兜底，此时文件可能尚不存在）
+/// 3. `.dsh-plugin/plugin.json`（相对路径兜底，此时文件可能尚不存在）
+///
+/// **v2.7.0 起（破坏性）**：不再读取旧布局 `<cwd>/.zcode-plugin/plugin.json`。
+/// 已部署实例把该文件改名为 `.dsh-plugin/plugin.json` 即可（内容无需改）。
 ///
 /// `load_config` 与 `config_watcher_loop` **共用本函数**：若监听器自行解析路径，
 /// env 指向不存在的文件时它仍会盯 env 路径，而实际生效的是 cwd 的 plugin.json
@@ -38,8 +40,6 @@ async fn effective_config_path() -> String {
   match @env.current_dir() {
     Some(cwd) => {
       candidates.push(@util.path_join(cwd, ".dsh-plugin/plugin.json"))
-      // 旧布局兼容：自述清单曾位于 .zcode-plugin/，已部署实例继续生效
-      candidates.push(@util.path_join(cwd, ".zcode-plugin/plugin.json"))
     }
     None => ()
   }
@@ -55,12 +55,11 @@ async fn effective_config_path() -> String {
 ///|
 /// 读取 `evolution_config`、`scan_targets` 和 `monitoring`。配置文件路径由
 /// `effective_config_path` 解析（env 指向存在文件 → cwd 的 .dsh-plugin →
-/// 旧布局 cwd 的 .zcode-plugin → 相对路径兜底）。
+/// 相对路径兜底）。
 ///
 /// 都找不到就用默认配置 —— 配置缺失绝不能让插件启动失败。
 ///
-/// **这一步修掉了 legacy 的一处配置孤岛**：自述清单（原 `.zcode-plugin/`，
-/// 现 `.dsh-plugin/`）L48-66
+/// **这一步修掉了 legacy 的一处配置孤岛**：自述清单（`.dsh-plugin/plugin.json`）L48-66
 /// 写了完整的 `evolution_config`（含 `signal_thresholds`），
 /// 但 legacy 的 `src/**` 里没有任何代码读它，改配置等于空操作。
 /// 新版由 `EngineConfig::from_json` 真正读取，配置文件重新生效。
@@ -184,9 +183,8 @@ async fn main {
     None => ()
   }
 
-  // ★ 计划落地：DSH / Minimax Code 已端到端验证；ZCode 声明支持但未在真机
-  // 跑过任何一项目标检查。在启动序列点名，让运维一眼看清当前宿主是否经过
-  // 验证（避免把 ZCode 误当 verified 用）。返回 `None` 表示宿主名未识别，
+  // ★ 计划落地：两个受支持宿主都已端到端验证，本行把**在哪个宿主版本、哪一天**
+  // 验证的写进启动日志，让运维一眼看清当前宿主状态。返回 `None` 表示宿主名未识别，
   // 由上面的 `unknown_host_warning` 兜底，不重复告警。
   match @store.host_verification_notice() {
     Some(n) => @util.log_info("HarnessEvolution", n)
