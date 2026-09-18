@@ -21,7 +21,11 @@
     "moonbit"
   ],
   "files": [
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    ".dsh-plugin/plugin.json",
+    "bin/harness-evolution.exe",
+    "skills/",
+    "agents/"
   ],
   "dsh": {
     "bundle": {
@@ -29,6 +33,6 @@
     }
   },
   "engines": {
-    "deepseek-harness": ">=1.0.0"
+    "dsh": ">=0.1.6"
   }
 }

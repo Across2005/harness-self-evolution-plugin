@@ -40,7 +40,7 @@ version: 2.6.0
    （旧布局 `.zcode-plugin/plugin.json` 兼容回退）的
    `scan_targets` 段（2.2.0 起真正生效；未配置时回退内置默认根），
    出厂配置列出：
-   - `~/.deepseek/harness/plugins/`
+   - `~/.dsh/profiles/`
    - `~/.zcode/cli/plugins/`
    - `~/.zcode/skills/`
    - `~/.agents/skills/`
@@ -258,7 +258,7 @@ version: 2.6.0
 | `list_proposals` | 按状态/插件过滤列提案（`limit` 上限） |
 | `approve_proposal` | 批准提案（pending → approved） |
 | `reject_proposal` | 拒绝提案 |
-| `create_sub_agent` | 写子 Agent 定义文件（`scope=plugin` 数据根 / `scope=user` 宿主用户级 agents 目录，默认宿主 DSH 为 `~/.deepseek/harness/agents/`） |
+| `create_sub_agent` | 写子 Agent 定义文件（`scope=plugin` 数据根 / `scope=user` 宿主用户级定义目录，默认宿主 DSH 为 `~/.dsh/skills/`，以 skill 形式落盘） |
 | `list_sub_agents` | 列出子 Agent 定义（缺省列出两个作用域） |
 | `delete_sub_agent` | 删除子 Agent 定义（只删两个可写目录，出厂模板不受影响） |
 

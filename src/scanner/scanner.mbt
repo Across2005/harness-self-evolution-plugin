@@ -13,6 +13,21 @@
 ///     `calculateMetrics` 又读一次根 SKILL.md）
 /// 4. 修 R5：`Array` 是事实来源、`Map` 只做索引，输出顺序确定
 ///    （MoonBit 的 `Map` 是哈希表，TS 的 `Map` 保插入序，照搬会抖）
+///
+/// ──────────────────────────────────────────────────────────────────────
+/// Per-host scan-root split（分路径加载的另一收口点）
+/// ──────────────────────────────────────────────────────────────────────
+///
+/// `default_scan_roots` 返回的 6 个根跨 3 个宿主族（DSH / Minimax Code /
+/// ZCode）。这是「分路径加载」的第二个收口点 —— 与 `store/paths.mbt` 的
+/// `host_agents_dir` 配对。两者共同决定了：
+/// - 运行时扫描哪些宿主级插件目录
+/// - user 作用域子代理写到哪个宿主目录
+///
+/// 启动时（`main.mbt::load_config`）会优先用 `.dsh-plugin/plugin.json` 的
+/// `scan_targets` 段覆盖这里的默认值；未配置时回退到下面的硬编码。
+///
+/// 完整架构说明：`docs/code-architecture.md`。
 
 ///|
 /// 扫描配置。
@@ -26,10 +41,20 @@ pub struct ScanConfig {
 }
 
 ///|
-/// 默认扫描根。兼容多种 harness 平台，首打 DeepSeek Harness：
+/// 默认扫描根。兼容多种 harness 平台，每个根前的注释标了**实证状态**
+/// （verified / declared-awaiting / speculative），与 `paths.mbt::host_verification_notice`
+/// 在启动序列共同打印当前宿主验证状态。
+///
 /// ```text
-/// ~/.deepseek/harness/plugins/          # DeepSeek Harness 插件（首打）
-/// ~/.deepseek/harness/extensions/       # DeepSeek Harness 扩展
+/// ~/.dsh/profiles/                                          # Verified 2026-09-17 (DSH 0.1.6-alpha.1)
+/// ~/.minimax/plugins/                                       # Verified 2026-09-17 (Minimax Code)
+/// ~/.minimax/extensions/                                    # Verified 2026-09-17 (Minimax Code)
+/// ~/.zcode/cli/plugins/cache/zcode-plugins-official         # DECLARED, awaiting verification (ZCode)
+/// ~/.zcode/plugins                                          # DECLARED, awaiting verification (ZCode)
+/// ~/.agents/plugins                                         # Speculative — generic plugin convention; not tied to any host
+/// ```
+/// ```text
+/// ~/.dsh/profiles/                     # DeepSeek Harness 插件挂载点（profiles/<name>/node_modules）
 /// ~/.minimax/plugins/                   # Minimax Code 插件
 /// ~/.minimax/extensions/                # Minimax Code 扩展
 /// ~/.zcode/cli/plugins/cache/zcode-plugins-official
@@ -39,20 +64,27 @@ pub struct ScanConfig {
 ///
 /// **配置来源（2.2.0 起接通，此前是已知缺陷第 6 条的配置孤岛）**：
 /// 自述清单（`.dsh-plugin/plugin.json`；旧布局 `.zcode-plugin/plugin.json`
-/// 仍被兼容读取）的 `scan_targets` 段（6 个路径，含
-/// `~/.deepseek/harness/plugins/`、`~/.agents/skills/` 等）经
-/// `ScanConfig::from_plugin_json` 解析，在 `main.mbt` 装配时替换默认根；
-/// 未配置时回退到这里的 7 个硬编码根。
+/// 仍被兼容读取）的 `scan_targets` 段经 `ScanConfig::from_plugin_json` 解析，
+/// 在 `main.mbt` 装配时替换默认根；未配置时回退到这里的 6 个硬编码根。
 /// 接通它会**改变发现哪些插件** —— 这是 2.2.0 经用户「全面升级」授权后
 /// 做出的显式行为变更， rationale 与回退语义见 `from_plugin_json`。
+///
+/// ★ 修订 S14（DSH 0.1.6 兼容）：原两项 `~/.deepseek/harness/plugins|extensions`
+/// 指向**不存在**的目录（DSH 真实用户目录是 `~/.dsh`，插件经 `dsh plugin add`
+/// 挂到 `~/.dsh/profiles/<name>/node_modules/`）。改为 `~/.dsh/profiles/`。
 pub fn default_scan_roots() -> Array[String] {
   [
-    @util.expand_home("~/.deepseek/harness/plugins/"),
-    @util.expand_home("~/.deepseek/harness/extensions/"),
+    // Verified 2026-09-17 (DSH 0.1.6-alpha.1): plugins mount under profiles/<name>/node_modules
+    @util.expand_home("~/.dsh/profiles/"),
+    // Verified 2026-09-17 (Minimax Code): mcp.json-registered servers under plugins/
     @util.expand_home("~/.minimax/plugins/"),
+    // Verified 2026-09-17 (Minimax Code): extension-style plugin layout
     @util.expand_home("~/.minimax/extensions/"),
+    // DECLARED, awaiting verification (ZCode): speculative path from CLAUDE.md claims
     @util.expand_home("~/.zcode/cli/plugins/cache/zcode-plugins-official"),
+    // DECLARED, awaiting verification (ZCode): speculative path from CLAUDE.md claims
     @util.expand_home("~/.zcode/plugins"),
+    // Speculative: generic plugin convention not tied to any host; verify before relying on it
     @util.expand_home("~/.agents/plugins"),
   ]
 }

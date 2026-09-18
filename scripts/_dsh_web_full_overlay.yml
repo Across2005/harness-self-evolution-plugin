@@ -1,0 +1,23 @@
+# scripts/_dsh_web_full_overlay.yml
+# ★ 仅 skill-filesystem 启用 overlay
+#
+# 历史：之前想合并 _enable_skill_fs_overlay.yml + _dsh_overlay_mcp.yml，
+# 但 ~/.dsh/profiles/web/package.json 的 dsh.profile.bundles 已通过
+# `dsh plugin add` 持久化了 @across2005/harness-self-evolution + dsh-evolution-panel
+# ——这些 bundle 内部已注册 `mcp-harness-evolution` id。再注入同名 id 会
+# 触发 `duplicate loader entry id: mcp-harness-evolution` 错误
+# （堆栈定位 dsh-app-boot/lib/index.js:2579 boot → #include）。
+#
+# 所以本 overlay 只做一件事：把 web profile 默认 disabled 的 skill-filesystem 重新启用。
+# harness-evolution 14 工具已由 dsh-evolution-panel bundle 自动注入，无需额外 patch。
+#
+# 用法（PowerShell）：
+#   node "<DSH runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js" `
+#     --profile web `
+#     --patch (Resolve-Path .\scripts\_dsh_web_full_overlay.yml) `
+#     --no-open `
+#     --port 57179
+
+- id: skill-filesystem
+  config:
+    includeDefaultRoots: true

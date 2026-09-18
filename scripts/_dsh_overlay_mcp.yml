@@ -1,0 +1,15 @@
+# _dsh_overlay_mcp.yml — DSH 兼容性测试 overlay（临时，不修改插件仓库与 profile）
+# 用 dsh-mcp-client 以 stdio 拉起 harness-evolution.exe。
+# failOnStartupError: true → MCP 握手/工具发现失败时 DSH 启动直接失败（强判据）。
+- insert:
+    - id: mcp-harness-evolution
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: stdio
+        serverName: harness-evolution
+        command: 'D:/Agent设计/harness-self-evolution-plugin/bin/harness-evolution.exe'
+        args: []
+        cwd: 'D:/Agent设计/harness-self-evolution-plugin'
+        env:
+          HARNESS_EVOLUTION_HOST: deepseek-harness
+        failOnStartupError: true

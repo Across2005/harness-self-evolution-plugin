@@ -59,19 +59,19 @@
 | 命令 | 等价裸命令 | 验收标准 | 对应验证级 |
 |---|---|---|---|
 | `.\build.ps1 check` | `moon check --deny-warn --target native` | **零错零警**（任何新警告都算失败） | T0 语法 |
-| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 432，以实际输出为准），内含架构守卫 G1–G6 | T1 功能 |
+| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 434，以实际输出为准），内含架构守卫 G1–G6 | T1 功能 |
 | `.\build.ps1 build` | `moon build --target native --release` + 产物复制 | 生成 `bin\harness-evolution.exe` | — |
 | `.\build.ps1 all` | check → test → build 依次执行、逐步核对退出码 | 三步全绿 | T2 回归 |
 | `.\build.ps1 fmt` | `moon fmt` | — | — |
 
-> **写就时点实测**：本文档交付前在本机实跑了 `check` 与 `test`：T0 零错零警（`moon check --deny-warn --target native`，46 tasks）；T1 `Total tests: 424, passed: 424, failed: 0`。测试输出里的 `Parse error` / `OSError(...Incorrect function.)` 等行是**负向路径用例的预期日志**（store/monitor/mcp 的容错测试），不是失败。
+> **写就时点实测**：本文档交付前在本机实跑了 `check` 与 `test`：T0 零错零警（`moon check --deny-warn --target native`，46 tasks）；T1 `Total tests: 434, passed: 434, failed: 0`。测试输出里的 `Parse error` / `OSError(...Incorrect function.)` 等行是**负向路径用例的预期日志**（store/monitor/mcp 的容错测试），不是失败。
 
 产物落点：`_build\native\release\build\**\harness_evolution.exe` → 由脚本复制为 `bin\harness-evolution.exe`（**不要**手工去 `target\` 找，native 后端产物在 `_build\`）。
 
 ### 2.3 宿主注册与数据目录
 
 - **宿主清单**：DSH 侧权威 manifest 是 `package.json` 的 `dsh.bundle`（→ `cordis.patch.yml`）；`.dsh-plugin/plugin.json` 是自述清单与运行时配置载体（`mcp.transport: stdio`、protocolVersion `2024-11-05`、`scan_targets`、`evolution_config`；旧布局 `.zcode-plugin/` 仍被配置链兼容读取）。
-- **DSH bundle patch**：`cordis.patch.yml`（顶层 YAML 数组、`- insert:` 形式），把上述清单翻译为 DSH 生态标准 manifest。
+- **DSH bundle patch**：`cordis.patch.yml`（顶层 YAML 数组、`- insert:` 形式），是 **loader 挂载行**（`insert: [{id, name, config}]`，`name` = npm 包名），**不是** plugin.json 的元数据翻译——元数据只存在于 `package.json` 与 `.dsh-plugin/plugin.json`。
 - **安装**（公开渠道）：
   ```sh
   dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
@@ -197,7 +197,7 @@ Session 事件流（assistant/chunk·reasoning-delta 等）
 2. **读契约**：根 `AGENTS.md`（角色边界）→ `CONTEXT.md`（词汇表/守卫/配置来源）→ 改 A 看 `DESIGN.md`；改 B 看 `dsh-watcher/DESIGN.md`。
 3. **改代码**：遵守 §2.4 架构不变量；A 侧任何变更跑三级验证，B 侧跑 §3.2 三条命令。
 4. **文档同步**：工具数量、用例数、默认值等数字改后逐字核对；发现新偏差登记进 §5。
-5. **发布核对**：产品版本（`package.json`、`.dsh-plugin/plugin.json`）与 mooncakes 版本（`moon.mod`，`0.x` 线，0.2.6 ↔ v2.6.0）按既有先例解耦推进；`cordis.patch.yml` 的 `version` 字段当前滞后（见 §5 偏差 1），发版前须同步。
+5. **发布核对**：产品版本（`package.json`、`.dsh-plugin/plugin.json`）与 mooncakes 版本（`moon.mod`，`0.x` 线，0.2.6 ↔ v2.6.0）按既有先例解耦推进；`cordis.patch.yml` 已无 `version` 字段（挂载行方言），不再有版本漂移。
 
 ---
 
@@ -205,8 +205,8 @@ Session 事件流（assistant/chunk·reasoning-delta 等）
 
 写就时点逐项核实过的偏差与陷阱。**修掉一项就删一项，新增一项就补一项。**
 
-1. **`cordis.patch.yml` 版本滞后**：其中 `version: "2.4.0"`，而 `package.json`/`plugin.json` 已是 `2.6.0`。DSH 安装走的是这份 patch，发版前必须同步。
-2. **`DSH_INTEGRATION.md` 描述的 3 个 MCP 工具未在当前 build 注册**：`get_execution_plan` / `report_task_result` / `finalize_execution` 在 `src/` 全仓检索为零命中。**权威工具清单以 `src/mcp/tools.mbt` 注册的 14 个为准**：`scan_plugins`、`get_plugin_metrics`、`propose_evolution`、`execute_evolution`、`list_proposals`、`approve_proposal`、`reject_proposal`、`create_sub_agent`、`list_sub_agents`、`delete_sub_agent`、`analyze_plugins`、`evolve_plugin`、`manage_sub_agent`、`get_runtime_snapshot`。对接 DSH subagent 编排时，按 `execute_evolution` 返回的 `task_dag` + 宿主侧 `subagent` 工具实现（见 `DSH_INTEGRATION.md` 的编排逻辑），不要假设上述 3 个工具存在。
+1. **~~`cordis.patch.yml` 版本滞后~~（已修复）**：旧 patch 写 `version: "2.4.0"` 且整块是元数据映射（会触发 DSH `patch.insert?.forEach` 崩溃，ISSUE-01）。现改为挂载行方言（`insert: [{id, name, config}]`），不再携带版本/元数据，漂移随之消除。
+2. **~~`DSH_INTEGRATION.md` 描述的 3 个 MCP 工具未注册~~（已修复）**：`get_execution_plan` / `report_task_result` / `finalize_execution` 从未注册，`DSH_INTEGRATION.md` 已重写为真实挂载方式与 14 工具清单。`execute_evolution` 是**自包含**工具（内部跑完 DAG，返回 `{success, proposal_id, results}`，**不**返回 `task_dag` 供宿主编排），不要假设上述 3 个工具存在，也不要假设「宿主 subagent() 编排 task DAG」。
 3. **`record_tool_call` / `record_user_feedback` 是 monitor 内部 API**（`src/monitor/monitor.mbt`），**不是** MCP 工具；根 README「已知限制」一节所说的"无生产调用方"指的是这两个内部 API 的调用路径，不是注册工具。
 4. **moon 多版本共存陷阱**：PATH 上可能并存旧版 moon（如 `0.1.20260713`，按旧布局找 `~/.moon/lib/runtime.c` 会直接报 `input ... runtime.c missing`）。`build.ps1` 已锚定 `~\.moon\bin\moon.exe` 并打印实际版本；绕过脚本裸跑 `moon` 时自行注意，必要时设 `MOON_EXE`。
 5. **PowerShell「假红」陷阱**（`build.ps1` 内注释有完整分析）：moon 把进度信息写 stderr，PS 在 `$ErrorActionPreference='Stop'` 下会把成功运行也包成终止错误；`| Select-Object -First 1` 会提前终止管道、掐断原生进程造成非零退出码。复刻脚本行为时以 `$LASTEXITCODE` 为唯一成败依据。
@@ -236,4 +236,4 @@ Session 事件流（assistant/chunk·reasoning-delta 等）
 
 ---
 
-*本文由接手交接流程生成于 v2.6.0 基线；文中所有命令、路径、版本均按写就时点仓库实况逐项核实，其中单元 A 的 T0（`moon check --deny-warn`，零错零警）与 T1（424/424）已在本机实跑验证。*
+*本文由接手交接流程生成于 v2.6.0 基线；文中所有命令、路径、版本均按写就时点仓库实况逐项核实，其中单元 A 的 T0（`moon check --deny-warn`，零错零警）与 T1（434/434）已在本机实跑验证。*

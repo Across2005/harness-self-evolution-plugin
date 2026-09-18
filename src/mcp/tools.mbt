@@ -1,5 +1,5 @@
 ///|
-/// 13 个 MCP 工具的定义、派发与集中式错误处理。
+/// 14 个 MCP 工具的定义、派发与集中式错误处理。
 /// 取代 legacy-ts/src/mcp/server.ts L57-290。
 ///
 /// 前 7 个与 legacy-ts/package.json 的 `mcp.tools` 逐项同序；
@@ -344,19 +344,19 @@ pub fn tools() -> Array[Tool] {
     },
     {
       name: "create_sub_agent",
-      description: "创建一个子 Agent 定义文件（Markdown + YAML frontmatter，含名称、职责描述与系统提示词）。scope=plugin 写入插件数据目录（默认）；scope=user 会写入宿主的用户级 agents 目录（默认宿主 DeepSeek Harness 为 ~/.deepseek/harness/agents/）——这跨出插件数据根，宿主会在后续会话中加载该定义，其内容将成为可被调用的 agent 系统提示词。注意：创建只是产出定义文件，不等于立即派发执行，宿主何时加载由宿主决定。插件自带的 5 个出厂角色模板随插件 agents/ 目录分发，不在本工具的两个可写目录内。",
+      description: "创建一个子 Agent 定义文件（Markdown + YAML frontmatter，含名称、职责描述与系统提示词）。scope=plugin 写入插件数据目录（默认）；scope=user 会写入宿主的用户级定义目录（默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，ZCode 为 ~/.zcode/agents/；DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘，宿主在后续会话经 skills 发现加载）——这跨出插件数据根。注意：创建只是产出定义文件，不等于立即派发执行，宿主何时加载由宿主决定。插件自带的 5 个出厂角色模板随插件 agents/ 目录分发，不在本工具的两个可写目录内。",
       schema: create_sub_agent_schema(),
       handler: handle_create_sub_agent,
     },
     {
       name: "list_sub_agents",
-      description: "列出子 Agent 定义。scope 缺省时同时列出插件数据目录与宿主用户级 agents 目录（默认宿主 DeepSeek Harness 为 ~/.deepseek/harness/agents/）两个作用域；每项含名称、描述、可选的 color/tools、作用域与路径。解析失败的文件会被跳过并在日志告警，不影响其余条目。",
+      description: "列出子 Agent 定义。scope 缺省时同时列出插件数据目录与宿主用户级定义目录（默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，ZCode 为 ~/.zcode/agents/）两个作用域；每项含名称、描述、可选的 color/tools、作用域与路径。解析失败的文件会被跳过并在日志告警，不影响其余条目。",
       schema: list_sub_agents_schema(),
       handler: handle_list_sub_agents,
     },
     {
       name: "delete_sub_agent",
-      description: "删除一个子 Agent 定义文件。只删除两个可写目录（插件数据目录的 agents/、宿主的用户级 agents 目录，默认宿主 DeepSeek Harness 为 ~/.deepseek/harness/agents/）里的定义；插件自带的出厂模板不在这两个目录内，天然不受本工具影响。scope 缺省为 plugin。",
+      description: "删除一个子 Agent 定义文件。只删除两个可写目录（插件数据目录的 agents/、宿主的用户级定义目录，默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，ZCode 为 ~/.zcode/agents/）里的定义；插件自带的出厂模板不在这两个目录内，天然不受本工具影响。scope 缺省为 plugin。",
       schema: delete_sub_agent_schema(),
       handler: handle_delete_sub_agent,
     },
@@ -1135,7 +1135,7 @@ fn tool_call_target(params : Json) -> Result[(Tool, Json), String] {
 /// |---|---|
 /// | `initialize` | protocolVersion（回显）+ capabilities.tools + serverInfo |
 /// | `ping` | `{}` |
-/// | `tools/list` | 13 个工具 |
+/// | `tools/list` | 14 个工具 |
 /// | `tools/call` | 工具结果或 isError |
 /// | 其他 | `-32601 Method not found` |
 pub async fn handle_message(state : ServerState, req : RpcRequest) -> Json? {

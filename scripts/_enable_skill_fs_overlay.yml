@@ -1,0 +1,16 @@
+# scripts/_enable_skill_fs_overlay.yml
+# ★ Bug-fix overlay：启用 web profile 的 skill-filesystem（base 层默认 enabled，web profile L406-407 disable 了）。
+# 单独 CLI 启动 DSH web 时挂这个 overlay，UI 实时事件流（sessions / sessionProjections）即可恢复，
+# 底部 "重新连接中." 状态消失。
+#
+# 不污染 ~/.dsh/dsh-home/profiles/web/cordis.patch.yml（profile 持久化配置），纯临时挂载。
+#
+# 用法（PowerShell）：
+#   node "<DSH runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js" `
+#     --profile web --patch (Resolve-Path .\scripts\_enable_skill_fs_overlay.yml) --no-open --port 59686
+#
+# 与原 web profile 的区别：仅替换 `skill-filesystem` 行的 config（不带 disabled=true），其余行不动。
+# bundledSkillDir / agentsHome 由 skill-filesystem apply() 的 fallback 自动填（process.env.DSH_BUNDLED_SKILL_DIR / ~/.agents）。
+- id: skill-filesystem
+  config:
+    includeDefaultRoots: true

@@ -617,11 +617,14 @@ async test "G5: MoonBit test suite has sufficient coverage" {
 async test "G5b: MoonBit test suite maintains minimum size" {
   let root = module_root()
   let mb_names = moonbit_test_names(root)
-  // 硬编码的 432 —— 当前 MoonBit 测试用例数（v2.7 可视化数据面两批共 8 条
-  // 新增 6 条 + 双写镜像/文本回落 2 条；
-  // 424 为上一锚点——v2.6 性能整改新增 4 条；420 为再上一锚点）。
+  // 硬编码的 434 —— 当前 MoonBit 测试用例数（v2.6 DSH 0.1.6 兼容：S14
+  // 新增 1 条 `HARNESS_EVOLUTION_USER_DIR` 覆盖用例，432→433；
+  // 432 为上一锚点——v2.7 可视化数据面两批共 8 条新增 6 条 + 双写镜像/文本回落 2 条；
+  // 433 为上一锚点——验证矩阵落地：新增 1 条 `host verification notice reflects the current verification matrix` 用例把
+  // DSH / Minimax Code / ZCode 的验证状态固化进测试网，433→434。
+  // 424 为再上一锚点——v2.6 性能整改新增 4 条；420 为更早锚点）。
   // 这个数字变了说明测试增删，必须重新核对。
-  assert_eq(mb_names.length(), 432)
+  assert_eq(mb_names.length(), 434)
 }
 
 ///|

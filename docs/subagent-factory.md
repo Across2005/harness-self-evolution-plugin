@@ -88,9 +88,13 @@ agents/                  出厂 5 角色模板（Markdown，非 MoonBit，随 lo
 | `overwrite` | bool | — | 默认 `false`；同名已存在时报错而非覆盖 |
 
 - `scope=plugin` → 写入 `<数据根>/agents/<name>.md`（插件自管理，默认）。
-- `scope=user` → 写入宿主的用户级 agents 目录（**跨出数据根**，宿主会加载；
-  默认宿主 DeepSeek Harness 为 `~/.deepseek/harness/agents/<name>.md`，
-  经 `HARNESS_EVOLUTION_HOST` 切换宿主；这是刻意的显式选择，工具描述里向 LLM 说明影响面）。
+- `scope=user` → 写入宿主的用户级定义目录（**跨出数据根**，宿主会加载；
+  默认宿主 DeepSeek Harness 为 `~/.dsh/skills/<name>.md` —— **DSH 0.1.6 没有独立的
+  「用户级 agents 目录」**，其真实机制是从 `~/.dsh/skills/` 扫描发现 skill
+  （`dsh-skill-filesystem`，frontmatter 需 `name` + `description`，正文即指令体），
+  故 user-scope 定义以 **skill** 形式落盘，宿主在后续会话经 skills 发现加载；
+  经 `HARNESS_EVOLUTION_HOST` 切换宿主，或 `HARNESS_EVOLUTION_USER_DIR` 显式指定目录；
+  这是刻意的显式选择，工具描述里向 LLM 说明影响面）。
 - 返回：`{success, path, name, scope, overwritten}`。
 - 错误：非法 name/description（`Failure`，经 `call_tool` 转 isError）、
   已存在且未 overwrite、目录创建失败。

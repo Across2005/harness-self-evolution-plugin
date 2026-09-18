@@ -184,6 +184,15 @@ async fn main {
     None => ()
   }
 
+  // ★ 计划落地：DSH / Minimax Code 已端到端验证；ZCode 声明支持但未在真机
+  // 跑过任何一项目标检查。在启动序列点名，让运维一眼看清当前宿主是否经过
+  // 验证（避免把 ZCode 误当 verified 用）。返回 `None` 表示宿主名未识别，
+  // 由上面的 `unknown_host_warning` 兜底，不重复告警。
+  match @store.host_verification_notice() {
+    Some(n) => @util.log_info("HarnessEvolution", n)
+    None => ()
+  }
+
   let (harness_cfg, scan) = load_config(paths)
   let config = harness_cfg.engine
   let state = @mcp.ServerState::with_harness_config(paths, scan, harness_cfg)

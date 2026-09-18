@@ -104,9 +104,8 @@
 
 **扫描范围**：
 ```bash
-# DeepSeek Harness 插件目录
-~/.deepseek/harness/plugins/
-~/.deepseek/harness/extensions/
+# DeepSeek Harness 插件目录（真实挂载点：profiles/<name>/node_modules）
+~/.dsh/profiles/
 
 # ZCode 插件目录
 ~/.zcode/cli/plugins/
@@ -407,7 +406,8 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
       "delete_sub_agent",
       "analyze_plugins",
       "evolve_plugin",
-      "manage_sub_agent"
+      "manage_sub_agent",
+      "get_runtime_snapshot"
     ]
   },
   "dependencies": {},
@@ -427,8 +427,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
     }
   },
   "scan_targets": [
-    "~/.deepseek/harness/plugins/",
-    "~/.deepseek/harness/extensions/",
+    "~/.dsh/profiles/",
     "~/.zcode/cli/plugins/",
     "~/.zcode/skills/",
     "~/.agents/skills/",
@@ -558,7 +557,7 @@ server.addTool({
 // 生产调用方**，MCP 只暴露读取用的 get_plugin_metrics —— 采集链的第一环没有输入，
 // metrics.jsonl 只被动等待一个不存在的喂数据方。详见 CONTEXT.md 已知缺陷第 9 条。
 // v2.3 新增 3 个合并工具（analyze_plugins / evolve_plugin / manage_sub_agent），
-// 现共 13 个。
+// 现共 14 个。
 server.addEventHandler('on_plugin_call', async (event) => {
   await monitor.recordEvent(event);
 });

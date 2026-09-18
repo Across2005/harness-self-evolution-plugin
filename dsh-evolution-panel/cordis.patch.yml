@@ -1,0 +1,7 @@
+# Official bundle layer. `dsh plugin add` applies this into the profile.
+# Rows resolve by package name so the installed copy is what boots.
+# (Mirrors dsh-watcher/cordis.patch.yml: a client plugin must also declare
+#  dsh.bundle so it becomes a loader entry that dsh-client-modules scans.)
+- insert:
+    - id: dsh-evolution-panel
+      name: dsh-evolution-panel

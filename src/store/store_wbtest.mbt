@@ -984,7 +984,8 @@ fn restore_host_env(saved : String?) -> Unit {
 ///|
 /// ★ S6 回归网：未知的 `HARNESS_EVOLUTION_HOST` 不再静默回落 ——
 /// `unknown_host_warning` 返回点名宿主的告警文案，而 `user_agents_dir`
-/// 的回落行为保持不变（未知仍走 DSH 路径）。已识别 / 未设置则无告警。
+/// 的回落行为保持不变（未知仍走 DSH 路径，现为 `~/.dsh/skills/`）。
+/// 已识别 / 未设置则无告警。
 async test "unknown host yields a startup warning while the fallback path stays unchanged" {
   let saved = @env.get_env_var("HARNESS_EVOLUTION_HOST")
   defer restore_host_env(saved)
@@ -995,10 +996,11 @@ async test "unknown host yields a startup warning while the fallback path stays 
     Some(w) => {
       assert_true(w.contains("cursor"))
       assert_true(w.contains("deepseek"))
+      assert_true(w.contains(".dsh"))
     }
     None => abort("unknown host must produce a warning")
   }
-  assert_true(user_agents_dir().contains("deepseek"))
+  assert_true(user_agents_dir().contains(".dsh"))
 
   // 已识别宿主：无告警，且目录跟随宿主
   @env.set_env_var("HARNESS_EVOLUTION_HOST", "zcode")
@@ -1008,4 +1010,95 @@ async test "unknown host yields a startup warning while the fallback path stays 
   // 未设置：无告警
   @env.unset_env_var("HARNESS_EVOLUTION_HOST")
   assert_true(unknown_host_warning() is None)
+}
+
+///|
+/// 环境变量还原（HARNESS_EVOLUTION_USER_DIR）。
+fn restore_user_dir_env(saved : String?) -> Unit {
+  match saved {
+    Some(v) => @env.set_env_var("HARNESS_EVOLUTION_USER_DIR", v)
+    None => @env.unset_env_var("HARNESS_EVOLUTION_USER_DIR")
+  }
+}
+
+///|
+/// ★ S14（DSH 0.1.6 兼容）：`HARNESS_EVOLUTION_USER_DIR` 显式覆盖优先于
+/// `HARNESS_EVOLUTION_HOST` 推导出的目录 —— 用户可直接指定 user 作用域目录，
+/// 避免再次硬编码宿主目录漂移。
+async test "explicit user dir override wins over host-derived directory" {
+  let saved_host = @env.get_env_var("HARNESS_EVOLUTION_HOST")
+  let saved_dir = @env.get_env_var("HARNESS_EVOLUTION_USER_DIR")
+  defer restore_host_env(saved_host)
+  defer restore_user_dir_env(saved_dir)
+
+  // 覆盖优先级：USER_DIR 覆盖 HOST 推导（即使 HOST=zcode）
+  @env.set_env_var("HARNESS_EVOLUTION_HOST", "zcode")
+  @env.set_env_var("HARNESS_EVOLUTION_USER_DIR", "~/explicit/agents")
+  assert_true(user_agents_dir().contains("explicit"))
+
+  // 空串覆盖视为未设置，回落到 HOST 推导
+  @env.set_env_var("HARNESS_EVOLUTION_USER_DIR", "")
+  assert_true(user_agents_dir().contains("zcode"))
+}
+
+///|
+/// ★ 计划落地回归网：每个宿主的「已验证 vs 声明待验证」状态必须在
+/// `host_verification_notice` 里显式标出。这条用例把验证矩阵固化进
+/// 测试，避免有人改 `host_agents_dir` / `default_scan_roots` 时漏改
+/// 启动点名（两者解耦容易漂移）。
+///
+/// 已知状态（更新这里时同步更新 `paths.mbt::host_verification_notice`、
+/// `host_agents_dir` 每个分支前的注释，以及 `docs/deploy/<host>.md`）：
+/// - deepseek-harness: verified 2026-09-17 (DSH 0.1.6-alpha.1 web profile)
+/// - minimax-code:     verified 2026-09-17 (MCP + Plugin V1 + Mini App panel)
+/// - zcode:            DECLARED, awaiting verification
+/// - 未设置 / 未识别:    None（由 `unknown_host_warning` 兜底，不重复告警）
+async test "host verification notice reflects the current verification matrix" {
+  let saved = @env.get_env_var("HARNESS_EVOLUTION_HOST")
+  defer restore_host_env(saved)
+
+  // DSH：已验证，文案点名「verified」
+  @env.set_env_var("HARNESS_EVOLUTION_HOST", "deepseek-harness")
+  match host_verification_notice() {
+    Some(n) => {
+      assert_true(n.contains("verified"))
+      assert_true(n.contains("DeepSeek Harness"))
+      assert_true(n.contains("2026-09-17"))
+    }
+    None => abort("DSH is verified; notice must be present")
+  }
+
+  // Minimax Code：已验证，文案点名「verified」与「MCP / Plugin V1 / Mini App」
+  @env.set_env_var("HARNESS_EVOLUTION_HOST", "minimax-code")
+  match host_verification_notice() {
+    Some(n) => {
+      assert_true(n.contains("verified"))
+      assert_true(n.contains("Minimax Code"))
+      assert_true(n.contains("2026-09-17"))
+    }
+    None => abort("Mavis is verified; notice must be present")
+  }
+
+  // ZCode：声明待验证，文案必须显式标「DECLARED」且不含「verified」，
+  // 否则本测试会在 ZCode 被验证后第一时刻爆出来，强制人去更新两份文件
+  @env.set_env_var("HARNESS_EVOLUTION_HOST", "zcode")
+  match host_verification_notice() {
+    Some(n) => {
+      assert_true(n.contains("DECLARED"))
+      assert_true(n.contains("awaiting verification"))
+      assert_false(n.contains(" verified"))
+    }
+    None => abort("ZCode is declared; notice must be present")
+  }
+
+  // 未识别宿主：本函数返回 None（避免与 `unknown_host_warning` 重复告警）
+  @env.set_env_var("HARNESS_EVOLUTION_HOST", "totally-fake-host")
+  assert_true(host_verification_notice() is None)
+
+  // 未设置：默认 DSH，已验证
+  @env.unset_env_var("HARNESS_EVOLUTION_HOST")
+  match host_verification_notice() {
+    Some(n) => assert_true(n.contains("verified"))
+    None => abort("default DSH is verified; notice must be present")
+  }
 }

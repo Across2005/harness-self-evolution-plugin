@@ -1,5 +1,6 @@
 # Dependencies & build output
 node_modules/
+.pnpm-store/
 dist/
 *.tsbuildinfo
 
@@ -31,6 +32,7 @@ _*.txt
 
 # Personal application docs (contain name + phone) and local evidence dumps
 项目申报书*.md
+_verify_isolated/
 
 # MoonBit
 # 构建产物实测落在 _build/（非 target/），由 build.ps1 复制出 bin/harness-evolution.exe

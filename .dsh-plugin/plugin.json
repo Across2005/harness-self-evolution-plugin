@@ -53,7 +53,7 @@
   "dependencies": {},
   "devDependencies": {},
   "engines": {
-    "deepseek-harness": ">=1.0.0",
+    "deepseek-harness": ">=0.1.6",
     "minimax-code": ">=1.0.0",
     "zcode": ">=0.5.0"
   },
@@ -69,8 +69,7 @@
     }
   },
   "scan_targets": [
-    "~/.deepseek/harness/plugins/",
-    "~/.deepseek/harness/extensions/",
+    "~/.dsh/profiles/",
     "~/.minimax/plugins/",
     "~/.minimax/extensions/",
     "~/.zcode/cli/plugins/",

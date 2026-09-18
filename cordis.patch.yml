@@ -1,77 +1,31 @@
-# cordis.patch.yml — DSH 生态标准 manifest
-# 将 .dsh-plugin/plugin.json 翻译为 YAML 数组格式
-# 文档要求：顶层 YAML 数组，- insert: / - replace: 开头，name 字段为 npm 包名
-
+# cordis.patch.yml — DSH bundle patch（loader patch list）。
+#
+# DSH 方言（实测 0.1.6-alpha.1，见 dsh-app-boot 的 anchorInsertedPluginNames）：
+# 顶层必须是 YAML 数组；每个元素是「loader patch entry」，其 `insert` 的值必须是
+# **挂载行数组** `[{id, name, config?}]`。`name` = 要挂载的 npm 包名（Loader 解析），
+# `id` = 后续 patch 层（profile 的 cordis.patch.yml 或 `--patch` overlay）定位该行的目标。
+# 若把元数据映射塞进 `insert`，app-boot 会在 `patch.insert?.forEach` 处抛
+# `TypeError: patch.insert?.forEach is not a function`，把整个 profile 打挂（ISSUE-01）。
+#
+# 本文件不是 plugin.json 的翻译 —— 元数据只存在于 package.json 与 .dsh-plugin/plugin.json。
 - insert:
-    name: "@across2005/harness-self-evolution"
-    version: "2.4.0"
-    description: "Benchmark-driven self-evolution plugin for DeepSeek Harness: iterate on a frozen benchmark, accept only when strictly better, roll back deterministically from verified snapshots."
-    author:
-      name: "Across2005"
-      email: "Across2005@users.noreply.github.com"
-    license: "MIT"
-    keywords:
-      - "dsh-plugin"
-      - "deepseek-harness"
-      - "harness"
-      - "evolution"
-      - "self-improvement"
-      - "mcp"
-      - "moonbit"
-    repository:
-      type: "git"
-      url: "git+https://github.com/Across2005/harness-self-evolution-plugin.git"
-    main: "./bin/harness-evolution.exe"
-    skills: "./skills"
-    agents: "./agents"
-    capabilities:
-      - "plugin_scanning"
-      - "performance_monitoring"
-      - "evolution_engine"
-      - "upgrade_execution"
-      - "sub_agent_orchestration"
-    mcp:
-      transport: "stdio"
-      protocolVersion: "2024-11-05"
-      tools:
-        - "scan_plugins"
-        - "get_plugin_metrics"
-        - "propose_evolution"
-        - "execute_evolution"
-        - "list_proposals"
-        - "approve_proposal"
-        - "reject_proposal"
-        - "create_sub_agent"
-        - "list_sub_agents"
-        - "delete_sub_agent"
-    engines:
-      deepseek-harness: ">=1.0.0"
-      minimax-code: ">=1.0.0"
-      zcode: ">=0.5.0"
-    evolution_config:
-      intensity: "50%"
-      auto_approve: false
-      cooldown_hours: 24
-      max_log_bytes: 33554432
-      signal_thresholds:
-        consecutive_failures: 3
-        loop_detection: 5
-        latency_regression: 0.2
-    scan_targets:
-      - "~/.deepseek/harness/plugins/"
-      - "~/.deepseek/harness/extensions/"
-      - "~/.minimax/plugins/"
-      - "~/.minimax/extensions/"
-      - "~/.zcode/cli/plugins/"
-      - "~/.zcode/skills/"
-      - "~/.agents/skills/"
-      - "~/.openclaw-autoclaw/skills/"
-    monitoring:
-      enabled: true
-      sample_rate: 1.0
-      metrics:
-        - "latency"
-        - "success_rate"
-        - "token_usage"
-        - "retry_count"
-        - "user_feedback"
+    - id: mcp-harness-evolution
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: stdio
+        serverName: harness-evolution
+        # 指向构建产物 bin/harness-evolution.exe（build.ps1 -Task build 生成）。
+        # 工具公开名由 serverName 决定：mcp__harness-evolution__<tool>。
+        # failOnStartupError: true → MCP 握手/工具发现失败时 DSH 启动直接失败（强判据）。
+        #
+        # ★ H7（硬编码绝对路径）：DSH 的 cordis Loader 不解析相对路径、
+        # 不解析 ${ENV_VAR} 插值（实测 @deepseek-ai/dsh-app-boot/lib/index.js），
+        # command/cwd 必须是绝对路径字面量。其他仓库路径需用 `scripts/replace-paths.ps1`
+        # 替换本文件里的 `D:/Agent设计/harness-self-evolution-plugin` 字符串。
+        # 详见 docs/deploy/deepseek-harness.md § Path substitution。
+        command: 'D:/Agent设计/harness-self-evolution-plugin/bin/harness-evolution.exe'
+        args: []
+        cwd: 'D:/Agent设计/harness-self-evolution-plugin'
+        env:
+          HARNESS_EVOLUTION_HOST: deepseek-harness
+        failOnStartupError: true

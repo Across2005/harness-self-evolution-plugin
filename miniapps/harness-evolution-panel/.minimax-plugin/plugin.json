@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "name": "harness-evolution-panel",
+  "displayName": "harness-evolution-panel",
+  "version": "1.0.0",
+  "description": "harness-evolution-panel Mini App",
+  "author": "User",
+  "icon": "icon.png",
+  "category": "Other",
+  "exampleQueries": [],
+  "apps": [],
+  "mcpServers": [],
+  "skills": []
+}

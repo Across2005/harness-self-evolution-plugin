@@ -1,772 +1,91 @@
 # Harness Self-Evolution Plugin
 
-> 让多种 Harness 平台的插件生态持续自我进化 —— 扫描 → 监控 → 识别 → 提案 → 人工审批 → 真实升级。
->
-> 支持：DeepSeek Harness（首打）/ Minimax Code / ZCode / Claude Code / OpenClaw
+A MoonBit-native plugin that scans, monitors, proposes, and rolls back evolutions for plugin ecosystems across multiple AI harness platforms. Version 2.6.0. MIT.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-22cc22.svg)](LICENSE)
-[![Version: 2.6.0](https://img.shields.io/badge/version-2.6.0-1f6feb.svg)](.dsh-plugin/plugin.json)
-[![Runtime: MoonBit native](https://img.shields.io/badge/runtime-MoonBit%20native-ff7a18.svg)](moon.mod)
-[![Total tests: 424/424](https://img.shields.io/badge/tests-424%2F424-22cc22.svg)](CONTEXT.md)[![Sandbox: enabled](https://img.shields.io/badge/sandbox-enabled-22cc22.svg)](#安全沙箱)
-[![Gate: 0/0](https://img.shields.io/badge/gate-%20%E2%9C%93%20passing-22cc22.svg)](build.ps1)
-[![Platform: Windows / Linux / macOS](https://img.shields.io/badge/platform-win%20%7C%20linux%20%7C%20macos-informational.svg)]()
+This plugin is the same compiled binary for every host. What changes per host is how the host launches the binary, where data is read and written, and which host-specific files (patches, manifests, panels) sit alongside the binary.
 
-[English](#english) · [中文](#中文)
+## Which host are you on?
 
----
-
-## 目录
-
-- [一句话定位](#一句话定位)
-- [特性](#特性)
-- [v2.6.0 更新要点](#v260-更新要点)
-- [v2.5.0 更新要点](#v250-更新要点)
-- [兼容性](#兼容性)
-- [架构](#架构)
-- [安装](#安装)
-- [快速开始](#快速开始)
-- [配置](#配置)
-- [MCP 工具](#mcp-工具)
-- [项目结构](#项目结构)
-- [子 Agent 系统](#子-agent-系统)
-- [数据存储](#数据存储)
-- [架构守卫](#架构守卫)
-- [风险缓解](#风险缓解)
-- [文档](#文档)
-- [贡献](#贡献)
-- [许可证](#许可证)
-
----
-
-## 中文
-
-### 一句话定位
-
-挂在多种 Harness 平台上的自进化插件（首打 DeepSeek Harness）。用户全程只介入一处：看提案，点同意或不同意。
-
-### 特性
-
-- **插件扫描**：解析 `plugin.json` / `SKILL.md`，评复杂度、接口清晰度、文档质量
-- **指标采集**：按调用记录延迟、成功率、Token 开销；热路径不读盘，深度检查按节流间隔
-- **信号识别**：强信号（用户纠正 / 连续失败 ≥ 3 / 指标下滑 > 20%）立即触发；中信号累积；弱信号只记录
-- **提案生成**：八类进化提案绑定 Matt Pocock 工程原则；24 小时冷却、每会话上限 3 条、重复丢弃
-- **执行验证**：状态机 `pending → approved → executing → completed`，非 `approved` 拒绝执行
-- **子 Agent 工厂**：3 个 MCP 工具管理两个作用域的 Markdown + YAML frontmatter 定义文件
-- **DSH 集成**：与 DeepSeek Harness 的 `subagent` 工具对接，支持任务 DAG 编排
-- **DSH Watcher 集成**：可选的只读会话观察插件，可视化进化执行过程、模型推理时间和工具调用链路
-- **学术写作进化**：支持学术写作规范化、反 AI 写作检测、引用规范化三类进化，基于 AI 痕迹检测和学术规范检查
-- **安全沙箱**：executor 写操作前置防护 — 6 类敏感数据扫描（API Key/Token/Password/PrivateKey/EnvAssignment/AuthHeader）、路径边界检查、文件级自动备份与回滚；所有 I/O 沉淀到 `store/sandbox_store.mbt`，满足架构守卫 G3
-
-### v2.6.0 更新要点
-
-> v2.6.0 是性能优化与缺陷修复版本（mooncakes 0.2.6 同批发布）：修复 C1 定向重扫缺陷，完成 S1–S6 六项性能/卫生整改，测试从 420 增至 424（+4 回归用例），三级验证（T0 语法 / T1 功能 / T2 回归）全绿。
-
-- **C1 定向重扫缺陷**：旧实现把插件根当扫描根，与 `discover_plugins` 契约（扫描根本身不算插件）冲突而静默无操作，还会写出 `*.incremental` 垃圾缓存文件；改为按父目录 + `max_depth=1` 发现后逐插件重扫，`force=false` 仍走指纹校验、只读不写
-- **S1 深度检查全局装载缓存**：节流窗口内多个插件共享一次全量读盘（`deep_reloads` 可观测），flush 成功的事件增量并入缓存；乱码注释按原语义重写
-- **S2–S5 热路径与扫描优化**：沙箱敏感扫描小写化循环外只算一次、备份存在性改直查；loop 去重改嵌套 Map 消除 key 拼接；scanner per-root 去重 + discover 清单匹配走内存（大幅减少 stat 与重复扫描）
-- **S6 未知 HOST 告警**：`HARNESS_EVOLUTION_HOST` 未知取值不再静默回落，启动时点名告警（回落行为不变）
-
-### v2.5.0 更新要点
-
-> v2.5.0 是工程质量版本：全仓代码评审后修复 56 个问题，测试从 383 增至 420（+37 回归用例），三级验证（T0 语法 / T1 功能 / T2 回归）全绿。
-
-- **2 个 blocker**：config watcher 任务句柄保存与 EOF 时机取消（防任务泄漏与竞态）；沙箱路径词法消解（`path_lexical_resolve`），杜绝 `..` 段穿透数据根
-- **14 个 major**：依赖分析、沙箱备份完善、MCP 错误处理、文档引擎对接等
-- **40 个 minor**：提案状态机守卫、JSONL 加固（UTF-8 BOM 剥离 / 尾部残行清理 / 唯一 tmp 路径）、死代码清理
-- **工具链备注**：moon 0.1.20260904 实测支持 `errdefer`，错误路径清理已改用该官方写法；`async@0.20.1` 锁定维持（见「构建」注）
-
-### DSH 生态提报证据（L1–L3）
-
-> **L1 仓库**：https://github.com/Across2005/harness-self-evolution-plugin（GitHub）/ https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin（GitLink 镜像）— 公开，2026-09-16 首发 v2.5.0，2026-09-17 发布 v2.6.0（mooncakes 0.2.6），MoonBit native，MIT。
->
-> **L2 manifest**：`package.json` 声明 `dsh.bundle`（`dsh.bundle.patch` → `./cordis.patch.yml`），同时为 5 个宿主（DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw）各有一份 capability 投影。13 个 MCP 工具 + DSH subagent 三件套（`get_execution_plan` / `report_task_result` / `finalize_execution`）。424 测试全过（0 失败）、11 条架构守卫 G1–G6 机器化卡死。
->
-> **L3 安装规范**：
-> ```bash
-> dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
-> ```
-> 数据存 `~/.harness-evolution/v2/`（可由 `$HARNESS_EVOLUTION_HOME` 覆盖），配置源链 `$HARNESS_EVOLUTION_CONFIG` → `/.dsh-plugin/plugin.json` → 内置默认。
-
-### 平台兼容性
-
-> **v2.6.0 产物为 Windows native**（`bin/harness-evolution.exe`，1,532,928 B）。本插件是 MoonBit 项目：能否编译取决于 MoonBit 工具链对目标系统的支持（已支持 Windows / Linux / macOS），在目标平台上用源码包自行构建即可；Linux/macOS 沙盒首次安装可能需要 `allowBuilds` 显式放行。
-
-### 已知限制
-
-- **F5 — `intensity=50` 时手动信号不触发提案**：`propose_evolution` 的 `signals` 参数按设计是 medium 强度，默认 50% 只放行 strong。要把手动信号生效需将 `intensity` 设为 `"100%"`。
-- **`record_tool_call` / `record_user_feedback` 暂无生产调用方**：这两个 MCP 工具在本仓库里没有生产路径上的调用方（1.0 也一样）。可走手动路径，但自动信号需 Harness 侧注入事件（注入点已就绪，待平台回调）。
-- **自动审批故意不接通**：`auto_approve` 字段在 2.0 起遇 `true` 显式告警并回落 `false` —— 人工审批是「自动改代码失控」的唯一闸门。
-
-### 兼容性
-
-本插件兼容多种 Harness 平台：
-
-| 平台 | 宿主标识 | 插件目录 | 子 Agent 目录 |
-|------|----------|----------|---------------|
-| **DeepSeek Harness** | `deepseek-harness` | `~/.deepseek/harness/plugins/`, `~/.deepseek/harness/extensions/` | `~/.deepseek/harness/agents/` |
-| **Minimax Code** | `minimax-code` | `~/.minimax/plugins/`, `~/.minimax/extensions/` | `~/.minimax/agents/` |
-| **ZCode** | `zcode` | `~/.zcode/cli/plugins/`, `~/.zcode/skills/` | `~/.zcode/agents/` |
-| **Claude Code** | — | 作为 MCP 服务器调用 | — |
-| **OpenClaw** | — | 作为 MCP 服务器调用 | — |
-
-本插件是 DSH 插件，默认宿主为 **DeepSeek Harness**（user 作用域缺省写 `~/.deepseek/harness/agents/`）；可通过环境变量 `HARNESS_EVOLUTION_HOST` 切换宿主类型（如 `zcode`、`minimax-code`）。
-
-> **清单迁移说明**：本插件的自述清单现位于 `.dsh-plugin/plugin.json`（原 `.zcode-plugin/`，DSH 首打）；旧路径仍被运行时配置链兼容读取。ZCode 等其他宿主的扫描目标与 user 作用域目录不受影响（由 `scan_targets` 与 `HARNESS_EVOLUTION_HOST` 决定）。
-
-### 架构
-
-```mermaid
-flowchart TB
-    subgraph 宿主
-        Client["DeepSeek Harness / Minimax Code / ZCode / Claude Code"]
-    end
-    
-    subgraph "harness-self-evolution（MCP server, stdio JSON-RPC）"
-        direction TB
-        HE["harness_evolution/<br/>装配与启动"]
-        MCP["mcp/<br/>13 工具 · stdio JSON-RPC"]
-        ENG["engine/<br/>决策树 + 风险评估"]
-        EXE["executor/<br/>DAG 分层 + Sub-Agent 编排 + 安全沙箱"]
-        FAC["factory/<br/>子 Agent 定义管理"]
-        SCN["scanner/<br/>插件发现 + 信息提取"]
-        MON["monitor/<br/>性能采集 + 信号检测"]
-        PLN["planner/<br/>提案 → 执行计划（无状态预处层）"]
-        ST["store/<br/>唯一持久化层<br/>（JSONL / 缓存 / 提案 / 子 Agent）"]
-        TY["types/<br/>19 张 wire 表 · 词汇表单一事实来源"]
-        UT["util/<br/>路径 / 时间 / 日志 / 4 个零依赖 Deep Module"]
-    end
-    
-    Client -- "scan_plugins / propose_evolution /<br/>approve_proposal / execute_evolution /<br/>create_sub_agent ..." --> MCP
-    HE --> MCP
-    MCP --> ENG
-    MCP --> EXE
-    MCP --> SCN
-    MCP --> MON
-    MCP --> FAC
-    ENG --> ST
-    EXE --> ST
-    FAC --> ST
-    SCN --> ST
-    MON --> ST
-    SCN --> TY
-    ENG --> TY
-    EXE --> TY
-    FAC --> TY
-    MON --> TY
-    ENG --> MON
-    EXE --> MON
-    EXE --> PLN
-    PLN --> TY
-    ST --> UT
-    TY --> UT
-    ENG --> UT
-    EXE --> UT
-    FAC --> UT
-    SCN --> UT
-    MON --> UT
-```
-
-依赖图是**严格分层**的（`util → types → store → scanner/monitor/planner → engine/executor/factory → mcp → harness_evolution`），由 `src/mcp/architecture_test.mbt` 的 11 条守卫（G1–G6）机器化验证；任何新增反向边、往 stdout 写日志、绕过 `store/` 持久化，都会在 `moon test` 里立刻变红。
-
-### 安装
-
-#### 前置要求
-
-- **MoonBit 工具链**（`moon`）：从 [MoonBit 官网](https://www.moonbitlang.com/) 下载安装
-- **Windows**：Visual Studio 的 C++ 生成工具（`cl.exe`）+ Windows SDK（`build.ps1` 会自动探测）
-- **宿主环境**（任选其一）：
-  - DeepSeek Harness
-  - Minimax Code CLI：`npm install -g mmx-cli`
-  - ZCode CLI
-  - Claude Code / OpenClaw（作为 MCP 服务器）
-
-运行时**不需要 Node.js** —— 产物是独立的 native 可执行文件。
-
-#### 构建
+Pick the one that runs your sessions. If you don't know, run:
 
 ```powershell
-# 克隆（任选一）
-git clone https://github.com/Across2005/harness-self-evolution-plugin.git
-# 或
-git clone https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin.git
-
-cd harness-self-evolution-plugin
-
-# 构建：check + test + build，产物复制到 bin\harness-evolution.exe
-.\build.ps1 all
-
-# 安装到 DeepSeek Harness（DSH，首打宿主）
-dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
-# 或本地安装：
-dsh plugin --profile web add .
+# Windows PowerShell
+Test-Path '~/.dsh'
+Test-Path '~/.minimax'
+Test-Path '~/.zcode'
 ```
 
-> **为什么锁死 `async@0.20.1`**：0.21.x 开始使用 `noraise + nocancel` 效果注解语法，实测 moon 0.1.20260819 解析它会报 `[3002] Parse error, unexpected token '+'`。当前工具链 moon 0.1.20260904 已实测支持 `errdefer`，但对该 0.21.x 语法未复测，维持锁定；复测通过后方可放开约束。
+Open the matching guide:
 
-### 快速开始
+| Host | Status (2026-09-17) | Guide |
+|---|---|---|
+| **DeepSeek Harness** (DSH) ≥ 0.1.6 | **Verified end-to-end** | [docs/deploy/deepseek-harness.md](docs/deploy/deepseek-harness.md) |
+| **Minimax Code** (Mavis) | **Verified end-to-end** | [docs/deploy/mavis.md](docs/deploy/mavis.md) |
+| **ZCode** ≥ 0.5.0 | **Declared, awaiting verification** | [docs/deploy/zcode.md](docs/deploy/zcode.md) |
+| anything else | **Unsupported** | — |
 
-#### 1. 环境准备
+What "verified" means: a fresh install completes the full propose → approve → execute loop on this machine, and the runtime stays healthy afterwards. "Declared" means the code path exists but no end-to-end test has run on a real ZCode installation yet. "Unsupported" means the runtime will fall back to the DSH path and emit a `Unknown HARNESS_EVOLUTION_HOST ...` warning on every boot — do not rely on it.
 
-确保已安装以下工具：
+The status of the active host is **printed by the binary itself at startup** (see `host_verification_notice` in `src/store/paths.mbt`). Operators do not have to read this README to know whether they are on a verified or declared host; the boot log says so directly. The same matrix is also pinned by a regression test (`host verification notice reflects the current verification matrix`) so an unnoticed change to one without the other fails the build.
 
-- **MoonBit 工具链**（`moon`）：从 [MoonBit 官网](https://www.moonbitlang.com/) 下载安装
-- **Windows 用户**：Visual Studio 的 C++ 生成工具（`cl.exe`）+ Windows SDK（`build.ps1` 会自动探测）
-- **宿主环境**（任选其一）：
-  - DeepSeek Harness
-  - Minimax Code CLI：`npm install -g mmx-cli`
-  - ZCode CLI
-  - Claude Code / OpenClaw（作为 MCP 服务器）
+If your host isn't in the table, see [docs/code-architecture.md § Adding a new host](docs/code-architecture.md#adding-a-new-host) — three files to touch, plus the verification test.
 
-#### 2. 获取与构建
+If you are **writing or debugging a DSH plugin** rather than deploying this one, read [docs/dsh-plugin-integration.md](docs/dsh-plugin-integration.md): the host-half / client-half contract, the Lazy-CJS client bundle rule (one stray top-level `export` breaks every plugin in the combo), `DSH_HOME` routing, and the diagnosis order for "Failed to load plugins".
+
+## What it does
+
+- **Scan** installed plugins across the configured scan roots for the active host
+- **Monitor** call latency, success rate, token usage, retry count, and user feedback
+- **Identify** strong signals (user override, three consecutive failures, > 20% latency regression) and medium signals (repeated parameter misuses, loop detection, repeated preferences)
+- **Propose** benchmark-driven evolutions bound to Matt Pocock engineering principles
+- **Approve** is always a human step. `auto_approve` is `false` by default and stays `false` — the only gate against "code changes itself into a wall"
+- **Execute** with state machine `pending → approved → executing → completed`, with deterministic rollback from a verified snapshot on validator failure
+- **Sub-agent factory** persists Markdown + YAML frontmatter definitions; scope `plugin` lives under the plugin's data root, scope `user` lives in the host's user-level directory (path differs per host, see deploy guides)
+
+## Architecture in one paragraph
+
+The compiled binary (`bin/harness-evolution.exe`) is a stdio MCP server. The MCP protocol surface and the fourteen tools are host-agnostic. Two things change per host: (a) the path layout, declared in `src/store/paths.mbt::host_agents_dir` and `src/scanner/scanner.mbt::default_scan_roots`; (b) the launcher and supplementary files. The runtime picks the host from `HARNESS_EVOLUTION_HOST` (`deepseek-harness` default, `minimax-code`, `zcode`, or `HARNESS_EVOLUTION_USER_DIR` to override the user directory explicitly). Each deploy guide in `docs/deploy/` spells out exactly which launcher mechanism and which supplementary files that host uses.
+
+See [docs/code-architecture.md](docs/code-architecture.md) for the split-path loading principle in detail.
+
+## Build
 
 ```powershell
-# 克隆仓库（任选一）
-git clone https://github.com/Across2005/harness-self-evolution-plugin.git
-cd harness-self-evolution-plugin
-
-# 完整构建（检查 + 测试 + 构建）
-.\build.ps1 all
+.\build.ps1 -Task all    # check + test + build; one command rebuilds the binary
 ```
 
-构建成功后，产物位于 `bin/harness-evolution.exe`。
+Build prerequisites: MoonBit `>=0.1.20260904`, MSVC or Clang on Linux/macOS. The current binary in `bin/harness-evolution.exe` is Windows-native; rebuilding on the target platform produces a native binary for that platform.
 
-#### 3. 安装到 DeepSeek Harness（DSH）
+## Data and configuration
+
+The plugin stores proposals, metrics, signals, cache, and execution log under `$HARNESS_EVOLUTION_HOME` (default `~/.harness-evolution/v2/`). Override with the env var to keep dev/test data separate.
+
+Configuration is read in this order, first file that exists wins:
+
+1. `$HARNESS_EVOLUTION_CONFIG` (explicit override)
+2. `<cwd>/.dsh-plugin/plugin.json` (DSH self-manifest)
+3. `<cwd>/.zcode-plugin/plugin.json` (legacy compatibility)
+4. `.dsh-plugin/plugin.json` (relative to plugin root)
+
+If none exist the plugin starts with built-in defaults — missing config is not a startup failure.
+
+## Installing into the right tree (`DSH_HOME`)
+
+Installing is **per DSH tree**: `dsh plugin add` writes into `$DSH_HOME/profiles/<name>`, and `$DSH_HOME`
+decides which tree boots (`~/.dsh` by default — a managed launcher may point it somewhere else). Trees
+share nothing: `bundles`, `node_modules`, sessions, and skills are all per-tree, so an install verified in
+one tree stays invisible to a host booting another. `dsh.profile.bundles` is read at boot, so the host must
+be **restarted** before the fourteen `mcp__harness-evolution__*` tools appear in a session.
 
 ```powershell
-# 将插件安装到 DSH（使宿主能发现并加载插件）
-dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
-# 或本地安装：
-dsh plugin --profile web add .
+$env:DSH_HOME                                                            # which tree is dsh touching?
+dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'  # already mounted in this tree?
 ```
 
-#### 4. 启动插件
+Full install, verification, and rollback: [docs/deploy/deepseek-harness.md](docs/deploy/deepseek-harness.md);
+the live-install practice (multi-home reality, `.dsh-module-fallback` pitfalls):
+[docs/dsh-compatibility.md](docs/dsh-compatibility.md).
 
-插件作为 MCP 服务器运行，由宿主自动启动。启动流程：
+## License
 
-1. **DSH Host 读取** `package.json` 的 `dsh.bundle`（`cordis.patch.yml`）清单
-2. **宿主启动** `bin/harness-evolution.exe` 进程
-3. **插件通过 stdio JSON-RPC** 与宿主通信
-4. **插件自动扫描** 配置的插件目录（`scan_targets`）
-5. **监控开始**，记录性能事件和进化信号
-
-#### 5. 验证运行
-
-```powershell
-# 检查插件是否正常运行
-dsh plugin --profile web list
-```
-
-应该能看到 `harness-self-evolution (v2.6.0) - Active`。
-
-#### 6. 使用插件功能
-
-通过宿主调用 MCP 工具：
-
-```javascript
-// 全量扫描（默认模式）
-const result = await callMcpTool('scan_plugins', {});
-
-// 定向重扫（只扫描指定插件的目录，其他插件保留不变）
-const result = await callMcpTool('scan_plugins', { plugin_ids: ['browser-use'] });
-
-// 路径重定向（自定义扫描路径）
-const result = await callMcpTool('scan_plugins', { target_paths: ['/custom/path'] });
-
-// 获取插件性能指标
-const metrics = await callMcpTool('get_plugin_metrics', { plugin_id: 'browser-use-0.4.1' });
-
-// 生成进化提案
-const proposal = await callMcpTool('propose_evolution', { plugin_id: 'browser-use-0.4.1' });
-```
-
-### `build.ps1` 子命令
-
-| 命令 | 作用 |
-|------|------|
-| `.\build.ps1 check` | `moon check --deny-warn --target native`（零错零警才算过） |
-| `.\build.ps1 test` | `moon test --target native` |
-| `.\build.ps1 build` | release 构建 + 复制到 `bin\harness-evolution.exe` |
-| `.\build.ps1 fmt` | `moon fmt` |
-| `.\build.ps1 all` | 依次执行 check → test → build |
-
-### 配置
-
-配置只来自 `.dsh-plugin/plugin.json` 的 `evolution_config` 段（查找顺序：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.dsh-plugin/plugin.json` → 旧布局 `<cwd>/.zcode-plugin/plugin.json`（兼容回退）→ 内置默认值）。**`AGENTS.md` 不参与任何配置解析**。
-
-```json
-{
-  "scan_targets": [
-    "~/.deepseek/harness/plugins/",
-    "~/.deepseek/harness/extensions/",
-    "~/.minimax/plugins/",
-    "~/.minimax/extensions/",
-    "~/.zcode/cli/plugins/",
-    "~/.zcode/skills/"
-  ],
-  "evolution_config": {
-    "intensity": "50%",
-    "auto_approve": false,
-    "cooldown_hours": 24,
-    "max_log_bytes": 33554432,
-    "signal_thresholds": {
-      "consecutive_failures": 3,
-      "loop_detection": 5,
-      "latency_regression": 0.2
-    }
-  }
-}
-```
-
-#### 配置字段说明
-
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `intensity` | `"50%"` | `"100%"` 强信号或两个中信号均可触发；`"50%"` 仅强信号触发；`"0%"` 关闭所有进化检查 |
-| `auto_approve` | `false` | **故意不接通**。人工审批是「自动改代码失控」的唯一闸门 |
-| `cooldown_hours` | `24` | 同一插件两次提案的最短间隔（小时），下界 1 |
-| `max_log_bytes` | `33554432` | `metrics.jsonl` / `signals.jsonl` 的保留上限（字节，默认 32 MiB） |
-| `signal_thresholds.consecutive_failures` | `3` | 连续失败次数阈值 |
-| `signal_thresholds.loop_detection` | `5` | 循环检测次数阈值 |
-| `signal_thresholds.latency_regression` | `0.2` | 性能回归比例阈值 |
-
-### MCP 工具
-
-本插件提供 13 个 MCP 工具：
-
-#### 核心工具
-
-| 工具 | 作用 | 版本 |
-|------|------|------|
-| `scan_plugins` | 扫描插件（支持定向重扫/路径重定向/全量扫描三种模式） | v2.4 |
-| `get_plugin_metrics` | 获取插件性能指标 | v1.0 |
-| `propose_evolution` | 生成进化提案（可带手动 `signals`） | v1.0 |
-| `approve_proposal` | 批准提案（必经环节） | v1.0 |
-| `reject_proposal` | 拒绝提案 | v1.0 |
-| `list_proposals` | 列出所有提案 | v1.0 |
-| `execute_evolution` | 执行已批准提案 | v1.0 |
-
-#### 子 Agent 工厂工具
-
-| 工具 | 作用 | 版本 |
-|------|------|------|
-| `create_sub_agent` | 创建子 Agent 定义文件 | v2.1 |
-| `list_sub_agents` | 列出子 Agent 定义（可按 `scope` 过滤） | v2.1 |
-| `delete_sub_agent` | 删除子 Agent 定义 | v2.1 |
-
-#### 合并工具
-
-| 工具 | 作用 | 版本 |
-|------|------|------|
-| `analyze_plugins` | 合并工具：扫描并/或获取指标（`mode=scan/metrics/both`） | v2.3 |
-| `evolve_plugin` | 合并工具：生成或执行提案（`action=propose/execute`） | v2.3 |
-| `manage_sub_agent` | 合并工具：管理子 Agent 定义（`action=create/list/delete`） | v2.3 |
-
-### 项目结构
-
-```
-harness-self-evolution-plugin/
-├── src/                          # MoonBit 源代码（72 个 .mbt 文件）
-│   ├── engine/                   # 进化引擎：决策树 + 风险评估
-│   │   ├── engine.mbt            # 进化引擎核心
-│   │   ├── planning.mbt          # 提案规划（含学术写作变更生成）
-│   │   ├── academic_writing.mbt  # 学术写作进化引擎
-│   │   └── risk.mbt              # 风险评估
-│   ├── executor/                 # 执行器：DAG 分层 + Sub-Agent 编排
-│   │   ├── dag.mbt               # 拓扑排序
-│   │   ├── executor.mbt          # 执行器核心
-│   │   ├── runner.mbt            # 任务执行器（模拟/真实）
-│   │   └── sandbox.mbt           # 安全沙箱：敏感数据扫描 + 边界检查 + 备份回滚
-│   ├── planner/                  # 计划生成模块
-│   │   └── planner.mbt           # 计划生成与清理
-│   ├── factory/                  # 子 Agent 工厂
-│   │   └── factory.mbt
-│   ├── harness_evolution/        # 入口：装配与启动
-│   │   └── main.mbt
-│   ├── mcp/                      # MCP 服务器：13 工具 · stdio JSON-RPC
-│   │   ├── jsonrpc.mbt           # JSON-RPC 2.0 协议
-│   │   ├── schema.mbt            # 工具 Schema
-│   │   ├── server.mbt            # stdio 传输层
-│   │   └── tools.mbt             # 工具定义与派发
-│   ├── monitor/                  # 性能监控：信号检测
-│   │   ├── deep_check.mbt        # 深度检查
-│   │   ├── flush.mbt             # 缓冲刷新
-│   │   ├── monitor.mbt
-│   │   ├── statistics.mbt        # 统计聚合
-│   │   └── trailing.mbt          # 尾计数状态
-│   ├── scanner/                  # 插件扫描：发现 + 信息提取
-│   │   ├── discover.mbt          # 目录遍历
-│   │   ├── extract.mbt           # 元数据提取
-│   │   ├── metrics.mbt           # 指标计算
-│   │   └── scanner.mbt
-│   ├── store/                    # 持久化层：JSONL / 缓存 / 提案 / 子 Agent
-│   │   ├── agent_defs.mbt        # 子 Agent 定义存储
-│   │   ├── cache.mbt             # 插件缓存
-│   │   ├── exec_log.mbt          # 执行日志
-│   │   ├── jsonl.mbt             # JSONL 读写
-│   │   ├── paths.mbt             # 数据路径
-│   │   ├── proposals.mbt         # 提案存储
-│   │   └── sandbox_store.mbt     # 沙箱文件 I/O（备份/读写/恢复/清理）
-│   ├── types/                    # 类型定义：19 张 wire 表
-│   │   ├── agent_scope.mbt
-│   │   ├── change.mbt
-│   │   ├── config.mbt            # 配置类型
-│   │   ├── config_helpers.mbt    # 配置解析辅助
-│   │   ├── dependency.mbt
-│   │   ├── event.mbt
-│   │   ├── plugin.mbt
-│   │   ├── proposal.mbt
-│   │   ├── signal.mbt
-│   │   ├── task.mbt
-│   │   └── wire_tables.mbt       # wire 表定义
-│   └── util/                     # 工具库：4 个零依赖 Deep Module
-│       ├── log.mbt               # 日志（唯一 stderr 出口）
-│       ├── path.mbt              # 路径处理
-│       ├── time.mbt              # 时间处理
-│       └── wire.mbt              # wire 表工具
-├── agents/                       # 子 Agent 出厂模板（5 个）
-│   ├── code-generator.md
-│   ├── doc-writer.md
-│   ├── integration.md
-│   ├── test-writer.md
-│   └── validator.md
-├── skills/                       # Skill 定义
-│   └── harness-evolution/
-│       └── SKILL.md
-├── bin/                          # 构建产物
-│   └── harness-evolution.exe
-├── dsh-watcher/                  # DSH Web 浮窗观察插件（TypeScript + React 源码副本，只读会话观察）
-├── docs/                         # 文档
-├── specs/                        # 规格文档
-├── .dsh-plugin/                  # 插件自述清单（原 .zcode-plugin/，旧路径仍被配置链兼容读取）
-│   └── plugin.json
-├── build.ps1                     # 构建脚本
-├── moon.mod                      # MoonBit 模块配置
-├── BUILD.md                      # 构建与接手总指南
-├── CONTEXT.md                    # 领域词汇表
-├── DESIGN.md                     # 详细设计
-├── DSH_INTEGRATION.md            # DSH 集成指南
-└── README.md                     # 本文件
-```
-
-### 子 Agent 系统
-
-插件内置 5 个子 Agent 角色，用于协同执行进化提案：
-
-| Agent | 职责 | 触发条件 |
-|-------|------|----------|
-| `code-generator` | 实现工具合并/中间件/能力扩展代码 | 提案包含代码变更 |
-| `test-writer` | 编写测试用例 | 存在代码生成任务 |
-| `doc-writer` | 更新文档 | 提案包含文档变更 |
-| `integration` | 处理依赖关系与兼容性 | 任务数 > 1 |
-| `validator` | 执行 T0/T1/T2 三级验证 | 所有任务完成后 |
-
-#### 任务执行流程
-
-```mermaid
-flowchart LR
-    P[提案审批] --> E[Executor 启动]
-    E --> PL[Planner 生成执行计划]
-    PL --> D[任务分解]
-    D --> CG[code-generator]
-    D --> TW[test-writer]
-    D --> DW[doc-writer]
-    D --> IT[integration]
-    D --> VA[validator]
-    CG --> T0[T0 语法]
-    TW --> T1[T1 功能]
-    VA --> T2[T2 回归]
-    T0 --> R[更新 Registry]
-    T1 --> R
-    T2 --> R
-```
-
-#### 三级验证
-
-| 级别 | 验证内容 | 超时 |
-|------|----------|------|
-| T0 | 语法验证（`moon check`） | 50ms |
-| T1 | 功能验证（`moon test`） | 100ms |
-| T2 | 回归验证（`build.ps1 all`） | 150ms |
-
-### 数据存储
-
-所有数据以 JSONL / JSON 格式存储在**同一个数据根目录**下（默认 `~/.harness-evolution/v2/`，可用 `$HARNESS_EVOLUTION_HOME` 覆盖）：
-
-```
-~/.harness-evolution/v2/
-├── plugin-cache.json   # 扫描缓存（每条带目录指纹：mtime + 子项数 + 子项 mtime）
-├── metrics.jsonl       # 性能事件（monitor 写，受 max_log_bytes 约束）
-├── signals.jsonl       # 进化信号（monitor 写 / engine 读，受 max_log_bytes 约束）
-├── proposals.jsonl     # 进化提案（ProposalStore 唯一读写口，不裁剪）
-├── execution.log       # 执行日志（executor，不裁剪）
-├── sandbox/            # 沙箱备份目录（executor 进入沙箱时自动创建，退出后清理）
-└── agents/             # 子 Agent 定义（factory 写，scope=plugin）
-```
-
-#### 窗口裁剪
-
-`metrics.jsonl` / `signals.jsonl` 受 `max_log_bytes`（默认 32 MiB）约束：flush 成功后若超限，裁到只保留最新的完整行。`proposals.jsonl`（审计事实来源）与 `execution.log` **不裁剪**。
-
-### 架构守卫
-
-| 守卫 | 约束 |
-|------|------|
-| G1 / G1b | 包依赖图与声明完全一致，且每条边严格向下（构造性无环） |
-| G2 / G2b | `@stdio.stdout` 只在 `mcp/server.mbt`，`@stdio.stderr` 只在 `util/log.mbt` |
-| G3 / G3b | `@fs` 的写操作只在 `store/` |
-| G4 / G4b | 数据目录字面量只在 `store/paths.mbt` |
-| G5 / G5b | MoonBit 测试覆盖 424 个用例，包含完整的架构守卫验证 |
-| G6 | `moon.mod` 只有一个外部依赖，且 native 是首选目标 |
-
-每条守卫都做过**负向探针**验证（人为引入违规确认会变红），否则「永远通过的测试」只是装饰。
-
-### 安全沙箱
-
-executor 执行进化提案时，所有写操作经过安全沙箱预处理：
-
-1. **前置扫描**（`sandbox_pre_check`）：扫描目标文件是否包含 6 类敏感数据（API Key / Token / Password / Private Key / 环境变量赋值 / Auth Header），发现则中止执行
-2. **路径边界**（`is_within_boundary`）：确保写操作不超出数据根目录（`~/.harness-evolution/`），防止路径穿越
-3. **文件备份**（`backup_file`）：执行前自动备份每个目标文件到沙箱目录
-4. **后置验证**（`sandbox_post_verify`）：执行后验证敏感数据未被破坏、路径未越界
-5. **回滚机制**（`sandbox_restore_all`）：验证失败时自动从备份恢复所有文件
-
-沙箱纯逻辑层在 `src/executor/sandbox.mbt`（6 个函数），文件 I/O 层在 `src/store/sandbox_store.mbt`（7 个方法），严格遵守架构守卫 G3（`@fs` 写操作只在 `store/`）。
-
-### 风险缓解
-
-- **只读扫描**：Scanner 不修改任何插件代码
-- **审批强制**：所有进化必须经 `approve_proposal`
-- **状态机约束**：提案只能从 `pending → approved → executing → completed`（或被 `reject_proposal` 回到 `rejected`），非法跃迁一律拒
-- **信号缓冲有界**：`signal_buffer` 上限 500 条（`max_buffered_signals`），溢出丢最旧
-- **数值防御**：`num_field` 拒绝 `NaN` / `Infinity`，回落默认值并点名告警
-- **观测日志有界**：`metrics.jsonl` / `signals.jsonl` 受 `max_log_bytes` 约束，超限保留最新完整行
-- **安全沙箱**：executor 写操作前扫描敏感数据、验证路径边界、自动备份；执行后验证完整性；失败自动回滚
-
-### 文档
-
-| 文档 | 说明 |
-|------|------|
-| [`BUILD.md`](BUILD.md) | **构建与接手总指南**（两个构建单元、三级验证、已知偏差、接手清单） |
-| [`CONTEXT.md`](CONTEXT.md) | 领域词汇表、设计上下文、缺陷清单、配置来源、架构守卫 |
-| [`DESIGN.md`](DESIGN.md) | 详细设计、模块边界、调用链 |
-| [`DSH_INTEGRATION.md`](DSH_INTEGRATION.md) | DSH Sub-Agent 集成指南（371 行） |
-| [`docs/subagent-factory.md`](docs/subagent-factory.md) | 子 Agent 工厂的设计与研究结论 |
-| [`specs/minimax-code-support.md`](specs/minimax-code-support.md) | Minimax Code 扫描支持规格 |
-| [`dsh-watcher/`](dsh-watcher/README.md) | DSH Watcher 浮窗插件（概述与安装；设计契约见 [`dsh-watcher/DESIGN.md`](dsh-watcher/DESIGN.md)） |
-
-### 贡献
-
-欢迎提交 Issue 和 Pull Request。请先读 [`CONTEXT.md`](CONTEXT.md) 的「架构不变量」与「Matt Pocock 原则」两节 —— 任何反向边、往 stdout 写日志、绕过 `store/` 持久化、引入裸配置孤岛，都会被架构守卫在 `moon test` 阶段直接拒。
-
-### 许可证
-
-[MIT](LICENSE)
-
----
-
-## English
-
-### What is this
-
-A self-evolution plugin for multiple Harness platforms (primary: [DeepSeek Harness](https://github.com/deepseek-ai)). It scans plugins, monitors performance, detects signals, drafts upgrade proposals, and (only after explicit human approval) executes the upgrade. The user touches it in exactly one place: reviewing proposals.
-
-Supported platforms: DeepSeek Harness / Minimax Code / ZCode / Claude Code / OpenClaw
-
-### Features
-
-- **Plugin scanning**: Parses `plugin.json` / `SKILL.md`, evaluates complexity, interface clarity, documentation quality
-- **Metrics collection**: Records latency, success rate, token usage per call; hot path avoids disk I/O, deep checks throttled
-- **Signal detection**: Strong signals (user correction / consecutive failures ≥ 3 / metric regression > 20%) trigger immediately; medium signals accumulate; weak signals only recorded
-- **Proposal generation**: Eight evolution types bound to Matt Pocock engineering principles; 24h cooldown, max 3 per session, deduplication
-- **Execution verification**: State machine `pending → approved → executing → completed`, non-`approved` rejected
-- **Sub-Agent factory**: 3 MCP tools manage two scopes of Markdown + YAML frontmatter definition files
-- **DSH integration**: Integrates with DeepSeek Harness's `subagent` tool for task DAG orchestration
-- **DSH Watcher integration**: Optional read-only session observation plugin for visualizing evolution execution
-- **Safety sandbox**: Pre-execution protection for executor write operations — 6-category sensitive data scanning (API Key/Token/Password/PrivateKey/EnvAssignment/AuthHeader), path boundary checks, file-level auto-backup and rollback; all I/O delegated to `store/sandbox_store.mbt`, satisfying architecture guard G3
-
-### What's New in v2.6.0
-
-> v2.6.0 is a performance and defect-fix release (shipped alongside the mooncakes 0.2.6 package): the C1 targeted-rescan defect is fixed, plus six S1–S6 performance/hygiene improvements; tests grew from 420 to 424 (+4 regression cases), with all three verification levels (T0 / T1 / T2) green.
-
-- **C1 targeted-rescan defect**: the old implementation treated the plugin root as the scan root, conflicting with the `discover_plugins` contract ("the scan root itself is not a plugin") — a silent no-op that also wrote a `*.incremental` junk cache file; now it discovers via the parent directory + `max_depth=1` and rescans each plugin, with `force=false` still fingerprint-checked and read-only
-- **S1 global deep-check load cache**: plugins within one throttle window share a single full disk load (`deep_reloads` observable); successfully flushed events are merged into the cache incrementally; garbled comments rewritten per their original semantics
-- **S2–S5 hot-path and scan optimizations**: sandbox sensitive-scan lowercasing computed once outside the loop, backup existence checked directly; loop dedup moved to nested Maps (no key concatenation); scanner per-root dedup + in-memory manifest matching in discover (far fewer stats and rescans)
-- **S6 unknown HOST warning**: an unknown `HARNESS_EVOLUTION_HOST` value no longer falls back silently — a named startup warning is emitted (fallback behavior unchanged)
-
-### What's New in v2.5.0
-
-> v2.5.0 is an engineering-quality release: 56 issues fixed after a full-repo code review, tests grew from 383 to 420 (+37 regression cases), with all three verification levels (T0 syntax / T1 functional / T2 regression) green.
-
-- **2 blockers**: config-watcher task handle retention and EOF-time cancellation (prevents task leaks and races); sandbox path lexical resolution (`path_lexical_resolve`), eliminating `..`-segment traversal past the data root
-- **14 majors**: dependency analysis, sandbox backup hardening, MCP error handling, documentation engine integration, and more
-- **40 minors**: proposal state-machine guards, JSONL hardening (UTF-8 BOM stripping / tail partial-line cleanup / unique tmp paths), dead-code cleanup
-- **Toolchain note**: `errdefer` verified working on moon 0.1.20260904 and adopted for error-path cleanup; the `async@0.20.1` pin stays (see the Build note)
-
-### DSH Ecosystem Submission Evidence (L1–L3)
-
-> **L1 Repository**: https://github.com/Across2005/harness-self-evolution-plugin (GitHub) / https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin (GitLink 镜像) — public, first released 2026-09-16 (v2.5.0), updated 2026-09-17 (v2.6.0, mooncakes 0.2.6), MoonBit native, MIT.
->
-> **L2 Manifest**: `package.json` declares `dsh.bundle` (`dsh.bundle.patch` → `./cordis.patch.yml`); capability projections are provided for 5 hosts (DeepSeek Harness, Minimax Code, ZCode, Claude Code, OpenClaw). 13 MCP tools plus the DSH subagent triple (`get_execution_plan` / `report_task_result` / `finalize_execution`). 424 tests passing (0 failures), 11 architecture guards G1–G6 enforced by machine.
->
-> **L3 Install Spec**:
-> ```bash
-> dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
-> ```
-> State stored at `~/.harness-evolution/v2/` (overridable via `$HARNESS_EVOLUTION_HOME`); config resolution chain is `$HARNESS_EVOLUTION_CONFIG` → `/.dsh-plugin/plugin.json` → built-in defaults.
-
-### Platform Compatibility
-
-> **v2.6.0 artifact is Windows-native** (`bin/harness-evolution.exe`, 1,532,928 B). This is a MoonBit project: compilability depends on MoonBit toolchain support for the target OS (Windows / Linux / macOS supported) — build from the source package on your own platform. First-time install on Linux/macOS sandboxes may require an explicit `allowBuilds` allowlist entry.
-
-### Known Limitations
-
-- **F5 — at `intensity=50`, manual signal does not trigger a proposal**: the `signals` parameter of `propose_evolution` is designed as medium strength; at default 50% only strong signals pass. Raise `intensity` to `"100%"` to enable manual signals.
-- **`record_tool_call` / `record_user_feedback` have no production caller**: these MCP tools have no production-path caller in this repo (1.0 was the same). Manual path works, but automatic signals require Harness-side event injection (injection point ready, awaiting platform callback).
-- **Auto-approve intentionally not wired**: the `auto_approve` field warns and falls back to `false` since 2.0 — manual approval is the only gate against "auto-code-goes-wild".
-
-### Compatibility
-
-| Platform | Host ID | Plugin Directory | Agent Directory |
-|----------|---------|------------------|-----------------|
-| **DeepSeek Harness** | `deepseek-harness` | `~/.deepseek/harness/plugins/`, `~/.deepseek/harness/extensions/` | `~/.deepseek/harness/agents/` |
-| **Minimax Code** | `minimax-code` | `~/.minimax/plugins/`, `~/.minimax/extensions/` | `~/.minimax/agents/` |
-| **ZCode** | `zcode` | `~/.zcode/cli/plugins/`, `~/.zcode/skills/` | `~/.zcode/agents/` |
-| **Claude Code** | — | Called as MCP server | — |
-| **OpenClaw** | — | Called as MCP server | — |
-
-This is a DSH plugin; the default host is **DeepSeek Harness** (user scope writes to `~/.deepseek/harness/agents/` by default). Switch host type via the `HARNESS_EVOLUTION_HOST` environment variable (e.g. `zcode`, `minimax-code`).
-
-> **Manifest migration note**: the plugin's self-manifest now lives at `.dsh-plugin/plugin.json` (formerly `.zcode-plugin/`, DSH-first); the old path remains a compatible fallback in the runtime config chain. Scan targets and user-scope agent directories for other hosts are unaffected (driven by `scan_targets` and `HARNESS_EVOLUTION_HOST`).
-
-### Quickstart
-
-#### 1. Prerequisites
-
-- **MoonBit toolchain** (`moon`): download from [MoonBit website](https://www.moonbitlang.com/)
-- **Windows**: Visual Studio C++ Build Tools (`cl.exe`) + Windows SDK (auto-detected by `build.ps1`)
-- **Host environment** (choose one):
-  - DeepSeek Harness
-  - Minimax Code CLI: `npm install -g mmx-cli`
-  - ZCode CLI
-  - Claude Code / OpenClaw (as MCP server)
-
-#### 2. Clone and Build
-
-```powershell
-# Clone (either one)
-git clone https://github.com/Across2005/harness-self-evolution-plugin.git
-# or
-git clone https://www.gitlink.org.cn/Across2005/harness-self-evolution-plugin.git
-
-cd harness-self-evolution-plugin
-
-# Full build: check + test + build
-.\build.ps1 all
-```
-
-The output binary is at `bin/harness-evolution.exe`.
-
-#### 3. Install to DeepSeek Harness (DSH)
-
-```powershell
-# Install the plugin to DSH so the host can discover and load it
-dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
-# Or install locally:
-dsh plugin --profile web add .
-```
-
-#### 4. Run
-
-The plugin runs as an MCP server, automatically started by the host:
-
-1. The DSH Host reads the `dsh.bundle` manifest (`cordis.patch.yml`) from `package.json`
-2. Host launches `bin/harness-evolution.exe`
-3. Plugin communicates via stdio JSON-RPC
-4. Plugin auto-scans configured plugin directories (`scan_targets`)
-5. Monitoring begins, recording performance events and evolution signals
-
-#### 5. Verify
-
-```powershell
-dsh plugin --profile web list
-# Should show: harness-self-evolution (v2.6.0) - Active
-```
-
-#### 6. Use Plugin Features
-
-```javascript
-// Full scan (default mode)
-const result = await callMcpTool('scan_plugins', {});
-
-// Incremental rescan (only scan directories of specified plugins, keep others unchanged)
-const result = await callMcpTool('scan_plugins', { plugin_ids: ['browser-use'] });
-
-// Path redirect (custom scan paths)
-const result = await callMcpTool('scan_plugins', { target_paths: ['/custom/path'] });
-
-// Get plugin metrics
-const metrics = await callMcpTool('get_plugin_metrics', { plugin_id: 'browser-use-0.4.1' });
-
-// Generate evolution proposal
-const proposal = await callMcpTool('propose_evolution', { plugin_id: 'browser-use-0.4.1' });
-```
-
-### MCP Tools
-
-The plugin provides 13 MCP tools:
-
-#### Core Tools
-
-| Tool | Description | Version |
-|------|-------------|--------|
-| `scan_plugins` | Scan plugins (incremental rescan / path redirect / full scan) | v2.4 |
-| `get_plugin_metrics` | Get plugin performance metrics | v1.0 |
-| `propose_evolution` | Generate evolution proposal | v1.0 |
-| `approve_proposal` | Approve proposal (required step) | v1.0 |
-| `reject_proposal` | Reject proposal | v1.0 |
-| `list_proposals` | List all proposals | v1.0 |
-| `execute_evolution` | Execute approved proposal | v1.0 |
-
-#### Sub-Agent Factory Tools
-
-| Tool | Description | Version |
-|------|-------------|--------|
-| `create_sub_agent` | Create sub-agent definition file | v2.1 |
-| `list_sub_agents` | List sub-agent definitions | v2.1 |
-| `delete_sub_agent` | Delete sub-agent definition | v2.1 |
-
-#### Composite Tools
-
-| Tool | Description | Version |
-|------|-------------|--------|
-| `analyze_plugins` | Composite: scan and/or get metrics | v2.3 |
-| `evolve_plugin` | Composite: generate or execute proposal | v2.3 |
-| `manage_sub_agent` | Composite: manage sub-agent definitions | v2.3 |
-
-### Safety Sandbox
-
-When executing evolution proposals, all executor write operations pass through a safety sandbox:
-
-1. **Pre-scan** (`sandbox_pre_check`): Scans target files for 6 categories of sensitive data (API Key / Token / Password / Private Key / Environment variable assignment / Auth Header); aborts if found
-2. **Path boundary** (`is_within_boundary`): Ensures writes stay within the data root (`~/.harness-evolution/`), preventing path traversal
-3. **File backup** (`backup_file`): Auto-backs up each target file to the sandbox directory before execution
-4. **Post-verify** (`sandbox_post_verify`): Validates sensitive data integrity and path boundaries after execution
-5. **Rollback** (`sandbox_restore_all`): Auto-restores all files from backup on verification failure
-
-The sandbox logic layer lives in `src/executor/sandbox.mbt` (6 functions), and the file I/O layer in `src/store/sandbox_store.mbt` (7 methods), strictly observing architecture guard G3 (`@fs` writes only in `store/`).
-
-### Documentation
-
-| Document | Description |
-|----------|-------------|
-| [`BUILD.md`](BUILD.md) | **Build & takeover guide** (both build units, three-level verification, known drift, onboarding checklist) |
-| [`CONTEXT.md`](CONTEXT.md) | Domain vocabulary, design context, defect ledger, config source, architecture guards |
-| [`DESIGN.md`](DESIGN.md) | Detailed design, module boundaries, call chains |
-| [`DSH_INTEGRATION.md`](DSH_INTEGRATION.md) | DSH Sub-Agent integration guide (371 lines) |
-| [`docs/subagent-factory.md`](docs/subagent-factory.md) | Sub-Agent factory design and research conclusions |
-| [`specs/minimax-code-support.md`](specs/minimax-code-support.md) | Minimax Code scanning support spec |
-| [`dsh-watcher/`](dsh-watcher/README.md) | DSH Watcher floating-panel plugin (overview & install; design contract in [`dsh-watcher/DESIGN.md`](dsh-watcher/DESIGN.md)) |
-
-### License
-
-[MIT](LICENSE)
+MIT. See [LICENSE](LICENSE).

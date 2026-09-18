@@ -5,18 +5,22 @@
 
 ## v2.7（进行中：运行时可视化 + 清单迁移）
 
+> 2026-09-18：开发机完成**实机接入**——DSH web profile（宿主自己那棵 home）装入本插件 + 面板，
+> 重启后 14 个 `mcp__harness-evolution__*` 工具在会话内可用。实践、判据与坑见
+> `docs/dsh-compatibility.md` §5（多 home 现实 / 生效时机 / `.dsh-module-fallback`）。
+
 **主线一：运行时内容可视化**（计划见 `fluid-horizon-wagtail`，浮窗载体 = DSH Web）
 
 | 切片 | 内容 | 状态 |
 |------|------|------|
 | 数据面 A | `get_runtime_snapshot` 第 14 个 MCP 工具：四段快照 + `data_gaps` 如实点名缺陷 9 | ✅ 落地，测试 424→432 |
 | 数据面 B | `execution.jsonl` 同源双写（文本行一字不改）+ `read_tail` 优先镜像/回落 | ✅ 落地 |
-| 呈现面 | `dsh-evolution-panel/` DSH Web 浮窗（管道总览 / DAG 实时时间线 / 指标卡） | ⏳ 阻塞：需 DSH `0.1.2-rc.1` 源码 checkout |
+| 呈现面 | `dsh-evolution-panel/` DSH Web 浮窗（管道总览 / DAG 实时时间线 / 指标卡） | 🔬 本机 GUI home 已挂载（boot 日志 `[dsh-evolution-panel] loaded`），待可视化验收 |
 | 待决 | `.dsh-plugin/plugin.json` 是否列为 scanner 第 7 种清单形态（BUILD §5 偏差 10） | ⏳ 需决策 |
 
 **主线二：`.dsh-plugin` 清单迁移**——自述清单改名（配置链保留旧路径兼容回退），文档同步进行中。
 
-**v2.7.0 发版核对清单**（既有先例：五处解耦推进）：`moon.mod` 0.2.6→0.3.0、`package.json` 与 `.dsh-plugin/plugin.json` 2.6.0→2.7.0、`jsonrpc.mbt` server_version、`DESIGN.md` §4.1 镜像块、`skills/harness-evolution/SKILL.md` frontmatter；**`cordis.patch.yml` version 2.4.0 一并同步**（BUILD §5 偏差 1 在此销账）；README 徽章与工具表 424/13→432/14。
+**v2.7.0 发版核对清单**（既有先例：五处解耦推进）：`moon.mod` 0.2.6→0.3.0、`package.json` 与 `.dsh-plugin/plugin.json` 2.6.0→2.7.0、`jsonrpc.mbt` server_version、`DESIGN.md` §4.1 镜像块、`skills/harness-evolution/SKILL.md` frontmatter；~~`cordis.patch.yml` version 2.4.0 一并同步~~（已销账：改为挂载行方言，无 version 字段）；README 徽章与工具表 ~~424/13→432/14~~（已销账：README 重写后不再内嵌徽章/计数；现为 434/14）。
 
 **候选（先 grill 对齐再立项）**：monitor 数据源接通（缺陷 9，依赖宿主回调）、M7 真实派发（`docs/subagent-factory.md` §4 设计就绪）。
 
