@@ -124,7 +124,52 @@ pub(all) struct EvolutionSignal {
   /// 信号强度衰减因子（0.0-1.0），用于信号聚合时的强度衰减计算。
   /// 新信号默认为 1.0（无衰减），随时间推移可被衰减。
   decay_factor : Double
-} derive(Eq, Debug, ToJson, @json.FromJson)
+} derive(Eq, Debug, ToJson)
+
+///|
+/// 与 `EvolutionSignal` 同形，但 `decay_factor` 可缺省 —— **只用于解码旧行**。
+///
+/// **为什么需要它**（实测 2026-09-18）：`decay_factor` 是后加的字段，本机
+/// `proposals.jsonl` 里最老那条提案的 4 行是旧 schema 写的（没有这个字段），
+/// 派生解码器把**整行**判为 corrupt 丢掉 → `get_runtime_snapshot` 报 2 条提案，
+/// 而面板（只按 `proposal_id` 折叠、不解析 `trigger_signals`）报 3 条：同一份文件两个数字。
+/// 容忍缺失比丢数据好——缺省 1.0 正是「无衰减」，与仓内所有构造点一致，
+/// 且 `decay_factor` 目前没有消费方（engine 只在聚合时按时间算衰减）。
+priv struct EvolutionSignalWire {
+  strength : SignalStrength
+  category : SignalCategory
+  description : String
+  evidence : Evidence
+  ts : Int64
+  plugin_id : String
+  count : Int?
+  tool : String?
+  decay_factor : Double?
+} derive(@json.FromJson)
+
+///|
+/// 解码 `EvolutionSignal`：**只**对 `decay_factor` 放宽（缺失 → 1.0），其余与派生语义一致。
+///
+/// `path` 不参与中转（`@json.from_json` 的显式调用形式不接 path）；
+/// 出错的定位由外层调用方补足 —— 这里刻意只做「一个字段的容错」，不做整行宽松。
+pub impl @json.FromJson for EvolutionSignal with fn from_json(
+  json : Json,
+  path : @json.JsonPath,
+) -> EvolutionSignal raise @json.JsonDecodeError {
+  ignore(path)
+  let wire : EvolutionSignalWire = @json.from_json(json)
+  {
+    strength: wire.strength,
+    category: wire.category,
+    description: wire.description,
+    evidence: wire.evidence,
+    ts: wire.ts,
+    plugin_id: wire.plugin_id,
+    count: wire.count,
+    tool: wire.tool,
+    decay_factor: wire.decay_factor.unwrap_or(1.0),
+  }
+}
 
 ///|
 /// 信号触发阈值。

@@ -617,15 +617,18 @@ async test "G5: MoonBit test suite has sufficient coverage" {
 async test "G5b: MoonBit test suite maintains minimum size" {
   let root = module_root()
   let mb_names = moonbit_test_names(root)
-  // 硬编码的 434 —— 当前 MoonBit 测试用例数（v2.6 DSH 0.1.6 兼容：S14
+  // 硬编码的 437 —— 当前 MoonBit 测试用例数（v2.6 DSH 0.1.6 兼容：S14
   // 新增 1 条 `HARNESS_EVOLUTION_USER_DIR` 覆盖用例，432→433；
   // 432 为上一锚点——v2.7 可视化数据面两批共 8 条新增 6 条 + 双写镜像/文本回落 2 条；
   // 433 为上一锚点——验证矩阵落地：新增 1 条 `host verification notice reflects the current verification matrix` 用例把
   // DSH / Minimax Code 的验证状态固化进测试网，433→434。
   // 424 为再上一锚点——v2.6 性能整改新增 4 条；420 为更早锚点）。
-  // v2.7 撤销 ZCode 宿主支持时**没有增删用例**（只改断言与夹具），故锚点保持 434。
+  // v2.7 撤销 ZCode 宿主支持时**没有增删用例**（只改断言与夹具），锚点保持 434；
+  // 缺陷 9 第一步（自测量）+ 旧行兼容新增 3 条：signal_wbtest 的
+  // 「缺 decay_factor 的旧行」与「显式 decay_factor 保留」，以及 tools_wbtest 的
+  // 「每次 tools/call 都进 monitor」，434→437。
   // 这个数字变了说明测试增删，必须重新核对。
-  assert_eq(mb_names.length(), 434)
+  assert_eq(mb_names.length(), 437)
 }
 
 ///|

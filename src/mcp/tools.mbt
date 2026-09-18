@@ -382,7 +382,7 @@ pub fn tools() -> Array[Tool] {
     // v2.7 运行时快照（只读，供外部可视化消费）
     {
       name: "get_runtime_snapshot",
-      description: "读取运行时快照（纯只读、无副作用）：数据根回显、扫描缓存摘要、提案按状态计数与最近条目、execution.log 尾窗记录、以及数据缺口说明（如指标链未接线时如实点名，不把未接线呈现为无活动）。外部可视化（DSH 浮窗/脚本/宿主 LLM）的统一数据入口。",
+      description: "读取运行时快照（纯只读、无副作用）：数据根回显、扫描缓存摘要、提案按状态计数与最近条目、execution.log 尾窗记录、以及数据缺口说明（指标/信号尚未落盘时如实点名并标注覆盖范围——自测量只覆盖本插件自身的工具调用，不把未接线呈现为无活动）。外部可视化（DSH 浮窗/脚本/宿主 LLM）的统一数据入口。",
       schema: get_runtime_snapshot_schema(),
       handler: handle_get_runtime_snapshot,
     },
@@ -1106,6 +1106,42 @@ async fn handle_get_runtime_snapshot(state : ServerState, args : Json) -> Json {
 // ----------------------------------------------------------------------------
 
 ///|
+/// 本插件自身的 plugin_id —— 自测量（缺陷 9 第一步）用。
+///
+/// **覆盖面只有本插件**：其他插件的工具调用宿主没有上报通道（CONTEXT 缺陷 9），
+/// 所以 `metrics.jsonl` / `signals.jsonl` 里的数字只说明本插件自己的工具表现，
+/// 面板的「指标与缺口」区必须如实标注这一点，不得当作全生态指标。
+let self_plugin_id : String = "harness-evolution"
+
+///|
+/// 从工具返回体读出失败摘要：`isError: true` 时取 content 首段文本（截断 200 字符）。
+/// 成功返回 `None` —— monitor 据此判定 `success` 并生成 struggle 信号。
+fn tool_error_summary(result : Json) -> String? {
+  match result {
+    Object(obj) =>
+      match obj.get("isError") {
+        Some(True) => {
+          let text = match obj.get("content") {
+            Some(Array(items)) if items.length() > 0 =>
+              match items[0] {
+                Object(first) =>
+                  match first.get("text") {
+                    Some(String(s)) => s
+                    _ => ""
+                  }
+                _ => ""
+              }
+            _ => ""
+          }
+          Some(if text.length() > 200 { text[:200].to_owned() } else { text })
+        }
+        _ => None
+      }
+    _ => None
+  }
+}
+
+///|
 /// 解析 `tools/call` 的 params，取出目标工具与参数。
 /// 失败时返回错误消息（由调用方转成 `-32602 Invalid params`）。
 fn tool_call_target(params : Json) -> Result[(Tool, Json), String] {
@@ -1149,8 +1185,26 @@ pub async fn handle_message(state : ServerState, req : RpcRequest) -> Json? {
     "tools/list" => Some(result_msg(req.id, tools_list_result()))
     "tools/call" =>
       match tool_call_target(req.params) {
-        Ok((tool, arguments)) =>
-          Some(result_msg(req.id, call_tool(state, tool, arguments)))
+        Ok((tool, arguments)) => {
+          // ★ 缺陷 9 第一步：自测量。本插件自身工具调用的延迟/成败进 metrics.jsonl，
+          //   并由 monitor 触发信号检测（signals.jsonl）——「指标链未接线」到此为止。
+          //   参数**不落盘**（`Json::empty_object()`）：工具参数可能带整段 system_prompt
+          //   或路径，指标只关心延迟与成败，避免 metrics.jsonl 膨胀与隐私外溢。
+          //   覆盖面只有本插件：其他插件的工具调用宿主未上报，面板据此如实标注。
+          let started = @util.now_ms()
+          let result = call_tool(state, tool, arguments)
+          let latency = (@util.now_ms() - started).to_int()
+          let failure = tool_error_summary(result)
+          state.monitor.record_tool_call(
+            self_plugin_id,
+            tool.name,
+            Json::empty_object(),
+            latency,
+            failure is None,
+            error_message=failure,
+          )
+          Some(result_msg(req.id, result))
+        }
         Err(message) => Some(error_msg(req.id, code_invalid_params, message))
       }
     _ =>

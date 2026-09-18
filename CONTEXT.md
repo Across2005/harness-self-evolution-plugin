@@ -493,14 +493,18 @@ frontmatter）。
    `false`，用例 `auto_approve: true is reported and falls back to false` 钉住。
    **刻意不接通**：人工审批是「自动改代码失控」这条最大风险的唯一闸门，接通它属于
    对外语义变更，要单独决策，不在缺陷修复范围内。
-9. **monitor 没有生产数据源**（本轮评审新发现，1.0 继承）。
-   `record_tool_call` / `record_user_feedback` 在**整个仓库（含 `legacy-ts/src`）都没有
-   非测试调用方**，MCP 侧只暴露读取用的 `get_plugin_metrics`。于是「指标采集 → 信号识别
-   → 自动提案」这条链**第一环就没有输入**：`metrics.jsonl` 只被动等待一个不存在的喂数据方，
-   `get_plugin_metrics` 恒返回全零，跑得通的只有手动 `propose_evolution`。
-   `DESIGN.md` 原先那句「性能事件确实在采集」是失实的，已就地改掉。
-   接通它需要平台提供「其他插件被调用」的回调（就是 `addEventHandler` 那段从未实现的草图），
-   属于功能决策而非缺陷修复，故记录在此不动代码。
+9. **monitor 的生产数据源：自测量已接线（2026-09-18 第一步），全生态仍缺**。
+   原先 `record_tool_call` / `record_user_feedback` 在**整个仓库（含 `legacy-ts/src`）都没有
+   非测试调用方**，MCP 侧只暴露读取用的 `get_plugin_metrics`，于是「指标采集 → 信号识别
+   → 自动提案」这条链**第一环没有输入**（`metrics.jsonl` 等一个不存在的喂数据方）。
+   **第一步已落地**：MCP 分发点（`mcp/tools.mbt::handle_message` 的 `tools/call` 分支）
+   为**本插件自身**每次工具调用记一条 `record_tool_call`（延迟 + 成败；参数刻意不落盘，
+   避免 metrics 膨胀与隐私外溢），`metrics.jsonl` / `signals.jsonl` 因此有了真实生产数据；
+   快照与面板的缺口文案同步改为「尚未产生 + 覆盖范围」。
+   **仍未解决**：覆盖面只有本插件——其他插件的工具调用需要平台提供回调
+   （就是 `addEventHandler` 那段从未实现的草图），属功能决策而非缺陷修复，故仍记在此。
+   面板「指标与缺口」区**必须**在 UI 上标注这个覆盖范围（已实现，见
+   `dsh-evolution-panel/src/client/Panel.tsx`），不得让人把自测量读成全生态指标。
 10. **`target_paths` 生效后带来的两处覆盖**（见「有意的语义修正」第二条）。
     一次带 `target_paths` 的扫描会冲掉默认根的插件缓存、并把注册表替换成这批临时档案。
 11. **struggle 信号没有一次性抑制**（已修复）。

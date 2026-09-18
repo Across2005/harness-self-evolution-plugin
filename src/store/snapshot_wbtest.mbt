@@ -60,8 +60,8 @@ async test "snapshot tolerates malformed and half lines" {
 
 ///|
 /// metrics / signals / plugin-cache 三个文件都不存在时，快照必须
-/// **点名「未接线」**（CONTEXT 已知缺陷 9），而不是留白让读者误判
-/// 「没有活动」。
+/// **点名「尚未产生」并写清覆盖范围**（缺陷 9：自测量只覆盖本插件自身），
+/// 而不是留白让读者误判「没有活动」。
 async test "snapshot reports empty metrics as not-wired" {
   let dir = @fs.tmpdir(prefix="evo-snap-gaps-")
   defer @fs.rmdir(dir, recursive=true)

@@ -89,13 +89,13 @@ pub async fn runtime_snapshot(
   let metrics_jsonl = Jsonl::new(paths.metrics())
   if !metrics_jsonl.exists() {
     gaps.push(
-      "metrics.jsonl 不存在：record_tool_call 无生产调用方（CONTEXT 已知缺陷 9），指标链未接线 —— 这是「未接线」而非「无活动」。",
+      "metrics.jsonl 尚未产生：本插件的自测量已接线（每次 tools/call 记一条），等第一次工具调用落盘。覆盖范围仅本插件自身——其他插件的工具调用宿主未上报（缺陷 9）。",
     )
   }
   let signals_jsonl = Jsonl::new(paths.signals())
   if !signals_jsonl.exists() {
     gaps.push(
-      "signals.jsonl 不存在：信号检测链同样等待宿主事件注入（缺陷 9）。",
+      "signals.jsonl 尚未产生：monitor 的信号检测已接线，等第一次命中阈值（连续失败 / 循环 / 延迟回退）。覆盖范围仅本插件自身（缺陷 9）。",
     )
   }
   if !@fs.exists(paths.plugin_cache()) {

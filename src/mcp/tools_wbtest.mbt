@@ -1725,3 +1725,29 @@ async test "manage_sub_agent forwards color and tools to the create path" {
   }
   assert_eq(tools.length(), 2)
 }
+
+///|
+/// ★ 缺陷 9 第一步回归：经 `tools/call` 的每一次调用都必须进 monitor（自测量）。
+///
+/// 断言的是「指标链通了」——`metrics.jsonl` 真的长出来，`signals.jsonl` 由 monitor
+/// 的信号检测驱动。**覆盖面只有本插件自身**：其他插件的工具调用宿主没有上报通道
+/// （见 `tools.mbt` 的 `self_plugin_id` 注释），面板的「指标与缺口」区必须如实标注。
+async test "every tools/call is recorded as a self-measurement event" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  let metrics = @store.DataPaths::at(tmp).metrics()
+  // 成功调用 + 失败调用（缺必填参数 plugin_id）各记一条
+  ignore(send(state, call_line(1, "get_runtime_snapshot", Json::empty_object())))
+  ignore(send(state, call_line(2, "get_plugin_metrics", Json::empty_object())))
+  state.monitor.flush_buffers()
+  // 断言落盘产物（面板读的就是它）——内存计数会被深度检查的 flush 清空，不可靠
+  assert_eq(jsonl_line_count(metrics), 2)
+  let text = @fs.read_file(metrics).text()
+  assert_true(text.contains("harness-evolution"), msg="记录必须挂在本插件自身的 id 上")
+  assert_true(text.contains("get_runtime_snapshot"), msg="工具名要进指标，否则信号检测无从判断")
+  // 未识别的工具名是**协议层**错误（-32602），不是工具执行失败：不进指标
+  ignore(send(state, call_line(3, "no_such_tool", Json::empty_object())))
+  state.monitor.flush_buffers()
+  assert_eq(jsonl_line_count(metrics), 2)
+}

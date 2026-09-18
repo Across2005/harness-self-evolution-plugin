@@ -216,11 +216,13 @@ export function readEvolutionView(root: string, opts: ReadOptions = {}): Evoluti
   const signalsLines = signalsExists ? countLines(paths.signals) : 0
   if (metricsLines === 0) {
     dataGaps.push(
-      'metrics 未接线（record_tool_call 无生产调用方，CONTEXT 已知缺陷 9）——「未接线」不等于「无活动」。',
+      'metrics.jsonl 尚未产生：本插件的自测量已接线（每次 tools/call 记一条），等第一次工具调用落盘。覆盖范围仅本插件自身——其他插件的工具调用宿主未上报（缺陷 9）。',
     )
   }
   if (signalsLines === 0) {
-    dataGaps.push('signals 未接线：等待宿主事件注入（缺陷 9）。')
+    dataGaps.push(
+      'signals.jsonl 尚未产生：monitor 的信号检测已接线，等第一次命中阈值（连续失败 / 循环 / 延迟回退）。覆盖范围仅本插件自身（缺陷 9）。',
+    )
   }
 
   return evolutionViewSchema.parse({

@@ -98,9 +98,10 @@ test('readEvolutionView: jsonl preferred, honest gaps, zod-stable shape', () => 
     assert.equal(view.execution.source, 'jsonl')
     assert.equal(view.execution.records.length, 1)
     assert.equal(view.generatedAt, 42)
-    // defect 9 honesty: metrics/signals missing ⇒ not-wired notices present
+    // defect 9 honesty: metrics/signals 尚未产生 ⇒ 说明「还没落盘」+ 覆盖范围，绝不装成「无活动」
     assert.equal(view.metrics.wired, false)
-    assert.ok(view.dataGaps.some((g) => g.includes('metrics 未接线')))
+    assert.ok(view.dataGaps.some((g) => g.includes('metrics.jsonl 尚未产生')))
+    assert.ok(view.dataGaps.some((g) => g.includes('覆盖范围仅本插件自身')))
     assert.ok(view.dataGaps.some((g) => g.includes('plugin-cache.json 不存在')))
   } finally {
     rmSync(dir, { recursive: true, force: true })
