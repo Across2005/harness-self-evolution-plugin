@@ -57,8 +57,17 @@ export default defineConfig([
     outExtensions: () => ({ js: '.js', dts: '.d.ts' }),
     banner: CLIENT_BANNER,
     footer: CLIENT_FOOTER,
+    // 依赖分流规则（两条都必须显式写，漏一侧就出事）：
+    //   neverBundle = 平台单例，由宿主模块表 seed，**不能**内联（内联会产生第二份 React 实例）。
+    //   alwaysBundle = 插件自有的第三方依赖，**必须**内联 —— tsdown 默认把 `dependencies`
+    //     当 external，而宿主 makeRequire 只有 seed → 已物化 → 已注册工厂三条解析分支，
+    //     其余一律抛错；`dsh.client.external` 也只能指向 graph row 或 seed 键，指向 zod 无人应答。
+    // 实测 2026-09-19：漏掉 alwaysBundle → 产物顶层 `require("zod")`
+    // → 物化时抛 "missed the module table" → 整页 "Failed to load plugins"。
+    // 官方同构做法：@deepseek-ai/dsh-api-remotes/lib/client.js 内联 zod@4.4.3，require 调用数为 0。
     deps: {
       neverBundle: [/^react$/, /^react-dom$/, /^react\/jsx-runtime$/, /^@deepseek-ai\//],
+      alwaysBundle: [/^zod$/],
     },
   },
 ])
