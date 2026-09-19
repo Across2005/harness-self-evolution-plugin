@@ -4,7 +4,6 @@ import {
   "Across2005/harness-self-evolution/util",
   "moonbitlang/async",
   "moonbitlang/core/deque",
-  "moonbitlang/core/json",
   "moonbitlang/core/ref",
 }
 

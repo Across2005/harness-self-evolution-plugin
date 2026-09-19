@@ -1,5 +1,4 @@
 import {
-  "moonbitlang/async/io",
   "moonbitlang/async/stdio",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
