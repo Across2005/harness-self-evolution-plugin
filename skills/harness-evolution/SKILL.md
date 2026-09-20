@@ -15,8 +15,8 @@ version: 3.0.0
 ## 触发时机
 
 ### 触发方式
-- **工具调用**：宿主客户端通过 MCP 调用 `scan_plugins` / `propose_evolution` / `execute_evolution` 等 10 个工具（见下文「MCP 工具」）—— 这是唯一的入口
-- **运行中**：调用 `record_tool_call` / `record_user_feedback` 监控插件性能，累积进化信号（监控由宿主在工具调用链上埋点）
+- **工具调用**：宿主客户端通过 MCP 调用 `scan_plugins` / `propose_evolution` / `execute_evolution` 等 14 个工具（见下文「MCP 工具」）—— 这是唯一的入口
+- **运行中**：性能监控由宿主在工具调用链上埋点累积信号，`get_plugin_metrics` 读取窗口统计（无独立的「记录类」工具）
 - **信号触发**：检测到强信号或累积中信号时，经 `propose_evolution` 生成提案（信号强度门槛由 `intensity` 配置决定）
 
 > ⚠️ **启动时并不会自动扫描**。本插件是 stdio MCP 服务器，只在被调用时工作：
@@ -244,7 +244,7 @@ version: 3.0.0
 
 ## MCP 工具
 
-本插件以 stdio NDJSON（JSON-RPC 2.0）暴露 **10 个工具**：
+本插件以 stdio NDJSON（JSON-RPC 2.0）暴露 **14 个工具**：
 
 | 工具 | 用途 |
 |------|------|
@@ -258,6 +258,10 @@ version: 3.0.0
 | `create_sub_agent` | 写子 Agent 定义文件（`scope=plugin` 数据根 / `scope=user` 宿主用户级定义目录，默认宿主 DSH 为 `<DSH home>/skills/`（`$DSH_HOME` 未设置时回落 `~/.dsh/skills/`），以 skill 形式落盘） |
 | `list_sub_agents` | 列出子 Agent 定义（缺省列出两个作用域） |
 | `delete_sub_agent` | 删除子 Agent 定义（只删两个可写目录，出厂模板不受影响） |
+| `analyze_plugins` | 分析插件：`mode=scan` 仅扫描 / `mode=metrics` 仅取指标 / `mode=both` 两者；支持 `plugin_ids` 定向重扫、`target_paths` 路径重定向 |
+| `evolve_plugin` | 进化插件：`action=propose` 生成提案 / `action=execute` 执行已审批提案 |
+| `manage_sub_agent` | 管理子 Agent：`action=create` / `list` / `delete`（三个子 Agent 工具的聚合入口） |
+| `get_runtime_snapshot` | 只读运行时快照：数据根回显、扫描缓存摘要、提案按状态计数、execution.log 尾窗，以及数据缺口如实点名 —— 外部可视化统一数据入口 |
 
 工具错误不抛异常：以 `isError: true` 的 MCP 结果返回，LLM 可自我纠正后重试。
 

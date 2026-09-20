@@ -1,10 +1,10 @@
-# DSH 插件兼容性：成功实践、兼容原理与双宿主方法论
+# DSH 插件兼容性：成功实践、兼容原理与路径收拢方法论
 
 > 本文档沉淀 2026-09-17 对 `harness-self-evolution-plugin`（MoonBit 编译的原生 stdio MCP
 > server，v2.6.0）与 DeepSeek Harness 0.1.6-alpha.1 的兼容性修复全过程。
 >
 > 五部分：① 成功实践记录（2026-09-17 的三处接缝修复）；② 为什么兼容（DSH 底层契约）；
-> ③ 怎么做兼容（方法论与判据）；④ 双宿主差异收拢与新宿主接入；
+> ③ 怎么做兼容（方法论与判据）；④ 路径收拢（DSH 单宿主）；
 > ⑤ 实践记录二：把插件接进正在运行的 DSH（2026-09-18，多 home 现实与生效时机）。
 >
 > 所有结论都有源码或实测依据，不靠文档假设。
@@ -334,8 +334,8 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
    本次三处接缝（patch 方言、mcp-client schema、宿主目录模型）逐一用源码核实 + 实机复现闭合。
 2. **原生二进制插件进 DSH 的正道是「桥梁插件 + stdio MCP」**：`dsh-mcp-client` 负责进程与
    工具注册，插件只需保证 patch 方言正确、config schema 合法、落盘目录真实。
-3. **双宿主兼容靠「差异收拢 + 单一来源 + 穷尽枚举」**，而非把宿主差异散落硬编码；
-   新宿主接入是清单化、可测试的流程。
+3. **路径收拢靠「单一来源 + 穷尽枚举」**，而非把路径差异散落硬编码；
+   DSH 目录解析集中在 `paths.mbt` 的 `dsh_home()` / `dsh_agents_dir()` 一处（v3.0.0 已移除多宿主抽象）。
 4. **验证靠强判据 + 闭环**：`failOnStartupError: true`、`--dump-config` 静态合成、
    `add`/`remove` 闭环、`create_sub_agent(scope=user)` 落盘 + 宿主热发现，四者合起来才是
    「真的兼容」，缺一不可。

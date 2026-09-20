@@ -59,7 +59,7 @@
 | 命令 | 等价裸命令 | 验收标准 | 对应验证级 |
 |---|---|---|---|
 | `.\build.ps1 check` | `moon check --deny-warn --target native` | **零错零警**（任何新警告都算失败） | T0 语法 |
-| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 446，以实际输出为准），内含架构守卫 G1–G7 | T1 功能 |
+| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 443，以实际输出为准），内含架构守卫 G1–G7 | T1 功能 |
 | `.\build.ps1 build` | `moon build --target native --release` + 产物复制 | 生成 `bin\harness-evolution.exe` | — |
 | `.\build.ps1 all` | check → test → build 依次执行、逐步核对退出码 | 三步全绿 | T2 回归 |
 | `.\build.ps1 fmt` | `moon fmt` | — | — |

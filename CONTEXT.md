@@ -214,7 +214,7 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 ### `scan_targets` 的接通语义（2.2.0）
 
 `main.mbt` 装配时从**同一份** plugin.json 解析 `scan_targets`，替换默认扫描根
-（`default_scan_roots()` 的 3 个硬编码根降级为回退值）。容错与
+（`default_scan_roots()` 的硬编码根降级为回退值）。容错与
 `evolution_config` 同一套原则 —— 缺失静默回落、退化取值点名告警：
 
 | 输入 | 结果 |
@@ -308,9 +308,9 @@ mcp/harness_evolution/types）。修复分三类：**4 个真 bug**（有回归�
 | **WEAK 3** | 加固 | 空变更集提案的「仅验证」完成路径无测试（零任务 → 直接三级验证 → Completed） | 新增端到端用例：结果恰为 3 条 Validator、状态 Completed |
 | **jsonrpc** | 加固 | `parse_message` 从不校验 `jsonrpc` 版本字段（1.0 / 缺省 / 非字符串都收）—— 刻意宽容，但没被测试钉死 | 新增「宽容」用例组 + 文件头注释显式声明该行为；响应总是回 `"2.0"` |
 
-文档失实（改文档不改代码）：根 `SKILL.md`（文件结构还是 v1 布局、MCP 工具只列 7 个缺
-3 个工厂工具、`execute_evolution` 的 proposal_id 示例缺版本段、Sub-Agent 列表缺
-integration）；`skills/harness-evolution/SKILL.md`（frontmatter version 1.0.0、
+文档失实（改文档不改代码）：根 `SKILL.md` 长期失实（v1 布局、只列 7 个工具、Sub-Agent 缺
+integration），已作为重复件删除，canonical 唯一入口为 `skills/harness-evolution/SKILL.md`；
+`skills/harness-evolution/SKILL.md`（frontmatter version 1.0.0、
 「启动时扫描」的失实声明、「每会话最大提案数: 3」指向已删除特性、进化强度写在
 AGENTS.md 而实际配置在 plugin.json、缺 MCP 工具清单）；`DESIGN.md` §4.1 的
 plugin.json 块缺 `agents`/`mcp`/`max_log_bytes`/`scan_targets`/`monitoring`/

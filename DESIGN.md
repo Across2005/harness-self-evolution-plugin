@@ -452,8 +452,9 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
   `SignalThresholds` 字段逐字相同）与 1.0 的 `strong`/`medium` 嵌套形状（回退）。
 - **`agents` 指向出厂子 Agent 模板目录**（5 个 `.md`，随插件分发；
   经 `create_sub_agent` 在数据根/宿主目录新建或覆盖的是**另一批**文件）。
-- **`mcp` 段声明了 10 个工具**（前 7 个为 1.0 的 legacy 顺序，后 3 个为
-  v2.1 子 Agent 工厂新增）；实现侧的真实清单见 `src/mcp/tools.mbt`。
+- **`mcp` 段声明了 14 个工具**（7 个 1.0 legacy 顺序 + 3 个 v2.1 子 Agent 工厂
+  `create/list/delete_sub_agent` + 3 个聚合工具 `analyze_plugins/evolve_plugin/manage_sub_agent`
+  + `get_runtime_snapshot`）；实现侧的真实清单见 `src/mcp/tools.mbt`。
 - **`scan_targets` 自 2.2.0 起真正被读取**（2.0/2.1 期间是配置孤岛，见
   `CONTEXT.md` 已知缺陷第 6 条的历史记录）：`main.mbt` 装配时经
   `ScanConfig::from_plugin_json` 解析该段并替换默认扫描根；
