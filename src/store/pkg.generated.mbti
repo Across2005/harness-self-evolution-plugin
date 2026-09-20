@@ -37,8 +37,6 @@ pub async fn sandbox_remove_backup(String) -> Unit
 
 pub async fn sandbox_restore_file(String, String) -> Unit
 
-pub fn unknown_host_warning() -> String?
-
 pub fn user_agents_dir() -> String
 
 pub async fn write_json_atomic(String, Json) -> Unit

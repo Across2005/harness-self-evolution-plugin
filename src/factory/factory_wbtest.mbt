@@ -1,6 +1,6 @@
 ///|
 /// factory 包的行为测试。全部经 `AgentFactory::with_dirs` 把两个作用域
-/// 指向 `@fs.tmpdir`，**绝不触碰真实的宿主用户目录**（`~/.dsh/skills`、`~/.minimax/agents`）——
+/// 指向 `@fs.tmpdir`，**绝不触碰真实的宿主用户目录**（`~/.dsh/skills`）——
 /// user 作用域的磁盘后果在这里是可回收的临时目录。
 
 // ============================================================================
@@ -29,6 +29,10 @@ test "a well-formed definition passes validation" {
 }
 
 ///|
+/// 名字字符集必须与 DSH 的 `SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/`
+/// （`@deepseek-ai/dsh-skill`）等价：凡本插件接受的名字，宿主一定能发现；
+/// 宿主拒绝的（大写 / `_` / `.` / 首尾 `-` / 连续 `--` / 空白 / 非 ASCII）本插件
+/// 也必须在入口拒掉，否则 `create_sub_agent(scope=user)` 的定义会静默不被加载。
 test "name validation enforces kebab-case in 1..64 characters" {
   // 正：小写字母 / 数字 / 连字符的合法组合
   make_def(name="a").validate()
@@ -45,6 +49,8 @@ test "name validation enforces kebab-case in 1..64 characters" {
       "-lead", // 以 - 开头
       "trail-", // 以 - 结尾
       "dou--ble", // 连续 --
+      "with_underscore", // DSH SKILL_NAME 拒绝下划线
+      "with.dot", // DSH SKILL_NAME 拒绝点号
     ] {
     let msg = try {
       make_def(name=bad).validate()

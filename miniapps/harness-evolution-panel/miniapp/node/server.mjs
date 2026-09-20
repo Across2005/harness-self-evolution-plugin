@@ -54,7 +54,6 @@ async function ensureMcp(logger) {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
       ...process.env,
-      HARNESS_EVOLUTION_HOST: process.env.HARNESS_EVOLUTION_HOST || 'minimax-code',
     },
     windowsHide: true,
   });

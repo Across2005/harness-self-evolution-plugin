@@ -4,13 +4,15 @@
 /// · `Plugin` = 插件自己的数据根下的 `agents/` 目录（`<数据根>/agents/`），
 ///   插件自管理，删除与重建都不影响宿主；
 /// · `User` = 宿主的用户级 agents 目录（单点定义在 `store/paths.mbt` 的
-///   `user_agents_dir`；默认宿主 DeepSeek Harness 为 `~/.dsh/skills/`）——
+///   `user_agents_dir`；默认宿主 DeepSeek Harness 为 `<DSH home>/skills/`，
+///   `$DSH_HOME` 未设置时回落 `~/.dsh/skills/`）——
 ///   **跨出插件数据根**，宿主会在后续会话中发现并加载那里的定义，
 ///   文件内容会成为可被调用的 agent 系统提示词。
 ///
 /// ★ 修订 S14（DSH 0.1.6 兼容）：DSH 无独立的「用户级 agents 目录」，
-/// user-scope 定义以 **skill** 形式写入 `~/.dsh/skills/`（Markdown + frontmatter
-/// 与 DSH skill 格式同构），宿主经 skills 发现加载（创建 ≠ 派发）。
+/// user-scope 定义以 **skill** 形式写入 `<DSH home>/skills/`（`$DSH_HOME` 未设置
+/// 时回落 `~/.dsh/skills/`；Markdown + frontmatter 与 DSH skill 格式同构），
+/// 宿主经 skills 发现加载（创建 ≠ 派发）。
 /// 后者是刻意的显式选择：MCP 协议里没有「请求宿主即时 spawn 一个子 agent
 /// 会话」的方法，插件能做的只有管理定义文件（创建 ≠ 派发），
 /// 影响面必须写进工具描述让 LLM 与用户都有感知（见 mcp/tools.mbt 的
@@ -18,6 +20,6 @@
 pub(all) enum AgentScope {
   /// 插件数据目录内的定义（默认）
   Plugin
-  /// 宿主用户级 agents 目录内的定义（默认宿主 DSH 为 ~/.dsh/skills/）
+  /// 宿主用户级 agents 目录内的定义（默认宿主 DSH 为 <DSH home>/skills/，$DSH_HOME 未设置时回落 ~/.dsh/skills/）
   User
 } derive(Eq, Debug)

@@ -90,11 +90,12 @@ agents/                  出厂 5 角色模板（Markdown，非 MoonBit，随 lo
 
 - `scope=plugin` → 写入 `<数据根>/agents/<name>.md`（插件自管理，默认）。
 - `scope=user` → 写入宿主的用户级定义目录（**跨出数据根**，宿主会加载；
-  默认宿主 DeepSeek Harness 为 `~/.dsh/skills/<name>.md` —— **DSH 0.1.6 没有独立的
-  「用户级 agents 目录」**，其真实机制是从 `~/.dsh/skills/` 扫描发现 skill
-  （`dsh-skill-filesystem`，frontmatter 需 `name` + `description`，正文即指令体），
+  默认宿主 DeepSeek Harness 为 `<DSH home>/skills/<name>.md` —— **DSH 0.1.6 没有独立的
+  「用户级 agents 目录」**，其真实机制是从 `<DSH home>/skills/` 扫描发现 skill
+  （`dsh-skill-filesystem`，frontmatter 需 `name` + `description`，正文即指令体）；
+  home 由 `paths.mbt::dsh_home()` 解析 `$DSH_HOME`，未设置时回落 `~/.dsh`，
   故 user-scope 定义以 **skill** 形式落盘，宿主在后续会话经 skills 发现加载；
-  经 `HARNESS_EVOLUTION_HOST` 切换宿主，或 `HARNESS_EVOLUTION_USER_DIR` 显式指定目录；
+  可用 `HARNESS_EVOLUTION_USER_DIR` 显式指定目录（自 v3.0.0 起 `HARNESS_EVOLUTION_HOST` 多宿主开关已移除）；
   这是刻意的显式选择，工具描述里向 LLM 说明影响面）。
 - 返回：`{success, path, name, scope, overwritten}`。
 - 错误：非法 name/description（`Failure`，经 `call_tool` 转 isError）、

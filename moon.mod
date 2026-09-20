@@ -2,8 +2,9 @@ name = "Across2005/harness-self-evolution"
 
 // mooncakes 发布版本（0.x.y 线）：registry 当前硬性要求 major=0，
 // 与产品版本解耦（产品版本见 README / plugin.json）。发布线先例：
-// 0.1.0 ↔ 产品 v2.4.0，0.2.5 ↔ 产品 v2.5.0。本版 0.2.6 ↔ 产品 v2.6.0。
-version = "0.2.6"
+// 0.1.0 ↔ 产品 v2.4.0，0.2.5 ↔ 产品 v2.5.0，0.2.6 ↔ 产品 v2.6.0。
+// 本版 0.3.0 ↔ 产品 v2.7.0；产品 v3.0.0（DSH-only 塌缩）的 mooncakes 发布待定。
+version = "0.3.0"
 
 readme = "README.md"
 

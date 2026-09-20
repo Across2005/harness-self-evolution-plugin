@@ -65,9 +65,28 @@ export default defineConfig([
     // 实测 2026-09-19：漏掉 alwaysBundle → 产物顶层 `require("zod")`
     // → 物化时抛 "missed the module table" → 整页 "Failed to load plugins"。
     // 官方同构做法：@deepseek-ai/dsh-api-remotes/lib/client.js 内联 zod@4.4.3，require 调用数为 0。
+    //
+    //   onlyBundle = 白名单，三者的**方向各不相同，不要混用**：
+    //     - alwaysBundle 管「本该内联的有没有被内联」（漏内联 → 产物顶层 require 平台表里没有的名字）。
+    //     - onlyBundle   管「被内联的东西在不在白名单里」（误内联 → 把平台单例卷进私有副本）。
+    //   ★ onlyBundle **拦不住** 2026-09-19 那次事故：tsdown 的检查集合来自
+    //     `chunk.moduleIds`（**已经被内联**的模块，见 tsdown/dist/deps-*.mjs），
+    //     而那次 zod 是被**外部化**了，根本不进这个集合；zod 不再内联时
+    //     onlyBundle 只会打一条 INFO，不会失败。真正的守卫是
+    //     `tests/client-bundle-contract.test.mjs` 的 require 白名单断言。
+    //   实测 2026-09-19：内联集合恰为 `{ zod }`，故白名单取同一个值 ——
+    //     除 zod 外任何东西被卷进产物都会在构建期报错。
+    //   ★ 每次构建都会看到一条 `The following entries in deps.onlyBundle are not
+    //     used in the bundle: - /^zod$/` —— **这是 dts 那一遍的固有噪声，别照它
+    //     的建议删选项**。`deps.onlyBundle` 是 js/dts 两遍**共用**的顶层选项
+    //     （tsdown 的 `deps.dts` 只接受 alwaysBundle/neverBundle，无法单独覆盖），
+    //     而 dts 产物的 moduleIds 里没有 node_modules 路径 → 那一遍 `deps` 恒为空。
+    //     判别实验（2026-09-19）：临时加入一个绝不可能命中的 pattern 后，dts 那遍
+    //     两个都不命中、js 那遍只报我们加的那个 —— 证明 `/^zod$/` 在 js 遍确实命中。
     deps: {
       neverBundle: [/^react$/, /^react-dom$/, /^react\/jsx-runtime$/, /^@deepseek-ai\//],
       alwaysBundle: [/^zod$/],
+      onlyBundle: [/^zod$/],
     },
   },
 ])

@@ -1,32 +1,18 @@
 # Harness Self-Evolution Plugin
 
-A MoonBit-native plugin that scans, monitors, proposes, and rolls back evolutions for plugin ecosystems on two AI harness hosts: DeepSeek Harness and Minimax Code. Version 2.6.0. MIT.
+A MoonBit-native plugin that scans, monitors, proposes, and rolls back evolutions for the DeepSeek Harness (DSH) plugin ecosystem. Version 3.0.0. MIT.
 
-This plugin is the same compiled binary for every host. What changes per host is how the host launches the binary, where data is read and written, and which host-specific files (patches, manifests, panels) sit alongside the binary.
+This plugin targets DeepSeek Harness. Deployment hinges on how DSH launches the binary, where data is read and written, and which files (patches, manifests, panels) sit alongside the binary.
 
-## Which host are you on?
+## Where your data lives
 
-Pick the one that runs your sessions. If you don't know, run:
+DSH resolves its home via `$DSH_HOME` (`~/.dsh` by default; a managed launcher may point it
+elsewhere). The plugin mirrors that: user-scope sub-agent definitions land under
+`<DSH home>/skills/`. Full install, verification, and rollback:
+[docs/deploy/deepseek-harness.md](docs/deploy/deepseek-harness.md).
 
-```powershell
-# Windows PowerShell
-Test-Path '~/.dsh'
-Test-Path '~/.minimax'
-```
-
-Open the matching guide:
-
-| Host | Status (2026-09-17) | Guide |
-|---|---|---|
-| **DeepSeek Harness** (DSH) ≥ 0.1.6 | **Verified end-to-end** | [docs/deploy/deepseek-harness.md](docs/deploy/deepseek-harness.md) |
-| **Minimax Code** (Mavis) | **Verified end-to-end** | [docs/deploy/mavis.md](docs/deploy/mavis.md) |
-| anything else | **Unsupported** | — |
-
-What "verified" means: a fresh install completes the full propose → approve → execute loop on this machine, and the runtime stays healthy afterwards. "Unsupported" means the runtime will fall back to the DSH path and emit a `Unknown HARNESS_EVOLUTION_HOST ...` warning on every boot — do not rely on it.
-
-The status of the active host is **printed by the binary itself at startup** (see `host_verification_notice` in `src/store/paths.mbt`). Operators do not have to read this README to know whether they are on a verified host; the boot log says so directly. The same matrix is also pinned by a regression test (`host verification notice reflects the current verification matrix`) so an unnoticed change to one without the other fails the build.
-
-If your host isn't in the table, see [docs/code-architecture.md § Adding a new host](docs/code-architecture.md#adding-a-new-host) — four edits in the runtime plus a deploy guide, plus the verification test.
+Since v3.0.0 the plugin is **DSH-only**: the earlier claim of MiniMax Code compatibility was a
+over-declaration (DSH's own source has no such host concept) and has been removed.
 
 If you are **writing or debugging a DSH plugin** rather than deploying this one, read [docs/dsh-plugin-integration.md](docs/dsh-plugin-integration.md): the host-half / client-half contract, the Lazy-CJS client bundle rule (one stray top-level `export` breaks every plugin in the combo), `DSH_HOME` routing, and the diagnosis order for "Failed to load plugins".
 
@@ -38,13 +24,13 @@ If you are **writing or debugging a DSH plugin** rather than deploying this one,
 - **Propose** benchmark-driven evolutions bound to Matt Pocock engineering principles
 - **Approve** is always a human step. `auto_approve` is `false` by default and stays `false` — the only gate against "code changes itself into a wall"
 - **Execute** with state machine `pending → approved → executing → completed`, with deterministic rollback from a verified snapshot on validator failure
-- **Sub-agent factory** persists Markdown + YAML frontmatter definitions; scope `plugin` lives under the plugin's data root, scope `user` lives in the host's user-level directory (path differs per host, see deploy guides)
+- **Sub-agent factory** persists Markdown + YAML frontmatter definitions; scope `plugin` lives under the plugin's data root, scope `user` lives under `<DSH home>/skills/` (see the deploy guide)
 
 ## Architecture in one paragraph
 
-The compiled binary (`bin/harness-evolution.exe`) is a stdio MCP server. The MCP protocol surface and the fourteen tools are host-agnostic. Two things change per host: (a) the path layout, declared in `src/store/paths.mbt::host_agents_dir` and `src/scanner/scanner.mbt::default_scan_roots`; (b) the launcher and supplementary files. The runtime picks the host from `HARNESS_EVOLUTION_HOST` (`deepseek-harness` default, or `minimax-code`; `HARNESS_EVOLUTION_USER_DIR` overrides the user directory explicitly). Any other value warns at startup and falls back to the DSH directory. Each deploy guide in `docs/deploy/` spells out exactly which launcher mechanism and which supplementary files that host uses.
+The compiled binary (`bin/harness-evolution.exe`) is a stdio MCP server exposing fourteen tools. The user-scope path resolves through `src/store/paths.mbt::dsh_agents_dir` (`<DSH home>/skills`, `$DSH_HOME`-aware), and the scan roots through `src/scanner/scanner.mbt::default_scan_roots`; `HARNESS_EVOLUTION_USER_DIR` overrides the user directory explicitly. Since v3.0.0 the multi-host abstraction is gone — DSH is the only target.
 
-See [docs/code-architecture.md](docs/code-architecture.md) for the split-path loading principle in detail.
+See [docs/code-architecture.md](docs/code-architecture.md) for the path-resolution detail.
 
 ## Build
 

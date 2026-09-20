@@ -344,19 +344,19 @@ pub fn tools() -> Array[Tool] {
     },
     {
       name: "create_sub_agent",
-      description: "创建一个子 Agent 定义文件（Markdown + YAML frontmatter，含名称、职责描述与系统提示词）。scope=plugin 写入插件数据目录（默认）；scope=user 会写入宿主的用户级定义目录（默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，Minimax Code 为 ~/.minimax/agents/；DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘，宿主在后续会话经 skills 发现加载）——这跨出插件数据根。注意：创建只是产出定义文件，不等于立即派发执行，宿主何时加载由宿主决定。插件自带的 5 个出厂角色模板随插件 agents/ 目录分发，不在本工具的两个可写目录内。",
+      description: "创建一个子 Agent 定义文件（Markdown + YAML frontmatter，含名称、职责描述与系统提示词）。scope=plugin 写入插件数据目录（默认）；scope=user 会写入宿主的用户级定义目录（默认宿主 DeepSeek Harness 为 <DSH home>/skills/（$DSH_HOME 未设置时回落 ~/.dsh/skills/）；DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘，宿主在后续会话经 skills 发现加载）——这跨出插件数据根。注意：创建只是产出定义文件，不等于立即派发执行，宿主何时加载由宿主决定。插件自带的 5 个出厂角色模板随插件 agents/ 目录分发，不在本工具的两个可写目录内。",
       schema: create_sub_agent_schema(),
       handler: handle_create_sub_agent,
     },
     {
       name: "list_sub_agents",
-      description: "列出子 Agent 定义。scope 缺省时同时列出插件数据目录与宿主用户级定义目录（默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，Minimax Code 为 ~/.minimax/agents/）两个作用域；每项含名称、描述、可选的 color/tools、作用域与路径。解析失败的文件会被跳过并在日志告警，不影响其余条目。",
+      description: "列出子 Agent 定义。scope 缺省时同时列出插件数据目录与宿主用户级定义目录（默认宿主 DeepSeek Harness 为 <DSH home>/skills/（$DSH_HOME 未设置时回落 ~/.dsh/skills/））两个作用域；每项含名称、描述、可选的 color/tools、作用域与路径。解析失败的文件会被跳过并在日志告警，不影响其余条目。",
       schema: list_sub_agents_schema(),
       handler: handle_list_sub_agents,
     },
     {
       name: "delete_sub_agent",
-      description: "删除一个子 Agent 定义文件。只删除两个可写目录（插件数据目录的 agents/、宿主的用户级定义目录，默认宿主 DeepSeek Harness 为 ~/.dsh/skills/，Minimax Code 为 ~/.minimax/agents/）里的定义；插件自带的出厂模板不在这两个目录内，天然不受本工具影响。scope 缺省为 plugin。",
+      description: "删除一个子 Agent 定义文件。只删除两个可写目录（插件数据目录的 agents/、宿主的用户级定义目录，默认宿主 DeepSeek Harness 为 <DSH home>/skills/（$DSH_HOME 未设置时回落 ~/.dsh/skills/））里的定义；插件自带的出厂模板不在这两个目录内，天然不受本工具影响。scope 缺省为 plugin。",
       schema: delete_sub_agent_schema(),
       handler: handle_delete_sub_agent,
     },

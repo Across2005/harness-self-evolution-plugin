@@ -42,7 +42,7 @@ test "scan_targets on a non-object json falls back silently" {
 /// `scan_targets` 不是数组 → 默认根 + 点名告警。
 test "scan_targets of a wrong type warns and falls back" {
   let raw =
-    #|{"scan_targets":"~/.minimax/agents"}
+    #|{"scan_targets":"just-a-string-not-an-array"}
   let (cfg, warns) = parse_targets(raw)
   assert_eq(cfg.roots, default_scan_roots())
   assert_eq(warns.length(), 1)

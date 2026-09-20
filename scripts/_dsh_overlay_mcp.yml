@@ -12,4 +12,8 @@
         cwd: 'D:/Agent设计/harness-self-evolution-plugin'
         env:
           HARNESS_EVOLUTION_HOST: deepseek-harness
+          # 空 = 未设置 → 插件回落 ~/.dsh（裸跑 dsh web 的默认树）。宿主丢弃继承的
+          # DSH_*（scrubbedParentEnv），只能在这里显式给；要影响非默认树就填该树的
+          # 绝对路径字面量。说明见 cordis.patch.yml 与 store/paths.mbt::dsh_home。
+          DSH_HOME: ''
         failOnStartupError: true

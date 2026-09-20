@@ -13,7 +13,7 @@ Verified against DSH 0.1.6-alpha.1 web profile on 2026-09-17, and re-verified on
 | MCP bridge package | `@deepseek-ai/dsh-mcp-client` — spawns the exe over stdio and registers the tools |
 | Web profile extras | web profile does **not** include `dsh-mcp-client` by default; you need an `--patch` overlay or a proper `cordis.patch.yml` mount row |
 
-The plugin's user-scope sub-agent definitions write to `~/.dsh/skills/<name>.md`. DSH picks them up as skills in subsequent sessions (and in the current session if `dsh-skill-filesystem` is loaded).
+The plugin's user-scope sub-agent definitions write to `<DSH_HOME>/skills/<name>.md` (`~/.dsh/skills/<name>.md` when the home resolves to the default). DSH picks them up as skills in subsequent sessions (and in the current session if `dsh-skill-filesystem` is loaded).
 
 ## Which tree? (`DSH_HOME`) — install is per-tree
 
@@ -41,6 +41,30 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 **A restart is required.** `dsh.profile.bundles` is read at boot; `patchReload: "live"` reloads config
 inside the tree but will not mount a newly added bundle. Until the host restarts, the session shows no
 `mcp__harness-evolution__*` tools even though `--dump-config` is green.
+
+### Forwarding `DSH_HOME` to the plugin
+
+Installing into the right tree is only half the job — the MCP child **cannot inherit** `DSH_HOME`.
+DSH spawns it through `scrubbedParentEnv()`, which drops every `DSH_*` name
+(`@deepseek-ai/dsh-subprocess`), and `@deepseek-ai/dsh-mcp-client` merges the mount row's `env`
+**after** that scrub. The value therefore has to sit in the mount row as an absolute literal
+(the Loader expands neither `${ENV_VAR}` nor relative paths — see § Path substitution).
+
+The plugin resolves its harness home in `src/store/paths.mbt::dsh_home`, mirroring the host's own
+`resolveDshHome` precedence (`$DSH_HOME` → `~/.dsh`, blank counts as unset):
+
+| Mount row `env.DSH_HOME` | Plugin's user-scope directory | Use when |
+|---|---|---|
+| `''` (shipped default) | `~/.dsh/skills/` | plain `dsh web`, i.e. the default tree |
+| `<the host tree>` | `<DSH_HOME>/skills/` | a managed launcher, e.g. `…\dsh-home` |
+
+```powershell
+pwsh -File scripts/replace-paths.ps1 -DshHome "$env:DSH_HOME"   # -DshHome defaults to $env:DSH_HOME
+```
+
+The script rejects a non-absolute value on purpose: the plugin ignores one, so the mount row would
+*look* configured while definitions kept landing in `~/.dsh`. After a host restart, confirm with
+step 4 of § What you should verify after install.
 
 ## Install: the standard `dsh plugin add` path
 
@@ -81,7 +105,9 @@ Overlay template (`cordis.overlay.yml`):
         args: []
         cwd: 'D:/Agent设计/harness-self-evolution-plugin'
         env:
-          HARNESS_EVOLUTION_HOST: deepseek-harness
+          # empty = unset -> the plugin falls back to ~/.dsh; set it to the host tree
+          # when that tree is not the default (see § Which tree? -> Forwarding DSH_HOME)
+          DSH_HOME: ''
         failOnStartupError: true
 ```
 
@@ -113,7 +139,7 @@ The whole history is at `docs/dsh-compatibility.md`. The single thing that will 
 
 Things you should not assume from documentation, only from runtime source:
 
-- The real user home is `~/.dsh/`, not `~/.deepseek/harness/`. The plugin's `paths.mbt` already targets `~/.dsh/skills/`.
+- The real user home is `~/.dsh/`, not `~/.deepseek/harness/`, and `$DSH_HOME` overrides it. The plugin's `paths.mbt::dsh_home` mirrors that precedence, so user-scope definitions follow the tree — see § Forwarding `DSH_HOME` to the plugin.
 - DSH does not have a separate "user-level agents directory" concept — the plugin writes skill-format files (`SKILL.md` / `<name>.md` with `name` + `description` frontmatter) and the host discovers them via `dsh-skill-filesystem`.
 - The web profile disables `skill-filesystem`, `tool-subagent`, `tool-subagent-fork`, and `tool-workflow` by default. Plugin-side claims of "host-side subagent orchestration" do not hold on web profile out of the box.
 
@@ -125,7 +151,7 @@ $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersio
 $note = '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 $list = '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 $init, $note, $list | & bin\harness-evolution.exe 2>$null
-# expect: serverInfo {name: harness-self-evolution, version: 2.6.0}, then tools[] with 14 entries
+# expect: serverInfo {name: harness-self-evolution, version: 3.0.0}, then tools[] with 14 entries
 
 # 2. The host actually mounted it — check the process parent, not just the config
 Get-CimInstance Win32_Process -Filter "Name='harness-evolution.exe'" |
@@ -135,7 +161,7 @@ Get-CimInstance Win32_Process -Filter "Name='harness-evolution.exe'" |
 
 # 3. The tools are wired, in a session on that host
 #   get_runtime_snapshot   -> JSON with "root" (data root) and "data_gaps"
-#   scan_plugins          -> plugin records (a live host scans ~/.dsh, ~/.minimax/plugins, ~/.agents/skills, ...)
+#   scan_plugins          -> plugin records (a live host scans ~/.dsh/profiles, ~/.agents/plugins, ...)
 #   list_proposals        -> [] on a fresh data root
 #   create_sub_agent scope=user name=evo-smoke content="..."  # -> file under <that tree's>/skills/
 #   delete_sub_agent scope=user name=evo-smoke               # -> cleanup
@@ -144,11 +170,10 @@ Get-CimInstance Win32_Process -Filter "Name='harness-evolution.exe'" |
 Get-ChildItem "$env:DSH_HOME\skills" -ErrorAction SilentlyContinue | Select-Object Name
 ```
 
-One machine can run several hosts over the same exe: this checkout's binary is also spawned by
-Minimax Code through `~/.minimax/plugins/harness-evolution/` (`mcp.json` + `scripts/launch.cjs` shim,
-`HARNESS_EVOLUTION_HOST=minimax-code`) while DSH spawns it directly via `dsh-mcp-client`. Both default
-to the same data root (`~/.harness-evolution/v2`); set a distinct `HARNESS_EVOLUTION_HOME` per host if
-you want them isolated.
+Since v3.0.0 the plugin targets DSH only (the earlier MiniMax Code host claim was an
+over-declaration and has been removed). The default data root is
+`~/.harness-evolution/v2`; set a distinct `HARNESS_EVOLUTION_HOME` if you run
+multiple plugin instances and want their data isolated.
 
 If the browser surface shows the chat panel but `/` reports `dsh web authentication required`, you opened the bare URL. The startup log prints `dsh web: http://127.0.0.1:<port>/?token=<token>`; open that URL once and the token sticks.
 
@@ -199,18 +224,15 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 | `Cannot find module '@deepseek-ai/dsh-mcp-client'` | web profile 没装 mcp-client | 用 `--patch` overlay 注入（见 § Install: the --patch overlay path） |
 | `dsh: failed to read overlay …ENOENT` | `--patch` 用了逗号分隔多文件 | 单文件参数可重复传：`--patch a.yml --patch b.yml` |
 | `duplicate loader entry id: <id>` | profile 已装该 bundle，overlay 又注入同一 id | 二者留一（bundle 内已有则删掉 overlay 的注入行） |
-| `HarnessEvolution] Unknown HARNESS_EVOLUTION_HOST` | 环境变量拼写错或未识别 | 用 `deepseek-harness` / `minimax-code` 二选一 |
 | 装了插件但会话里没有 `mcp__harness-evolution__*` 工具 | 装到了另一棵树，或 host 未重启 | 见 § Which tree?：确认宿主的 `DSH_HOME`，装进这一棵，然后重启 |
-| 同一个 exe 出现多个进程 | 多个宿主各自拉起（DSH + Minimax Code） | 正常：父进程分别是各宿主；需要隔离就给各自设 `HARNESS_EVOLUTION_HOME` |
+| 同一个 exe 出现多个进程 | 多个实例各自拉起 | 正常：父进程分别是各实例；需要隔离就给各自设 `HARNESS_EVOLUTION_HOME` |
 | `bin/harness-evolution.exe` 被覆盖失败 | 进程占用 | `Get-Process harness-evolution \| Stop-Process` 后再 build |
 
-### 验证矩阵对照
+### 部署判据
 
-执行完成后对照 `paths.mbt::host_verification_notice`：
-
-- `HARNESS_EVOLUTION_HOST=deepseek-harness` → 应看到 `Host: DeepSeek Harness ≥ 0.1.6 — verified end-to-end 2026-09-17 ...`
-- 其他宿主 → 不适用本节
-
-如本节 8 步全过且与验证矩阵一致，则 DSH 部署已被本机制实证。可在 `paths.mbt::host_verification_notice` 的对应分支更新日期（一般不动——`verified` 日期代表项目层验证，你的部署属实例层验证）。
+v3.0.0 起启动日志不再按宿主点名验证状态（多宿主抽象已移除）。以本节步骤的实际结果为准：
+`tools/list` 回显 `version: 3.0.0` + 14 个工具、`create_sub_agent scope=user` 落进
+`<DSH_HOME>/skills/`、宿主重启后能看到 `mcp__harness-evolution__*` 工具 —— 三条齐即
+说明 DSH 部署已实证。
 
 > **机制参考**：本文只讲"怎么部署"。DSH 插件接入的完整机制（host 半四层管线 / client 半 Lazy-CJS 产物契约 / `DSH_HOME` 路由 / 故障诊断顺序 / 写插件的 checklist）见 [docs/dsh-plugin-integration.md](../dsh-plugin-integration.md)。

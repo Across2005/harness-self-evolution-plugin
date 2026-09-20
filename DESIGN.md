@@ -107,10 +107,6 @@
 # DeepSeek Harness 插件目录（真实挂载点：profiles/<name>/node_modules）
 ~/.dsh/profiles/
 
-# Minimax Code 插件目录
-~/.minimax/plugins/
-~/.minimax/extensions/
-
 # 用户自定义插件
 <workspace>/.harness/plugins/
 ```
@@ -360,7 +356,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 // .dsh-plugin/plugin.json
 {
   "name": "harness-self-evolution",
-  "version": "2.6.0",
+  "version": "3.0.0",
   "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",
@@ -413,8 +409,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
   "dependencies": {},
   "devDependencies": {},
   "engines": {
-    "deepseek-harness": ">=0.1.6",
-    "minimax-code": ">=1.0.0"
+    "deepseek-harness": ">=0.1.6"
   },
   "evolution_config": {
     "intensity": "50%",
@@ -429,8 +424,6 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
   },
   "scan_targets": [
     "~/.dsh/profiles/",
-    "~/.minimax/plugins/",
-    "~/.minimax/extensions/",
     "~/.agents/skills/",
     "~/.openclaw-autoclaw/skills/"
   ],

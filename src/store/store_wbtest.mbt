@@ -967,51 +967,6 @@ async test "Jsonl::append_many adds multiple data that can be read back" {
   assert_eq(rows2[4].proposal_id, "p-batch-4")
 }
 
-// ============================================================================
-// ★ S6：未知 HARNESS_EVOLUTION_HOST 的启动告警
-// ============================================================================
-
-///|
-/// 环境变量还原（测试进程内的环境是共享的；本包测试串行执行，
-/// 与 executor_wbtest 的同名 helper 同一模式）。
-fn restore_host_env(saved : String?) -> Unit {
-  match saved {
-    Some(v) => @env.set_env_var("HARNESS_EVOLUTION_HOST", v)
-    None => @env.unset_env_var("HARNESS_EVOLUTION_HOST")
-  }
-}
-
-///|
-/// ★ S6 回归网：未知的 `HARNESS_EVOLUTION_HOST` 不再静默回落 ——
-/// `unknown_host_warning` 返回点名宿主的告警文案，而 `user_agents_dir`
-/// 的回落行为保持不变（未知仍走 DSH 路径，现为 `~/.dsh/skills/`）。
-/// 已识别 / 未设置则无告警。
-async test "unknown host yields a startup warning while the fallback path stays unchanged" {
-  let saved = @env.get_env_var("HARNESS_EVOLUTION_HOST")
-  defer restore_host_env(saved)
-
-  // 未知宿主：有告警（点名宿主名与回落目录），user_agents_dir 仍回落 DSH
-  @env.set_env_var("HARNESS_EVOLUTION_HOST", "cursor")
-  match unknown_host_warning() {
-    Some(w) => {
-      assert_true(w.contains("cursor"))
-      assert_true(w.contains("deepseek"))
-      assert_true(w.contains(".dsh"))
-    }
-    None => abort("unknown host must produce a warning")
-  }
-  assert_true(user_agents_dir().contains(".dsh"))
-
-  // 已识别宿主：无告警，且目录跟随宿主
-  @env.set_env_var("HARNESS_EVOLUTION_HOST", "minimax-code")
-  assert_true(unknown_host_warning() is None)
-  assert_true(user_agents_dir().contains("minimax"))
-
-  // 未设置：无告警
-  @env.unset_env_var("HARNESS_EVOLUTION_HOST")
-  assert_true(unknown_host_warning() is None)
-}
-
 ///|
 /// 环境变量还原（HARNESS_EVOLUTION_USER_DIR）。
 fn restore_user_dir_env(saved : String?) -> Unit {
@@ -1023,72 +978,144 @@ fn restore_user_dir_env(saved : String?) -> Unit {
 
 ///|
 /// ★ S14（DSH 0.1.6 兼容）：`HARNESS_EVOLUTION_USER_DIR` 显式覆盖优先于
-/// `HARNESS_EVOLUTION_HOST` 推导出的目录 —— 用户可直接指定 user 作用域目录，
+/// 由 `$DSH_HOME` 派生的 user 作用域目录 —— 用户可直接指定 user 作用域目录，
 /// 避免再次硬编码宿主目录漂移。
-async test "explicit user dir override wins over host-derived directory" {
-  let saved_host = @env.get_env_var("HARNESS_EVOLUTION_HOST")
+async test "explicit user dir override wins over the dsh home directory" {
   let saved_dir = @env.get_env_var("HARNESS_EVOLUTION_USER_DIR")
-  defer restore_host_env(saved_host)
+  let saved_home = @env.get_env_var("DSH_HOME")
   defer restore_user_dir_env(saved_dir)
+  defer restore_dsh_home_env(saved_home)
+  @env.unset_env_var("DSH_HOME")
 
-  // 覆盖优先级：USER_DIR 覆盖 HOST 推导（即使 HOST=minimax-code）
-  @env.set_env_var("HARNESS_EVOLUTION_HOST", "minimax-code")
+  // 覆盖优先级：USER_DIR 高于 dsh_agents_dir()
   @env.set_env_var("HARNESS_EVOLUTION_USER_DIR", "~/explicit/agents")
   assert_true(user_agents_dir().contains("explicit"))
 
-  // 空串覆盖视为未设置，回落到 HOST 推导
+  // 空串覆盖视为未设置，回落到 dsh_agents_dir()（默认 ~/.dsh/skills）
   @env.set_env_var("HARNESS_EVOLUTION_USER_DIR", "")
-  assert_true(user_agents_dir().contains("minimax"))
+  assert_true(user_agents_dir().contains(".dsh"))
+}
+
+// ============================================================================
+// ★ v2.7 路由收敛（缺陷 3c）：DSH 的 user 作用域跟随 `$DSH_HOME`
+//
+// 成因：拉起本插件的 MCP launcher 用 `DSH_HOME=<pluginData>/dsh-home` 启动
+// `dsh web`（launcher `server.mjs` 的 `startHarness`），而本插件此前把 DSH 的
+// user 作用域写死成 `~/.dsh/skills/` —— `create_sub_agent(scope=user)` 的定义
+// 落进宿主**根本不读**的另一棵树（实测 `~/.dsh/skills` 存在但为空，
+// `<pluginData>/dsh-home/` 下连 `skills/` 都没有）。
+// 修复：mirror 宿主 `resolveDshHome` 的 `$DSH_HOME` 档（见 `paths.mbt::dsh_home`）。
+// ============================================================================
+
+///|
+/// 环境变量还原（DSH_HOME）。
+///
+/// 注意：真机上本插件进程**收不到**父进程继承的 `DSH_HOME` ——
+/// 宿主 spawn MCP 子进程时用 `scrubbedParentEnv()` 丢弃**全部** `DSH_*`，
+/// 只有挂载行 `env` 里显式转发的值能在清洗**之后**被合并进来
+/// （`@deepseek-ai/dsh-subprocess` + `@deepseek-ai/dsh-mcp-client` 源码）。
+fn restore_dsh_home_env(saved : String?) -> Unit {
+  match saved {
+    Some(v) => @env.set_env_var("DSH_HOME", v)
+    None => @env.unset_env_var("DSH_HOME")
+  }
 }
 
 ///|
-/// ★ 计划落地回归网：每个宿主的「已验证 vs 声明待验证」状态必须在
-/// `host_verification_notice` 里显式标出。这条用例把验证矩阵固化进
-/// 测试，避免有人改 `host_agents_dir` / `default_scan_roots` 时漏改
-/// 启动点名（两者解耦容易漂移）。
-///
-/// 已知状态（更新这里时同步更新 `paths.mbt::host_verification_notice`、
-/// `host_agents_dir` 每个分支前的注释，以及 `docs/deploy/<host>.md`）：
-/// - deepseek-harness: verified 2026-09-17 (DSH 0.1.6-alpha.1 web profile)
-/// - minimax-code:     verified 2026-09-17 (MCP + Plugin V1 + Mini App panel)
-/// - 未设置 / 未识别:    None（由 `unknown_host_warning` 兜底，不重复告警）
-///
-/// 受支持宿主集合本身也有判据：`host_agents_dir` 只认这两个名字，
-/// 别的取值一律走「未识别」分支（下面的 `totally-fake-host` 用例钉住这一点）。
-async test "host verification notice reflects the current verification matrix" {
-  let saved = @env.get_env_var("HARNESS_EVOLUTION_HOST")
-  defer restore_host_env(saved)
+/// ★ 缺陷 3c 主判据：`$DSH_HOME` 是**绝对**路径时被采用，user 作用域落在
+/// `<DSH_HOME>/skills`（精确相等，不是 `contains`）。
+async test "dsh user dir follows an absolute DSH_HOME and appends skills" {
+  let saved_dir = @env.get_env_var("HARNESS_EVOLUTION_USER_DIR")
+  let saved_home = @env.get_env_var("DSH_HOME")
+  defer restore_user_dir_env(saved_dir)
+  defer restore_dsh_home_env(saved_home)
 
-  // DSH：已验证，文案点名「verified」
-  @env.set_env_var("HARNESS_EVOLUTION_HOST", "deepseek-harness")
-  match host_verification_notice() {
-    Some(n) => {
-      assert_true(n.contains("verified"))
-      assert_true(n.contains("DeepSeek Harness"))
-      assert_true(n.contains("2026-09-17"))
-    }
-    None => abort("DSH is verified; notice must be present")
-  }
+  @env.unset_env_var("HARNESS_EVOLUTION_USER_DIR")
 
-  // Minimax Code：已验证，文案点名「verified」与「MCP / Plugin V1 / Mini App」
-  @env.set_env_var("HARNESS_EVOLUTION_HOST", "minimax-code")
-  match host_verification_notice() {
-    Some(n) => {
-      assert_true(n.contains("verified"))
-      assert_true(n.contains("Minimax Code"))
-      assert_true(n.contains("2026-09-17"))
-    }
-    None => abort("Mavis is verified; notice must be present")
-  }
+  // 绝对路径：精确落在 <DSH_HOME>/skills，且不再指向 ~/.dsh
+  @env.set_env_var("DSH_HOME", "C:/tmp/evo-dsh-home")
+  assert_eq(user_agents_dir(), "C:/tmp/evo-dsh-home/skills")
+  assert_false(user_agents_dir().contains(".dsh"))
 
-  // 未识别宿主：本函数返回 None（避免与 `unknown_host_warning` 重复告警）
-  @env.set_env_var("HARNESS_EVOLUTION_HOST", "totally-fake-host")
-  assert_true(host_verification_notice() is None)
+  // Windows 反斜杠写法归一化后等价（`\` → `/`，尾部多余分隔符折叠）
+  @env.set_env_var("DSH_HOME", "C:\\tmp\\evo-dsh-home\\")
+  assert_eq(user_agents_dir(), "C:/tmp/evo-dsh-home/skills")
 
-  // 未设置：默认 DSH，已验证
-  @env.unset_env_var("HARNESS_EVOLUTION_HOST")
-  match host_verification_notice() {
-    Some(n) => assert_true(n.contains("verified"))
-    None => abort("default DSH is verified; notice must be present")
-  }
+  // `~` 开头的值是**合法**取值：宿主先 `expandHomePath` 再 `resolve`，展开后已是
+  // 绝对路径、不依赖 cwd —— 与「相对路径不采用」不是同一档，别把它一起拒掉。
+  @env.set_env_var("DSH_HOME", "~/evo-dsh-tilde")
+  let tilde_slash = user_agents_dir()
+  assert_true(tilde_slash.contains("evo-dsh-tilde"))
+  assert_true(tilde_slash.has_suffix("/skills"))
+  assert_false(tilde_slash.contains(".dsh"))
+
+  // `~\` 与 `~/` 同规则（`path_normalize` 先归一化分隔符）
+  @env.set_env_var("DSH_HOME", "~\\evo-dsh-tilde")
+  assert_eq(user_agents_dir(), tilde_slash)
+
+  // 裸 `~`：展开为 home 本身，user 作用域落在 <home>/skills（不再叠加 `.dsh`）
+  @env.set_env_var("DSH_HOME", "~")
+  assert_true(user_agents_dir().has_suffix("/skills"))
+  assert_false(user_agents_dir().contains(".dsh"))
 }
+
+///|
+/// ★ 边界：空白 / 空串 / **相对**路径一律视为未设置 → 回落 `~/.dsh/skills`。
+///
+/// - 空白视为未设置：对齐宿主 `resolveDshHome` 的「trim 后非空才算设置了」。
+/// - 相对路径不采用是**有意偏离**宿主：宿主用 `path.resolve` 以宿主自己的
+///   cwd 为基准，本插件进程的 cwd 是挂载行 `cwd:` 指定的插件位置，
+///   两者不同源 —— 采用相对值会把 user 作用域定义写进插件仓库。
+/// - `C:relative` 是**盘符相对**路径（Windows 语义下不是绝对路径），故也拒绝 ——
+///   与相对路径同属「基准是 cwd」那一族。
+/// - 注意 `~` / `~/…` / `~\…` **不在**拒绝之列（上一条用例钉住它们被接受）：
+///   展开后是绝对路径，与 cwd 无关。
+async test "blank or non-absolute DSH_HOME is treated as unset" {
+  let saved_dir = @env.get_env_var("HARNESS_EVOLUTION_USER_DIR")
+  let saved_home = @env.get_env_var("DSH_HOME")
+  defer restore_user_dir_env(saved_dir)
+  defer restore_dsh_home_env(saved_home)
+
+  @env.unset_env_var("HARNESS_EVOLUTION_USER_DIR")
+
+  // 未设置时的基准：~/.dsh/skills
+  @env.unset_env_var("DSH_HOME")
+  let fallback = user_agents_dir()
+  assert_true(fallback.contains(".dsh"))
+  assert_true(fallback.has_suffix("/skills"))
+
+  @env.set_env_var("DSH_HOME", "")
+  assert_eq(user_agents_dir(), fallback)
+
+  @env.set_env_var("DSH_HOME", "   ")
+  assert_eq(user_agents_dir(), fallback)
+
+  @env.set_env_var("DSH_HOME", "relative/dsh")
+  assert_eq(user_agents_dir(), fallback)
+
+  @env.set_env_var("DSH_HOME", "./rel")
+  assert_eq(user_agents_dir(), fallback)
+
+  @env.set_env_var("DSH_HOME", "C:relative")
+  assert_eq(user_agents_dir(), fallback)
+
+  @env.set_env_var("DSH_HOME", "..")
+  assert_eq(user_agents_dir(), fallback)
+}
+
+///|
+/// ★ 优先级不被打破：`HARNESS_EVOLUTION_USER_DIR`（显式覆盖，S14）仍然
+/// **高于** `$DSH_HOME` —— 新增一档不能挤掉既有的最高优先级。
+async test "explicit user dir override still outranks the dsh home override" {
+  let saved_dir = @env.get_env_var("HARNESS_EVOLUTION_USER_DIR")
+  let saved_home = @env.get_env_var("DSH_HOME")
+  defer restore_user_dir_env(saved_dir)
+  defer restore_dsh_home_env(saved_home)
+
+  @env.set_env_var("DSH_HOME", "C:/tmp/evo-dsh-home")
+  @env.set_env_var("HARNESS_EVOLUTION_USER_DIR", "~/explicit/agents")
+  assert_true(user_agents_dir().contains("explicit"))
+  assert_false(user_agents_dir().contains("evo-dsh-home"))
+}
+
+// （验证矩阵 / 未知宿主告警用例随 v3.0.0 多宿主塌缩一并删除。）

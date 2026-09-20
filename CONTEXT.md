@@ -31,7 +31,7 @@
 | **DAG Layer（DAG 层）** | Sub-Agent 任务按依赖拓扑排序后的分层，同层可并行 | `executor/dag.mbt` 的 `topo_layers` |
 | **Agent Definition（子 Agent 定义）** | Markdown + YAML frontmatter 的 agent 载体文件（name / description / 可选 color / tools，正文为系统提示词），工厂只产出定义文件——**创建 ≠ 派发** | `factory/factory.mbt` 的 `AgentDefinition` |
 | **Sub-Agent Factory（子 Agent 工厂）** | 校验、渲染、解析定义文件并管理两个作用域的工厂（v2.1 新增，`docs/subagent-factory.md`） | `factory/`、`store/agent_defs.mbt` |
-| **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主的用户级定义目录，跨出数据根，宿主在后续会话加载；默认宿主 DeepSeek Harness 为 `~/.dsh/skills/`——DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘；Minimax Code 为 `~/.minimax/agents/`，经 `HARNESS_EVOLUTION_HOST` 切换） | `types/agent_scope.mbt`、`store/paths.mbt`、wire 表 `agent_scope_wire` |
+| **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主的用户级定义目录，跨出数据根，宿主在后续会话加载；默认宿主 DeepSeek Harness 为 `<DSH home>/skills/`（home 由 `paths.mbt::dsh_home()` 解析 `$DSH_HOME`，未设置时回落 `~/.dsh/skills/`——DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘）） | `types/agent_scope.mbt`、`store/paths.mbt`、wire 表 `agent_scope_wire` |
 
 ## 提案状态机
 
@@ -162,7 +162,9 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 │                       # read_tail 优先读镜像、缺失回落文本）
 └── agents/             # 子 Agent 定义（factory 写，scope=plugin）
                         # scope=user 写宿主的用户级定义目录（跨出数据根；
-                        # 默认宿主 DSH 为 ~/.dsh/skills/，以 skill 形式落盘）
+                        # 默认宿主 DSH 为 <DSH home>/skills/——home 由
+                        # paths.mbt::dsh_home() 解析，未设置 $DSH_HOME 时回落
+                        # ~/.dsh/skills/；以 skill 形式落盘）
 ```
 
 **窗口裁剪（Retention）**：metrics / signals 两个 JSONL 是 append-only 的

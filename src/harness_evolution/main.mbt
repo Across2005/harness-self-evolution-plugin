@@ -127,9 +127,26 @@ async fn load_config(
 /// `cancel()` 本任务 —— 循环体在每轮 sleep 后检查取消状态再干活
 /// （与 monitor 的 flush 循环同款写法），靠该检查 break，否则 task group
 /// 会永远等它结束，进程挂死。
+///
+/// **首轮基线（缺陷 3a 的修复点）**：进 `while` **之前**先取一次 mtime 快照
+/// 作为基线，而不是把基线初始化为 `None`。详见循环体上方的注释。
+/// 读盘与比较两个原语抽在 `store/config_watch.mbt`（main 包不能放测试文件，
+/// 抽出去才可测）。
 async fn config_watcher_loop(config_path : String) -> Unit {
   let poll_interval_ms = 5000
-  let mut last_mtime : (Int64, Int)? = None
+  // ★ 缺陷 3a 修复：进循环**前**先取一次基线快照。
+  //
+  // 旧实现在这里写死 `None`，而 `(None, Some(_)) => true` 表达的是
+  // 「文件在本进程运行期间被创建」。于是只要启动时配置文件就存在，
+  // 首轮轮询（5 s 后）必定报一条 "Config file changed"，与用户是否改过配置无关 ——
+  // 实测日志里这一行出现了 10 次，与进程生命周期数一一对应，是纯噪声。
+  //
+  // 预置基线后，`None` 恢复成它本来的含义「启动时确实没有文件」：
+  // 只有「启动后新建」才会触发；「启动时就存在的文件被改动」仍由
+  // (Some, Some) 分支正常捕获。两个方向的语义都不丢。
+  //
+  // 取不到快照（文件不存在 / 读不到）时基线就是 `None`，行为与旧实现一致。
+  let mut last_mtime : (Int64, Int)? = @store.config_mtime(config_path)
 
   @util.log_info(
     "ConfigWatcher",
@@ -142,23 +159,9 @@ async fn config_watcher_loop(config_path : String) -> Unit {
       break
     }
 
-    // 获取当前修改时间
-    let current_mtime = if @fs.exists(config_path) {
-      Some(@fs.mtime(config_path)) catch {
-        _ => None
-      }
-    } else {
-      None
-    }
-
-    // 比较修改时间
-    let changed = match (last_mtime, current_mtime) {
-      (None, None) => false
-      (Some(_), None) => true // 文件被删除
-      (None, Some(_)) => true // 文件被创建
-      (Some((old_sec, old_nsec)), Some((new_sec, new_nsec))) =>
-        old_sec != new_sec || old_nsec != new_nsec
-    }
+    // 读取当前修改时间，并与基线比较（创建 / 删除 / 秒或纳秒变化都算变化）
+    let current_mtime = @store.config_mtime(config_path)
+    let changed = @store.config_changed(last_mtime, current_mtime)
 
     if changed {
       @util.log_info(
@@ -174,22 +177,6 @@ async fn main {
   let paths = @store.DataPaths::default()
   paths.warn_on_legacy_v1()
   paths.ensure_root()
-
-  // ★ S6：未知 HARNESS_EVOLUTION_HOST 不再静默回落 —— 与 scan_targets
-  // 的退化告警同一惯例，在启动序列点名（`log_warn` 是 async，只能在
-  // 这里打；`user_agents_dir` 自身是同步函数）。
-  match @store.unknown_host_warning() {
-    Some(w) => @util.log_warn("Store", w)
-    None => ()
-  }
-
-  // ★ 计划落地：两个受支持宿主都已端到端验证，本行把**在哪个宿主版本、哪一天**
-  // 验证的写进启动日志，让运维一眼看清当前宿主状态。返回 `None` 表示宿主名未识别，
-  // 由上面的 `unknown_host_warning` 兜底，不重复告警。
-  match @store.host_verification_notice() {
-    Some(n) => @util.log_info("HarnessEvolution", n)
-    None => ()
-  }
 
   let (harness_cfg, scan) = load_config(paths)
   let config = harness_cfg.engine

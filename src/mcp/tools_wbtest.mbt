@@ -1397,8 +1397,7 @@ async test "tools/list advertises the three sub-agent factory tools after the le
 /// 子 Agent 工具全链路：create → list → delete。
 ///
 /// ★ 隔离说明：`ServerState::with_scan_config` 构造的 factory 里 user 作用域
-/// 指向**真实的**宿主用户目录（DSH 的 `~/.dsh/skills`、Minimax Code 的
-/// `~/.minimax/agents`），scope 缺省的 list 会把它也列进来 ——
+/// 指向**真实的**宿主用户目录（DSH 的 `~/.dsh/skills`），scope 缺省的 list 会把它也列进来 ——
 /// 测试里把 factory 重指向临时目录，保证 scope 无关的路径也可断言确定的结果。
 /// （user 作用域本身的读写行为由 factory_wbtest 用临时目录覆盖，这里不重复。）
 async test "create, list and delete a sub-agent definition over MCP" {

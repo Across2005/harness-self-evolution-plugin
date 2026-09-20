@@ -20,7 +20,10 @@
         args: []
         cwd: '<插件路径>'
         env:
-          HARNESS_EVOLUTION_HOST: deepseek-harness
+          # 空 = 未设置 → 插件回落 ~/.dsh。宿主 spawn 子进程时丢弃**全部** DSH_*
+          # （scrubbedParentEnv），所以只能在这里显式转发；宿主 boot 非默认树时
+          # 填该树的绝对路径，插件才会写进宿主真正会读的 <DSH_HOME>/skills/。
+          DSH_HOME: ''
         failOnStartupError: true
 ```
 
@@ -86,10 +89,14 @@ scan_plugins → propose_evolution → approve_proposal → execute_evolution
 
 - `scope=plugin`（默认）→ 写插件数据根下的 `agents/`（插件自管理）。
 - `scope=user` → 写宿主的用户级定义目录。**DSH 没有独立的「用户级 agents 目录」**，
-  其真实机制是从 `~/.dsh/skills/` 扫描发现 **skill**（`dsh-skill-filesystem`，
+  其真实机制是从 `<DSH home>/skills/` 扫描发现 **skill**（`dsh-skill-filesystem`，
   frontmatter 需 `name` + `description`，正文即指令体）。因此 DSH 侧 user-scope 定义
-  以 skill 形式落盘到 `~/.dsh/skills/<name>.md`，宿主在后续会话经 skills 发现加载。
-  可用 `HARNESS_EVOLUTION_HOST` 切换宿主、`HARNESS_EVOLUTION_USER_DIR` 显式指定目录。
+  以 skill 形式落盘到 `<DSH home>/skills/<name>.md`，宿主在后续会话经 skills 发现加载。
+  home 由 `paths.mbt::dsh_home()` 解析：`$DSH_HOME`（去空白判空）→ `~/.dsh`。
+  宿主 spawn MCP 子进程时会用 `scrubbedParentEnv()` 丢弃**全部** `DSH_*`，
+  继承拿不到该值，必须由 `cordis.patch.yml` 挂载行的 `env` 显式转发（见
+  `docs/deploy/deepseek-harness.md` § Forwarding `DSH_HOME` to the plugin）。
+  可用 `HARNESS_EVOLUTION_USER_DIR` 显式指定目录。
 
 > 注：`create_sub_agent` 产出的 frontmatter 含 `color` / `tools` 键，DSH 的 skill 解析器
 > 会忽略这些未知键，仅读 `name` / `description` —— 格式天然兼容，无需改渲染层。

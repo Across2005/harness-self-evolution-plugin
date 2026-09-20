@@ -627,8 +627,20 @@ async test "G5b: MoonBit test suite maintains minimum size" {
   // 缺陷 9 第一步（自测量）+ 旧行兼容新增 3 条：signal_wbtest 的
   // 「缺 decay_factor 的旧行」与「显式 decay_factor 保留」，以及 tools_wbtest 的
   // 「每次 tools/call 都进 monitor」，434→437。
+  // 437 为上一锚点——缺陷 3a（ConfigWatcher 首轮必然误报）修复：
+  // store/config_watch_wbtest.mbt 新增 4 条（缺文件 / 有文件 / config_changed
+  // 四组合穷举 / 预置基线的回归对照），外加 G7 这条源码守卫本身，437→442。
+  // 442 为上一锚点——缺陷 3c（双 profile 树路由收敛）修复：
+  // store_wbtest.mbt 新增 4 条（绝对 $DSH_HOME 被采用 / 空白与相对值视为未设置
+  // 而回落 ~/.dsh / $DSH_HOME 不劫持 minimax-code 宿主 / S14 的显式 USER_DIR
+  // 仍优先），442→446。
+  // 446 为上一锚点——v3.0.0 砍掉 MiniMax Code 兼容、host 抽象塌缩为 DSH 单宿主：
+  // store_wbtest.mbt 删除 3 条宿主用例（unknown_host_warning 启动告警 /
+  // $DSH_HOME 不劫持 minimax-code 宿主 / host verification notice 验证矩阵）；
+  // factory 的 name 字符集用例改为就地强化（+DSH isSkillName 等价注释与 `.`/`_` 反例），
+  // 不新增测试数，446→443。
   // 这个数字变了说明测试增删，必须重新核对。
-  assert_eq(mb_names.length(), 437)
+  assert_eq(mb_names.length(), 443)
 }
 
 ///|
@@ -688,4 +700,49 @@ async test "G6: moon.mod declares exactly one external dependency, async 0.20.1"
   assert_eq(deps, ["moonbitlang/async@0.20.1"])
   // 且 native 是首选目标（决策 D1）
   assert_true(text.contains("preferred_target = \"native\""))
+}
+
+// ============================================================================
+// G7：配置监听器的首轮基线
+// ============================================================================
+
+///|
+/// 缺陷 3a 的回归守卫：`config_watcher_loop` 必须在进轮询循环**之前**
+/// 用 `config_mtime` 预置基线，而不是把基线初始化为 `None`。
+///
+/// **为什么这条必须是源码守卫**：watcher 是 `while true` + 5 s `@async.sleep`
+/// 且只靠取消信号退出的循环，测试里没有有界的跑法；`harness_evolution`
+/// 又是 executable 包（不得放 `_test.mbt`），所以只能把可测的原语抽到
+/// `store/config_watch.mbt`。但那些原语只证明「预置基线就不会误报」，
+/// 证明不了**调用方真的预置了** —— 把 main.mbt 改回 `None`，
+/// store 的全部用例照样绿。这条守卫补的就是这段缺口。
+/// `G4b` 读取 `store/paths.mbt` 源码已是同款做法。
+async test "G7: the config watcher seeds its mtime baseline before the first poll" {
+  let root = module_root()
+  let text = read_text(
+    @util.path_join(
+      @util.path_join(@util.path_join(root, "src"), "harness_evolution"),
+      "main.mbt",
+    ),
+  )
+  let mut baseline_at : Int = -1
+  let mut loop_at : Int = -1
+  for i, line in lines_of(text) {
+    // 注释里提到 `None` / `config_mtime` 是**必要的**（要解释缺陷成因），不算违例
+    if line.has_prefix("//") {
+      continue
+    }
+    if line.has_prefix("let mut last_mtime") {
+      // 唯一合法形态：进循环前用 config_mtime 取快照
+      assert_true(line.contains("= @store.config_mtime("))
+      baseline_at = i
+    }
+    if line.has_prefix("while true") && loop_at < 0 {
+      loop_at = i
+    }
+  }
+  assert_true(baseline_at >= 0)
+  assert_true(loop_at >= 0)
+  // 顺序即语义：快照必须在循环之前取，否则首轮仍是无基线的
+  assert_true(baseline_at < loop_at)
 }

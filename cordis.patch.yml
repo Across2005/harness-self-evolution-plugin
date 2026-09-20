@@ -27,5 +27,24 @@
         args: []
         cwd: 'D:/Agent设计/harness-self-evolution-plugin'
         env:
-          HARNESS_EVOLUTION_HOST: deepseek-harness
+          #
+          # ★ 缺陷 3c 的另一半：单靠 `paths.mbt` 读 `$DSH_HOME` 不够 —— 这个变量
+          # **必须在这里显式转发**，因为宿主 spawn MCP 子进程时用
+          # `scrubbedParentEnv()` 丢弃**全部** `DSH_*`（`@deepseek-ai/dsh-subprocess`
+          # 的 `DSH_ENV_PREFIX`），继承是拿不到的；只有本行的字面量能在清洗**之后**
+          # 被合并进子进程环境（`@deepseek-ai/dsh-mcp-client` 的 `buildChildEnv`）。
+          #
+          # 值须为**绝对路径字面量**（Loader 不解析 ${ENV_VAR}，见上面的 H7 注释）。
+          # 空值 = 未设置 → 插件回落 `~/.dsh`：对「用户 CLI 裸跑 dsh web」的默认树
+          # 恰好正确，故留空是**安全默认**。
+          # 宿主若 boot 非默认树（例如 Mavis 的 DSH 插件用 `<pluginData>/dsh-home`），
+          # 就把它填成那一棵树，插件才会把 user 作用域定义写进宿主真正会读的
+          # `<DSH_HOME>/skills/`：
+          #
+          #   pwsh -File scripts/replace-paths.ps1 -DshHome "$env:DSH_HOME"
+          #
+          # （-DshHome 缺省取 `$env:DSH_HOME`；非绝对路径会被脚本拒绝，因为那种值
+          # 到这里会被插件忽略、看着像生效实则没有。语义见 store/paths.mbt::dsh_home，
+          # 部署checklist 见 docs/deploy/deepseek-harness.md § Which tree?）
+          DSH_HOME: ''
         failOnStartupError: true

@@ -15,14 +15,12 @@
 ///    （MoonBit 的 `Map` 是哈希表，TS 的 `Map` 保插入序，照搬会抖）
 ///
 /// ──────────────────────────────────────────────────────────────────────
-/// Per-host scan-root split（分路径加载的另一收口点）
+/// DSH scan roots（插件发现根）
 /// ──────────────────────────────────────────────────────────────────────
 ///
-/// `default_scan_roots` 返回的 4 个根跨 2 个宿主（DSH / Minimax Code）加一个
-/// 通用约定根。这是「分路径加载」的第二个收口点 —— 与 `store/paths.mbt` 的
-/// `host_agents_dir` 配对。两者共同决定了：
-/// - 运行时扫描哪些宿主级插件目录
-/// - user 作用域子代理写到哪个宿主目录
+/// `default_scan_roots` 返回 DSH 宿主级插件目录加一个通用约定根。自 v3.0.0
+/// 起移除 MiniMax Code 的两条宿主根（DSH 源码中无该宿主概念）。与
+/// `store/paths.mbt` 的 user-scope 路径共同决定运行时扫描哪些目录、写到哪儿。
 ///
 /// 启动时（`main.mbt::load_config`）会优先用 `.dsh-plugin/plugin.json` 的
 /// `scan_targets` 段覆盖这里的默认值；未配置时回退到下面的硬编码。
@@ -41,21 +39,21 @@ pub struct ScanConfig {
 }
 
 ///|
-/// 默认扫描根。只覆盖两个已被真机验证的宿主，每个根前的注释标了**实证状态**
-/// （verified / speculative），与 `paths.mbt::host_verification_notice`
-/// 在启动序列共同打印当前宿主验证状态。
+/// 默认扫描根。DSH 单一宿主 + 一个通用约定根，每个根前的注释标了**实证状态**
+/// （verified / speculative）。
 ///
 /// ```text
 /// ~/.dsh/profiles/                     # Verified 2026-09-17 (DSH 0.1.6-alpha.1)
-/// ~/.minimax/plugins/                  # Verified 2026-09-17 (Minimax Code)
-/// ~/.minimax/extensions/               # Verified 2026-09-17 (Minimax Code)
 /// ~/.agents/plugins                    # Speculative — generic convention, not tied to any host
 /// ```
+///
+/// 自 v3.0.0 起移除 MiniMax Code 的两条宿主根（`~/.minimax/plugins|extensions`）——
+/// DSH 源码中不存在「MiniMax Code 宿主」概念，属过度声明。
 ///
 /// **配置来源（2.2.0 起接通，此前是已知缺陷第 6 条的配置孤岛）**：
 /// 自述清单（`.dsh-plugin/plugin.json`）的 `scan_targets` 段经
 /// `ScanConfig::from_plugin_json` 解析，在 `main.mbt` 装配时替换默认根；
-/// 未配置时回退到这里的 4 个硬编码根。
+/// 未配置时回退到这里的硬编码根。
 /// 接通它会**改变发现哪些插件** —— 这是 2.2.0 经用户「全面升级」授权后
 /// 做出的显式行为变更， rationale 与回退语义见 `from_plugin_json`。
 ///
@@ -66,10 +64,6 @@ pub fn default_scan_roots() -> Array[String] {
   [
     // Verified 2026-09-17 (DSH 0.1.6-alpha.1): plugins mount under profiles/<name>/node_modules
     @util.expand_home("~/.dsh/profiles/"),
-    // Verified 2026-09-17 (Minimax Code): mcp.json-registered servers under plugins/
-    @util.expand_home("~/.minimax/plugins/"),
-    // Verified 2026-09-17 (Minimax Code): extension-style plugin layout
-    @util.expand_home("~/.minimax/extensions/"),
     // Speculative: generic plugin convention not tied to any host; verify before relying on it
     @util.expand_home("~/.agents/plugins"),
   ]

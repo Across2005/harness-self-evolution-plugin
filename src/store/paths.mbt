@@ -16,20 +16,20 @@
 /// 分别由本包的 cache.mbt 与 exec_log.mbt 收拢。
 ///
 /// ──────────────────────────────────────────────────────────────────────
-/// Per-host path split（分路径加载的核心收口点）
+/// DSH user-scope path（用户级作用域路径的唯一收口点）
 /// ──────────────────────────────────────────────────────────────────────
 ///
-/// 这是「分路径加载」原则在源码中的**唯一收口点**。`HARNESS_EVOLUTION_HOST`
-/// 决定宿主类型；`HARNESS_EVOLUTION_USER_DIR` 显式覆盖 user 作用域目录。
-/// 优先级：`USER_DIR` > `HOST 推导` > 默认 DSH。
+/// 本插件只服务 DeepSeek Harness（DSH）单一宿主。user 作用域目录由
+/// `dsh_agents_dir()`（即 `<DSH home>/skills`）给出；`HARNESS_EVOLUTION_USER_DIR`
+/// 可显式覆盖（测试注入 / 高级用户）。优先级：`USER_DIR` > `dsh_agents_dir()`。
 ///
-/// `host_agents_dir` 是**唯一**允许写宿主目录字面量的地方。如果你想把 user
-/// 作用域写到别的目录，请改这里并加单测；**不要**在 `tools.mbt` /
-/// `schema.mbt` / `factory.mbt` 等别处重复字面量 —— 这是仓库自身的反模式
-/// （见 `docs/dsh-compatibility.md §4.4` 反模式 1）。
+/// 自 v3.0.0 起移除多宿主抽象（历史上曾声明支持 MiniMax Code，但 DSH 源码
+/// 中不存在该宿主概念，属过度声明，已砍）。`dsh_home()` 是 DSH home 字面量的
+/// **唯一**收口点；**不要**在 `tools.mbt` / `schema.mbt` / `factory.mbt` 等别处
+/// 重复路径字面量 —— 这是仓库自身的反模式（见 `docs/dsh-compatibility.md §4.4` 反模式 1）。
 ///
-/// 完整的分路径加载架构说明：`docs/code-architecture.md`。
-/// 每个宿主的部署指南：`docs/deploy/<host>.md`（DSH 已验证、Minimax Code 已验证）。
+/// 完整的用户级作用域路径说明：`docs/code-architecture.md`。
+/// DSH 部署指南：`docs/deploy/deepseek-harness.md`。
 
 ///|
 /// 全部数据文件的根目录。
@@ -118,130 +118,88 @@ pub fn DataPaths::agent_defs(self : DataPaths) -> String {
 }
 
 ///|
-/// 宿主类型 → 用户级子 Agent 定义目录的**单一来源**（★ S6）。
-/// 返回值 `None` 表示宿主名不被识别（由调用方决定如何回落与是否告警）。
+/// DSH home 的解析（★ v2.7 路由收敛：双 profile 树的唯一收口点）。
 ///
-/// 每个分支前的注释标了**实证日期**与**已验证的宿主版本**——这是计划落地代码层的
-/// 唯一收口点。当前支持的两个宿主都已在真机上端到端验证：撤销「声明式支持」的宿主
-/// 之后，分支里只保留已验证项，不再有 declared/awaiting 状态。详情：
+/// **问题**：DSH 的 home 不一定是 `~/.dsh`。宿主自己按 `resolveDshHome` 解析，
+/// 优先级 `configured > $DSH_HOME > ~/.dsh`，空或纯空白的 `$DSH_HOME` 视为未设置
+/// （源码：`@deepseek-ai/dsh-home-paths/lib/index.js` 的 `resolveDshHome` /
+/// `defaultDshHome` / `expandHomePath`）。本插件看不到宿主的 `configured` 层，
+/// 故只镜像后两档。
 ///
-/// - DSH: `docs/deploy/deepseek-harness.md` § 验证
-/// - Minimax Code: `docs/deploy/mavis.md` § 验证
+/// **不镜像的实测后果**：拉起本插件的 MCP launcher 用
+/// `DSH_HOME=<pluginData>/dsh-home` 启动 `dsh web`（launcher `server.mjs`
+/// 的 `startHarness`），而本插件此前把 user 作用域写死成 `~/.dsh/skills/` ——
+/// `create_sub_agent(scope=user)` 的定义落进宿主**根本不读**的另一棵树。
 ///
-/// - DeepSeek Harness（默认——本插件是 DSH 插件，DSH 是第一宿主）: `~/.dsh/skills/`
-///   （DSH 0.1.6 真实用户目录是 `~/.dsh`，且**没有独立的「用户级 agents 目录」概念**——
-///   宿主只从 `~/.dsh/skills/` 扫描发现 skill。故 user-scope 定义以 skill 形式落盘，
-///   宿主在后续会话经 skills 发现加载，见 `docs/subagent-factory.md`。）
-/// - Minimax Code: `~/.minimax/agents/`
-fn host_agents_dir(host : String) -> String? {
-  match host {
-    // Verified 2026-09-17 (Minimax Code — MCP + Plugin V1 + Mini App end-to-end)
-    "minimax-code" => Some(@util.expand_home("~/.minimax/agents/"))
-    // Verified 2026-09-17 (DSH 0.1.6-alpha.1 web profile — propose→approve→execute loop)
-    "deepseek-harness" => Some(@util.expand_home("~/.dsh/skills/"))
-    _ => None
+/// **`$DSH_HOME` 从哪来**：宿主 spawn MCP 子进程时用 `scrubbedParentEnv()`
+/// 丢弃**全部** `DSH_*`（源码：`@deepseek-ai/dsh-subprocess/lib/index.js`，
+/// 以及 `@deepseek-ai/dsh-mcp-client/lib/index.js` 里「配置的 `env` 在清洗**之后**
+/// 合并」的写法），所以它必须由挂载行的 `env` **显式**转发 —— 继承是拿不到的。
+/// 见 `cordis.patch.yml` 的 `DSH_HOME` 行与 `docs/deploy/deepseek-harness.md`。
+///
+/// 宿主取值的**逐字**语义（`dsh-home-paths/lib/index.js::resolveDshHome`）：
+/// `resolve(expandHomePath(configured ?? (trim($DSH_HOME) 非空 ? $DSH_HOME : ~/.dsh)))`。
+/// 本函数镜像「去空白判空 + `expandHomePath`」两层，然后**要求结果为绝对路径**
+/// （宿主的 `path.resolve` 那一层不镜像，见下）。
+///
+/// **两处有意偏离宿主**（都因「cwd 不同源」）：
+/// 1. 相对路径与盘符相对路径（`C:rel`）不采用。宿主用 `path.resolve` 以**宿主自己的**
+///    cwd 为基准；本插件进程的 cwd 是挂载行 `cwd:` 指定的插件位置，两者不同源，
+///    采用就会把 user 作用域定义写进插件仓库。
+/// 2. `~` 的展开基准：宿主用 Node `os.homedir()`（Windows 上取 `USERPROFILE`），
+///    这里是 `@util.expand_home` → `home_dir()`（`HOME` → `USERPROFILE` → cwd）。
+///    仅当进程里存在 `HOME` 且与 `USERPROFILE` 不同源时才会有差异。
+///    `~` / `~/` / `~\` 三种写法的展开规则与宿主 `expandHomePath` 等价。
+fn dsh_home() -> String {
+  let fallback = @util.expand_home("~/.dsh")
+  match @env.get_env_var("DSH_HOME") {
+    // 空或纯空白视为未设置 —— 对齐宿主「blank override never resolves to cwd」
+    Some(h) if h.trim().length() > 0 => {
+      // 展开前先 trim：判空用 h.trim()，展开也用同一裁剪后的值。这是对宿主的
+      // **有意更安全偏离**：DSH 的 resolveDshHome 只用 trim 判空、实际使用未裁剪的
+      // 原值（index.js:75），带首尾空白的绝对路径会被它的 path.resolve 拼成 cwd 相对
+      // 垃圾路径；我们裁剪后若仍非绝对则回落 ~/.dsh。
+      let expanded = @util.expand_home(h.trim().to_owned())
+      if is_absolute_path(expanded) {
+        expanded
+      } else {
+        fallback
+      }
+    }
+    _ => fallback
   }
 }
 
 ///|
-/// 宿主的用户级子 Agent 定义目录（v2.1）。**跨出插件数据根**：
-/// 根据宿主类型选择不同的路径，支持多种 harness 平台（见 `host_agents_dir`）。
-/// 默认回落 DeepSeek 路径（★ 修订 S13：v2.5 开发中曾把缺省改成**非主宿主**以求与
-/// 文档描述对齐，但默认宿主必须是 DSH —— 这与 v2.4 行为一致，不构成破坏性
-/// 变更；schema/CONTEXT 等处的文档描述已同步改为按宿主列举）。
-/// 可通过环境变量 `HARNESS_EVOLUTION_HOST` 覆盖；未知取值仍回落 DSH 路径
-/// （行为不变）—— 告警由 `unknown_host_warning` 在启动序列给出，
-/// 因为本函数是同步函数而 `@util.log_warn` 是 async，不能在这里打日志。
-/// ★ 修订 S14（DSH 0.1.6 兼容）：新增 `HARNESS_EVOLUTION_USER_DIR` 显式覆盖，
-/// 优先级最高 —— 直接指定 user 作用域目录，避免再次硬编码宿主目录漂移。
-/// 测试经 `AgentFactory::with_dirs` 注入临时目录，绝不触碰真实的用户 home。
-pub fn user_agents_dir() -> String {
-  let host = match @env.get_env_var("HARNESS_EVOLUTION_HOST") {
-    Some(h) if h.length() > 0 => h
-    _ => "deepseek-harness"
+/// 是否是**绝对**路径。输入假定已过 `@util.path_normalize`（`\` → `/`、折叠分隔符），
+/// 故判据对齐 `@util.path_normalize` 的输出形状：
+/// - `/…`（POSIX 根，同时覆盖 `//…` 的 UNC）
+/// - `X:/…`（Windows 盘符；`C:foo` 是盘符相对路径，不算绝对，故还要求第三位是 `/`）
+fn is_absolute_path(p : String) -> Bool {
+  if p.has_prefix("/") {
+    return true
   }
+  p.length() >= 3 && p[1:2].to_owned() == ":" && p[2:3].to_owned() == "/"
+}
+
+///|
+/// DSH 的用户级定义目录：`<dsh home>/skills`。宿主只从这里扫描发现 skill，
+/// 所以 user 作用域的定义以 skill 形式落在这里。字面量集中在 `dsh_home()` 一处。
+fn dsh_agents_dir() -> String {
+  @util.path_join(dsh_home(), "skills")
+}
+
+///|
+/// 用户级子 Agent 定义目录（v2.1）。**跨出插件数据根**：DSH 单一宿主下即
+/// `<DSH home>/skills/`（见 `dsh_agents_dir`，home 由 `dsh_home()` 解析，宿主只从
+/// 这里扫描发现 skill，user-scope 定义以 skill 形式落盘、宿主在后续会话经 skills
+/// 发现加载）。`HARNESS_EVOLUTION_USER_DIR` 显式覆盖优先级最高 —— 测试经
+/// `AgentFactory::with_dirs` 注入临时目录，绝不触碰真实的用户 home。
+/// 自 v3.0.0 起移除 `HARNESS_EVOLUTION_HOST` / `host_agents_dir` 多宿主分发。
+pub fn user_agents_dir() -> String {
   match @env.get_env_var("HARNESS_EVOLUTION_USER_DIR") {
     Some(d) if d.length() > 0 => @util.expand_home(d)
-    _ =>
-      match host_agents_dir(host) {
-        Some(dir) => dir
-        // ★ 收口：fallback 路径由 `host_agents_dir("deepseek-harness")` 派生，
-        // 唯一字面量保留在该函数 DSH 分支内（paths.mbt::host_agents_dir）。
-        // 下面这一行 `expand_home` 只是兜底，按 host_agents_dir 的实现不会触发。
-        None =>
-          match host_agents_dir("deepseek-harness") {
-            Some(dir) => dir
-            None => @util.expand_home("~/.dsh/skills/")
-          }
-      }
-  }
-}
-
-///|
-/// 未知 `HARNESS_EVOLUTION_HOST` 取值的启动告警（★ S6）。
-///
-/// 旧实现把无法识别的宿主名静默回落到 DSH 路径 —— 用户设了
-/// `HARNESS_EVOLUTION_HOST=cursor` 却拿到 `~/.dsh/...`，没有任何提示。
-/// 返回 `Some(文案)` 时由 async 的启动序列打 stderr 告警；
-/// 未设置、空串或已识别的宿主都返回 `None`（无需告警）。
-pub fn unknown_host_warning() -> String? {
-  let host = match @env.get_env_var("HARNESS_EVOLUTION_HOST") {
-    Some(h) if h.length() > 0 => h
-    _ => return None
-  }
-  match host_agents_dir(host) {
-    Some(_) => None
-    // ★ 收口：告警文案里的回落路径由 `host_agents_dir("deepseek-harness")`
-    // 派生，唯一字面量保留在 host_agents_dir 的 DSH 分支内。
-    None =>
-      match host_agents_dir("deepseek-harness") {
-        Some(fallback) =>
-          Some(
-            "Unknown HARNESS_EVOLUTION_HOST '\{host}'; falling back to the default DeepSeek Harness directory (\{fallback}). Supported values: minimax-code, deepseek-harness.",
-          )
-        None => None
-      }
-  }
-}
-
-///|
-/// 启动序列点名：当前 `HARNESS_EVOLUTION_HOST` 是否已在真机上验证过端到端
-/// （propose→approve→execute 闭环 + 落盘 + 宿主热发现）。返回 `Some(文案)` 时由
-/// `main.mbt::main` 打到日志（INFO 级别；已验证的宿主可被宿主页面/Mini App 看到）。
-///
-/// 这是「计划落地代码层」—— 当前支持的两个宿主都已端到端验证，因此每个分支的文案
-/// 都以 `verified` 开头，并写明**在哪个宿主版本、哪一天**验证的。
-///
-/// 与 `unknown_host_warning` 互补：本函数返回 `Some` 表示宿主**已被识别**，
-/// 但是否已实证是另一回事；`unknown_host_warning` 处理的是宿主名未识别的情况。
-///
-/// 新增宿主或改变验证状态时：更新本函数的对应分支、`host_agents_dir` 的注释，以及
-/// `src/store/store_wbtest.mbt` 里钉住验证矩阵的用例（那份用例会强制两份文件同时改，
-/// 见 `docs/code-architecture.md` § Adding a new host）。
-pub fn host_verification_notice() -> String? {
-  let host = match @env.get_env_var("HARNESS_EVOLUTION_HOST") {
-    Some(h) if h.length() > 0 => h
-    _ => "deepseek-harness"
-  }
-  match host {
-    // Verified 2026-09-17 on DSH 0.1.6-alpha.1 web profile:
-    //   - scan_plugins → propose → approve → execute full loop
-    //   - create_sub_agent(scope=user) wrote ~/.dsh/skills/evo-compat-test.md
-    //     and DSH hot-discovered it as a skill in the same session
-    "deepseek-harness" =>
-      Some(
-        "Host: DeepSeek Harness ≥ 0.1.6 — verified end-to-end 2026-09-17 (web profile, propose→approve→execute loop + user-scope skill hot discovery).",
-      )
-    // Verified 2026-09-17 on Minimax Code:
-    //   - mcp.json-registered stdio server, 14 tools exposed as mcp__harness_evolution__*
-    //   - Plugin V1 package installed at ~/.minimax/plugins/harness-evolution/
-    //   - Mini App floating panel rendered with live tool grid at
-    //     http://127.0.0.1:63757/dashboard (Mavis-assigned port)
-    "minimax-code" =>
-      Some(
-        "Host: Minimax Code — verified end-to-end 2026-09-17 (MCP server + Plugin V1 + Mini App floating panel with 14-tool live grid).",
-      )
-    _ => None  // unknown hosts are handled by unknown_host_warning; do not double-warn
+    _ => dsh_agents_dir()
   }
 }
 

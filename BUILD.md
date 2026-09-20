@@ -59,7 +59,7 @@
 | 命令 | 等价裸命令 | 验收标准 | 对应验证级 |
 |---|---|---|---|
 | `.\build.ps1 check` | `moon check --deny-warn --target native` | **零错零警**（任何新警告都算失败） | T0 语法 |
-| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 434，以实际输出为准），内含架构守卫 G1–G6 | T1 功能 |
+| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 446，以实际输出为准），内含架构守卫 G1–G7 | T1 功能 |
 | `.\build.ps1 build` | `moon build --target native --release` + 产物复制 | 生成 `bin\harness-evolution.exe` | — |
 | `.\build.ps1 all` | check → test → build 依次执行、逐步核对退出码 | 三步全绿 | T2 回归 |
 | `.\build.ps1 fmt` | `moon fmt` | — | — |
@@ -79,7 +79,7 @@
   Linux/macOS 沙箱首次安装可能需要在宿主侧显式放行构建（`allowBuilds`）。
 - **配置链**：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.dsh-plugin/plugin.json` → `.dsh-plugin/plugin.json`（相对插件根兜底）→ 内置默认。`AGENTS.md` 不参与配置解析。**破坏性变更（v2.7.0，开发中）**：旧布局 `<cwd>/.zcode-plugin/plugin.json` 的回退已移除，该文件不再被读取；已部署实例需把它改名为 `.dsh-plugin/plugin.json`（内容无需改），否则其中的 `evolution_config` / `scan_targets` 静默失效、回落内置默认。
 - **数据目录**：唯一 `~/.harness-evolution/v2/`（`$HARNESS_EVOLUTION_HOME` 可覆盖），内含 `plugin-cache.json` / `metrics.jsonl` / `signals.jsonl` / `proposals.jsonl` / `execution.log` / `execution.jsonl`（v2.7 结构化执行事件镜像，与 execution.log 同源双写）/ `sandbox/` / `agents/`。
-- **宿主切换**：环境变量 `HARNESS_EVOLUTION_HOST`（`deepseek-harness` 缺省 / `minimax-code`）；未知取值会启动时点名告警后回落到 DSH 目录。
+- **宿主**：自 v3.0.0 起仅支持 DeepSeek Harness（DSH）单一宿主；多宿主开关 `HARNESS_EVOLUTION_HOST` 已移除，用户级目录可用 `HARNESS_EVOLUTION_USER_DIR` 显式覆盖。
 
 ### 2.4 修改禁区（架构不变量）
 
@@ -93,6 +93,7 @@
 | G4/G4b | 数据目录字面量只在 `store/paths.mbt` |
 | G5/G5b | 测试覆盖（含守卫自身的负向探针） |
 | G6 | `moon.mod` 只有一个外部依赖，native 是首选目标 |
+| G7 | 配置监听器在首轮轮询**之前**预置 mtime 基线（源码守卫；store 侧原语测不出「调用方真的预置了」，见 `src/store/config_watch.mbt` 注释） |
 
 另注意：提案状态只能 `pending → approved → executing → completed`（或 `reject_proposal` → `rejected`）；审批必须人工（`auto_approve: true` 会被告警并回落 `false`，这是故意设计，不是缺陷）。
 

@@ -38,9 +38,9 @@
 1. **`cordis.patch.yml` 重写**（ISSUE-01/02）：从元数据映射改为 loader 挂载行方言——
    一条 `insert: [{id, name, config}]`，`name: '@deepseek-ai/dsh-mcp-client'`，config 含
    `transport/stdio、serverName/harness-evolution、command/cwd、failOnStartupError: true`。
-2. **宿主目录模型修正**（ISSUE-03）：`src/store/paths.mbt` 的 `host_agents_dir` 把
-   `deepseek-harness` 分支从 `~/.deepseek/harness/agents/` 改为 `~/.dsh/skills/`；新增
-   `HARNESS_EVOLUTION_USER_DIR` 显式覆盖；扫描根 `~/.deepseek/harness/*` → `~/.dsh/profiles/`。
+2. **宿主目录模型修正**（ISSUE-03）：`src/store/paths.mbt` 把 DSH user 作用域目录从
+   `~/.deepseek/harness/agents/` 改为 `<DSH home>/skills/`（现由 `dsh_agents_dir()`/`dsh_home()` 解析）；
+   新增 `HARNESS_EVOLUTION_USER_DIR` 显式覆盖；扫描根 `~/.deepseek/harness/*` → `~/.dsh/profiles/`。
 3. **元数据对齐**（ISSUE-02/04）：`package.json` 的 `engines.deepseek-harness` → `engines.dsh`
    （`>=0.1.6`），`files` 补上 exe 与配置；`plugin.json` 的 `scan_targets` 对齐。
 4. **文档对齐**（ISSUE-04/06）：README / DSH_INTEGRATION / BUILD / CONTEXT / DESIGN / SKILL /
@@ -125,7 +125,7 @@ mcp-client 的 config 受 zod schema 约束（`dsh-mcp-client/lib/index.js:780-8
 | `serverName` | `/^[A-Za-z0-9_-]{1,32}$/` | **决定工具公开名** `mcp__<serverName>__<tool>` |
 | `command` | 必填 string | 直接传给 MCP SDK spawn，**绝对路径最稳**（相对路径按 spawn 的 cwd 解析，不可控） |
 | `cwd` | string | 子进程工作目录 |
-| `env` | dict | 覆盖子进程环境（这里传 `HARNESS_EVOLUTION_HOST`） |
+| `env` | dict | 覆盖子进程环境（这里显式转发 `DSH_HOME`） |
 | `failOnStartupError` | bool | **强判据**：MCP 握手/工具发现失败 → DSH 启动直接失败 |
 
 为什么 overlay 挂载能通、而标准路径崩：
@@ -215,7 +215,9 @@ dsh --profile web --dump-config                            # exit 0，无崩溃
 scan_plugins → propose_evolution(带 signals) → approve_proposal → execute_evolution → list_proposals
 
 # ⑤ 宿主目录硬判据
-create_sub_agent(scope=user, name=...) → 文件落在 ~/.dsh/skills/ 且宿主热发现为技能
+create_sub_agent(scope=user, name=...) → 文件落在 <DSH home>/skills/ 且宿主热发现为技能
+#   （home 由 paths.mbt::dsh_home() 解析：$DSH_HOME → ~/.dsh；默认即 ~/.dsh/skills/。
+#    宿主 spawn MCP 子进程时丢弃全部 DSH_*，故 $DSH_HOME 须由挂载行 env 显式转发）
 
 # ⑥ 收尾还原
 dsh plugin --profile web remove "@across2005/harness-self-evolution"
@@ -223,61 +225,57 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 
 ---
 
-## 四、双宿主差异收拢与新宿主接入
+## 四、路径收拢（DSH 单宿主）
 
-本插件当前支持两个宿主：DeepSeek Harness 与 Minimax Code。双宿主兼容的本质是：
-**把「随宿主变化的接缝」收拢成可枚举、可覆盖、可测试的单一来源，把「与宿主无关的内核」彻底隔离。**
+自 v3.0.0 起本插件只服务 DeepSeek Harness（DSH）单一宿主。历史上曾声明双宿主
+（DSH + MiniMax Code），但 MiniMax Code 是本插件单方面声明、DSH 源码中不存在的
+宿主概念，已砍除。剩下的原则不变：
 
-### 4.1 随宿主变化的接缝（差异清单）
+**把「随部署变化的接缝」收拢成可枚举、可覆盖、可测试的单一来源，把与路径无关的内核彻底隔离。**
 
-| 接缝 | DeepSeek Harness | Minimax Code |
-|------|------------------|--------------|
-| 用户级定义目录 | `~/.dsh/skills/`（skill 形式） | `~/.minimax/agents/` |
-| 插件扫描根 | `~/.dsh/profiles/` | `~/.minimax/plugins/`、`~/.minimax/extensions/` |
-| 安装方式 | `dsh plugin add` + `cordis.patch.yml`（mcp-client 挂载） | 自有 loader |
-| 子 Agent 载体 | skill（`SKILL.md`/`.md`） | agent `.md` |
+### 4.1 路径接缝（单一来源清单）
 
-关键观察：**内核（扫描/监控/提案/执行/状态机）与宿主无关；只有「目录路径」和「落盘载体」随宿主变。**
+| 接缝 | DSH |
+|------|-----|
+| 用户级定义目录 | `<DSH home>/skills/`（skill 形式；`dsh_home()` 解析 `$DSH_HOME` → `~/.dsh`） |
+| 插件扫描根 | `~/.dsh/profiles/`（+ speculative `~/.agents/plugins`），受 `.dsh-plugin/plugin.json::scan_targets` 覆盖 |
+| 安装方式 | `dsh plugin add` + `cordis.patch.yml`（mcp-client 挂载） |
+| 子 Agent 载体 | skill（`SKILL.md`/`.md`，frontmatter `name`+`description`） |
 
-### 4.2 收拢策略：一个枚举、一张 wire 表、一处 fallback
+关键观察：**内核（扫描/监控/提案/执行/状态机）与路径无关；只有「目录路径」和「落盘载体」需要收口。**
 
-本次已在代码里落地的三个机制：
+### 4.2 收拢策略：一处 fallback、一张 wire 表
 
-1. **`host_agents_dir(host)` 单一来源**（`src/store/paths.mbt`）：`match host { "minimax-code" => ..., "deepseek-harness" => ..., _ => None }`。
-   新增宿主时编译器会在 match 穷尽处报错，逼实现者决定该宿主的目录。
-2. **`HARNESS_EVOLUTION_HOST` 切换 + `HARNESS_EVOLUTION_USER_DIR` 显式覆盖**：
-   前者按宿主名选目录，后者允许用户直接指定 user 作用域目录，避免再次硬编码漂移。
-   优先级：`USER_DIR` > `HOST 推导` > 默认 DSH。
+代码里已落地的机制：
+
+1. **`user_agents_dir()` 单一来源**（`src/store/paths.mbt`）：`HARNESS_EVOLUTION_USER_DIR` 覆盖，
+   否则 `dsh_agents_dir()` —— 后者由 `dsh_home()` 解析 `<DSH home>`（镜像宿主 `resolveDshHome`
+   的 `$DSH_HOME` → `~/.dsh` 两档）。于是「宿主的 home 不是 `~/.dsh`」这一现实有唯一收口点。
+   自 v3.0.0 起 `host_agents_dir(host)` 与 `HARNESS_EVOLUTION_HOST` 多宿主分发已移除。
+2. **`HARNESS_EVOLUTION_USER_DIR` 显式覆盖**：允许用户/测试直接指定 user 作用域目录，避免硬编码漂移。
+   优先级：`USER_DIR` > `dsh_agents_dir()`。
 3. **wire 表单一来源**（`src/types/wire_tables.mbt`）：一个字符串枚举只有一张 wire 表，
-   「合法性列表」与「JSON 编解码」同源，新增宿主枚举值只改一处。
+   「合法性列表」与「JSON 编解码」同源。
 
-### 4.3 新宿主接入 checklist（可操作的扩展协议）
+### 4.3 载体格式必须与宿主同构
 
-接入第 N 个宿主时，按此清单逐项核对，缺一不可：
+本插件的 sub-agent 定义以 DSH skill 形式落盘，须满足宿主的 skill 契约，否则被静默忽略：
+- frontmatter 必含 `name` + `description`；`name` 须过 DSH 的 `SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/`
+  （本插件 `factory::validate_name` 与之等价，由 `factory_wbtest.mbt` 钉住）。
+- 不写宿主拒收的 legacy invocation 键。
 
-1. **核实该宿主的真实目录模型**（读宿主源码，不读文档）：
-   - 用户级 agents/skill 定义目录在哪？载体格式是什么（`.md` frontmatter？`SKILL.md`？）？
-   - 插件挂载点/扫描根在哪？
-2. **改 `host_agents_dir`**：加一个 match 分支；同步更新 `unknown_host_warning` 的
-   `Supported values` 文案。
-3. **改扫描根**：`default_scan_roots()` + `.dsh-plugin/plugin.json` 的 `scan_targets` 按宿主列举。
-4. **确认载体格式是否同构**：若该宿主的 agent 载体与 DSH skill 不同构（frontmatter 键名/结构不同），
-   需要在 factory 的 render/parse 层按宿主分派（而不是复用同一 render）。
-5. **补回归用例**：`store_wbtest.mbt` 加「该宿主 → 目录跟随」断言；`scan_targets_wbtest.mbt`
-   加「该宿主扫描根」断言；`architecture_test.mbt` G5b 守卫同步测试数。
-6. **文档对齐**：README 宿主目录表、SKILL 工具描述、`docs/` 各处的路径逐字核对。
-7. **实机闭环**：install → dump-config/boot → 端到端最小闭环 → 目录硬判据 → remove。
+改路径时：编辑 `dsh_agents_dir()` / `dsh_home()`，同步 `default_scan_roots()` 与
+`.dsh-plugin/plugin.json` 的 `scan_targets`；删/增用例后同步 `architecture_test.mbt` G5b 测试数锚点。
 
-### 4.4 双宿主兼容的反模式（要避免的坑）
+### 4.4 路径收拢的反模式（要避免的坑）
 
-- **反模式 1：把宿主差异散落到多处硬编码。** 这次修复前，`~/.deepseek/harness` 散落在
+- **反模式 1：把路径差异散落到多处硬编码。** 修复前 `~/.deepseek/harness` 散落在
   `paths.mbt`、`scanner.mbt`、`agent_scope.mbt`、`tools.mbt`、`schema.mbt`、`plugin.json`、
-  README 等十几处——改一处漏一处。正确做法是单一来源 + 单一枚举。
-- **反模式 2：默认为「最熟悉的宿主」。** 曾有版本把缺省从主宿主改成非主宿主以求对齐某处文档，
-  造成行为漂移。默认宿主必须是声明的主宿主（DSH），其余经显式切换。
-- **反模式 3：为「未来可能支持」的宿主预写路径而不验证。** `~/.deepseek/harness` 就是
-  「想象中」的目录，实测不存在。每写一个宿主路径，都要先证明宿主真的读它。
-- **反模式 4：把「未接线」呈现为「无活动」。** metrics/signals 链无生产调用方时，
+  README 等十几处——改一处漏一处。正确做法是单一来源。
+- **反模式 2：为「未来可能支持」的宿主预写路径而不验证。** 历史上对 MiniMax Code 的
+  「已验证」声明正是如此——DSH 源码里没有这个宿主。每写一条宿主路径/兼容声明，都要先
+  证明宿主真的读它。
+- **反模式 3：把「未接线」呈现为「无活动」。** metrics/signals 链无生产调用方时，
   快照应如实点名 `data_gaps`，而不是返回空数组假装一切正常。
 
 ---
@@ -318,10 +316,10 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 2. **`.dsh-module-fallback` 是宿主机制**：它为插件的 peer 依赖做兜底解析，profile 侧用 junction
    指向它。三条纪律：不要递归遍历（会跟进 peer 树直到挂起）；插件卸载后不要手删其内容
    （profile 侧 junction 会悬空）；清悬空链接用 `rmdir`（删链不删目标），不要 `Remove-Item -Recurse`。
-3. **同一个 exe 可能被多个宿主同时拉起**：实测本机 `harness-evolution.exe` 同时存在两个进程，
-   父进程分别是 DSH web host 与 Minimax Code 应用（后者经 `~/.minimax/plugins/harness-evolution/`
-   的 `mcp.json` + `scripts/launch.cjs` shim 拉起，`HARNESS_EVOLUTION_HOST=minimax-code`）。
-   两者默认共用同一数据根——需要隔离时给各自设不同的 `HARNESS_EVOLUTION_HOME`。
+3. **同一个 exe 可能被多个宿主实例同时拉起**：实测本机曾同时存在两个
+   `harness-evolution.exe` 进程（一个由 DSH web host 拉起，一个由已移除的 MiniMax Code
+   兼容路径拉起）。两者默认共用同一数据根——需要隔离时给各自设不同的
+   `HARNESS_EVOLUTION_HOME`。（v3.0.0 起只剩 DSH 一条路径。）
 
 ### 5.4 判据纪律（本次新增）
 
@@ -358,6 +356,6 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 | skill 发现 | `dsh-skill-filesystem/lib/index.js` | roots L150-188；`SKILL_NAME` L17（dsh-skill） |
 | 包元数据契约 | `dsh-package-manifest/lib/types/types.d.ts` | `DshBundleManifest.patch`、`DshEnginesManifest.dsh` |
 | `!!js` 求值 | `cordis-plugin-loader/lib/index.js` | `evaluate = new Function("ctx","expr",...)` L289-293 |
-| 插件宿主目录 | 本项目 `src/store/paths.mbt` | `host_agents_dir` / `user_agents_dir` |
+| 插件宿主目录 | 本项目 `src/store/paths.mbt` | `user_agents_dir` / `dsh_agents_dir` |
 | 扫描根 | 本项目 `src/scanner/scanner.mbt` | `default_scan_roots` |
 | 挂载行 | 本项目 `cordis.patch.yml` | `insert: [{id, name, config}]` |
