@@ -356,7 +356,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 // .dsh-plugin/plugin.json
 {
   "name": "harness-self-evolution",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",
@@ -422,11 +422,6 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
       "latency_regression": 0.2
     }
   },
-  "scan_targets": [
-    "~/.dsh/profiles/",
-    "~/.agents/skills/",
-    "~/.openclaw-autoclaw/skills/"
-  ],
   "monitoring": {
     "enabled": true,
     "sample_rate": 1.0,
@@ -460,6 +455,10 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
   `ScanConfig::from_plugin_json` 解析该段并替换默认扫描根；
   未配置/为空/类型不符时回退默认根（退化取值会点名告警）。
   每个路径支持 `~/...` 展开；不存在的路径在扫描时跳过并打一行 stderr。
+  **v3.1 起出厂清单不再写这一段**：它只支持 `~/` 展开、表达不了 `<DSH home>`，
+  留着必然与「默认根随 `dsh_home()` 派生」冲突（旧值还带着多宿主时代的
+  `~/.agents/skills` / `~/.openclaw-autoclaw/skills`）。用户仍可用它显式覆盖；
+  出厂语义 = 删除该段 → 静默回落派生默认根。
 - **`monitoring` 段目前不参与行为**：监控事件由宿主经 MCP 工具调用链埋点
   （`record_tool_call` / `record_user_feedback` 的注入缝），
   `enabled` / `sample_rate` 尚无消费方 —— 它声明的是宿主侧的埋点行为，

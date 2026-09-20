@@ -253,6 +253,22 @@ Scanner 不修改任何插件代码，只建立初始档案。
 
 ---
 
+## Agent skills
+
+### Issue tracker
+
+issue 与 spec 以 GitHub issue 形式存在（`origin`），操作走 `gh` CLI；外部 PR 不作为请求入口。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+沿用五个规范 triage 角色，标签字符串与角色同名（`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`）。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+single-context：根 `CONTEXT.md` 是词汇表与架构不变量的单一事实来源，ADR 落在 `docs/adr/`（惰性创建）。见 `docs/agents/domain.md`。
+
+---
+
 ## 参考文档
 
 - [DESIGN.md](DESIGN.md) — 详细设计、模块边界、调用链
@@ -265,7 +281,7 @@ Scanner 不修改任何插件代码，只建立初始档案。
 
 ## 版本信息
 
-- **当前版本**：3.0.0
+- **当前版本**：3.1.0
 - **最后更新**：2026-09-20
 - **维护者**：AI Agent Designer
 - **许可证**：MIT

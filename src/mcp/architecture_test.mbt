@@ -599,6 +599,60 @@ async test "G4b: store/paths.mbt is the single source of the data directory" {
 }
 
 // ============================================================================
+// G8/G9：出厂产物**零机器依赖**（v3.1 路径可移植化的守卫）
+//
+// 背景（实测）：挂载行是静态的、DSH 树是每台机器各自的。出厂写死一台机器的
+// command/cwd，换机器就指向不存在的文件，而 `failOnStartupError: true` 会让
+// MCP 握手失败**直接中止整个 profile 启动**。同理 `scan_targets` 只支持 `~/`
+// 展开、表达不了 `<DSH home>`，留着必然与「扫描根随 dsh_home() 派生」冲突。
+// 这两条守卫把「出厂产物里不许再出现机器路径 / 树相关字面量」机器化。
+// ============================================================================
+
+///|
+/// G8：出厂自述清单不写 `scan_targets`。
+///
+/// 该段只支持 `~/` 展开，写死 `~/.dsh/profiles/` 就等于把扫描钉在默认树上 ——
+/// 宿主 boot 非默认树时（managed launcher 的 `<pluginData>/dsh-home`）扫描会看错树。
+/// 删除后走 `default_scan_roots()`（随 `dsh_home()` 派生）。
+/// 用户仍可用该段显式覆盖，只是**出厂**不该带。
+async test "G8: the shipped self-manifest carries no scan_targets" {
+  let root = module_root()
+  let text = read_text(
+    @util.path_join(@util.path_join(root, ".dsh-plugin"), "plugin.json"),
+  )
+  assert_false(
+    text.contains("scan_targets"),
+  )
+}
+
+///|
+/// G9：出厂挂载行默认禁用，且**不含任何机器绝对路径**。
+///
+/// 判据两条：
+/// 1. 含 `disabled: true` —— 出厂不激活，避免在未安装的机器上拖挂 profile 启动；
+/// 2. 非注释行里不出现 `:/`（Windows 盘符绝对路径的充要片段）——
+///    `command` / `cwd` / `env` 的值必须由 `scripts/install-dsh.ps1` 在目标树上写入。
+async test "G9: the shipped mount row is disabled and free of machine paths" {
+  let root = module_root()
+  let text = read_text(@util.path_join(root, "cordis.patch.yml"))
+  assert_true(text.contains("disabled: true"))
+  let offenders : Array[String] = []
+  for line in lines_of(text) {
+    if line.has_prefix("#") {
+      continue
+    }
+    if line.contains(":/") {
+      offenders.push(line)
+    }
+  }
+  if offenders.length() > 0 {
+    abort(
+      "cordis.patch.yml must not ship machine absolute paths (they break boot on other machines); found \{join_names(offenders)}",
+    )
+  }
+}
+
+// ============================================================================
 // G5：MoonBit 测试覆盖验证
 // ============================================================================
 
@@ -639,8 +693,15 @@ async test "G5b: MoonBit test suite maintains minimum size" {
   // $DSH_HOME 不劫持 minimax-code 宿主 / host verification notice 验证矩阵）；
   // factory 的 name 字符集用例改为就地强化（+DSH isSkillName 等价注释与 `.`/`_` 反例），
   // 不新增测试数，446→443。
+  // 443 为上一锚点——v3.1（DSH 启动路径可移植化 A/B/C/E）新增 10 条：
+  // · store_wbtest.mbt +5（安装路径推导：三种绝对前缀 + `..` 消解 + 不命中反例
+  //   + `$DSH_HOME` 仍优先 + `dsh_profiles_dir()` 随 dsh_home 派生）；
+  // · scan_targets_wbtest.mbt +1（默认扫描根随 `$DSH_HOME` 派生）；
+  // · scanner_wbtest.mbt +2（`manifest_is_json` 判定 + `SKILL.md` 直接回退）；
+  // · architecture_test.mbt +2（G8 出厂清单无 `scan_targets` / G9 出厂挂载行
+  //   默认禁用且无机器绝对路径）。443→453。
   // 这个数字变了说明测试增删，必须重新核对。
-  assert_eq(mb_names.length(), 443)
+  assert_eq(mb_names.length(), 453)
 }
 
 ///|

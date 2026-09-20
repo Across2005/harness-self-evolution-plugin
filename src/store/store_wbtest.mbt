@@ -1118,4 +1118,111 @@ async test "explicit user dir override still outranks the dsh home override" {
   assert_false(user_agents_dir().contains("evo-dsh-home"))
 }
 
-// （验证矩阵 / 未知宿主告警用例随 v3.0.0 多宿主塌缩一并删除。）
+// ============================================================================
+// ★ v3.1 第三档：安装路径推导（`dsh_home_from_profile_path` / `dsh_profiles_dir`）
+//
+// 动机：挂载行是**静态**的、树是**每台机器各自**的 —— 出厂字面量只对某一棵树成立。
+// 安装器把 `cwd` 写成 `<profile>/node_modules/<pkg>`，宿主 spawn 时它就是子进程 cwd；
+// 从该形态取出 `<X>` 即宿主树。于是 `scrubbedParentEnv` 丢掉 `DSH_*` 也不再致命。
+//
+// 这一档是**纯路径算术**（不摸盘），所以逐字钉住即可，不需要构造真实目录树。
+// ============================================================================
+
+///|
+/// ★ 主判据：`<X>/profiles/<name>/node_modules/<pkg>` → `X`，三种绝对前缀写法都认。
+async test "dsh home is derived from an install path under profiles" {
+  // Windows 盘符
+  assert_eq(
+    dsh_home_from_profile_path(
+      "C:/Users/x/.dsh/profiles/web/node_modules/@across2005/harness-self-evolution",
+    ),
+    Some("C:/Users/x/.dsh"),
+  )
+  // 盘符 + 反斜杠 + 尾部多余分隔符：先归一化再匹配
+  assert_eq(
+    dsh_home_from_profile_path(
+      "C:\\Users\\x\\.dsh\\profiles\\web\\node_modules\\pkg\\bin\\",
+    ),
+    Some("C:/Users/x/.dsh"),
+  )
+  // POSIX 根
+  assert_eq(
+    dsh_home_from_profile_path("/home/u/.dsh/profiles/web/node_modules/pkg"),
+    Some("/home/u/.dsh"),
+  )
+  // UNC：`//` 前缀必须原样还原，不能退化成单斜杠
+  assert_eq(
+    dsh_home_from_profile_path("//server/share/.dsh/profiles/web/node_modules/pkg"),
+    Some("//server/share/.dsh"),
+  )
+  // 宿主树本身也可以是多段（managed launcher 的 `<pluginData>/dsh-home`）
+  assert_eq(
+    dsh_home_from_profile_path(
+      "C:/Users/x/.minimax/v2/plugin-data/local-minimax/dsh/dsh-home/profiles/web/node_modules/pkg",
+    ),
+    Some("C:/Users/x/.minimax/v2/plugin-data/local-minimax/dsh/dsh-home"),
+  )
+}
+
+///|
+/// ★ 边界：`..` 先词法消解再匹配（安装位可能经 junction/相对段到达）。
+async test "install path derivation resolves dot segments before matching" {
+  assert_eq(
+    dsh_home_from_profile_path("C:/a/b/../c/profiles/p/node_modules/x"),
+    Some("C:/a/c"),
+  )
+}
+
+///|
+/// ★ 边界：不命中一律 `None`（调用方回落 `~/.dsh`），绝不猜。
+///
+/// 收紧判据的三条反例都钉在这里：缺 `node_modules`、缺 profile 名、
+/// `node_modules` 之后没有包名、相对路径。
+async test "install path derivation rejects everything that is not an install path" {
+  // 仓库里恰好有个 profiles 目录：不是安装位
+  assert_eq(dsh_home_from_profile_path("D:/repo/profiles/foo"), None)
+  // 缺 profile 名（`profiles` 后直接就是 node_modules）
+  assert_eq(dsh_home_from_profile_path("C:/x/.dsh/profiles/node_modules/pkg"), None)
+  // `node_modules` 之后没有包名
+  assert_eq(dsh_home_from_profile_path("C:/x/.dsh/profiles/web/node_modules"), None)
+  // 相对路径：本进程 cwd 与宿主 cwd 不同源，采用会写进插件仓库
+  assert_eq(dsh_home_from_profile_path("profiles/web/node_modules/pkg"), None)
+  assert_eq(dsh_home_from_profile_path("./profiles/web/node_modules/pkg"), None)
+  // 盘符相对路径
+  assert_eq(dsh_home_from_profile_path("C:profiles/web/node_modules/pkg"), None)
+  // 空串 / 只有分隔符
+  assert_eq(dsh_home_from_profile_path(""), None)
+  assert_eq(dsh_home_from_profile_path("///"), None)
+}
+
+///|
+/// ★ 优先级不被打破：`$DSH_HOME` 仍**高于**推导档 —— 显式转发是权威，
+/// 推导只是「没人告诉我们树在哪」时的兜底。
+async test "an absolute DSH_HOME still outranks install path derivation" {
+  let saved_home = @env.get_env_var("DSH_HOME")
+  defer restore_dsh_home_env(saved_home)
+
+  @env.set_env_var("DSH_HOME", "C:/tmp/evo-dsh-home")
+  assert_eq(user_agents_dir(), "C:/tmp/evo-dsh-home/skills")
+}
+
+///|
+/// ★ 扫描根与 user 作用域同源：`dsh_profiles_dir()` 随 `dsh_home()` 走，
+/// 于是「扫哪棵树」与「写哪棵树」不可能再各说各话。
+async test "dsh profiles dir follows the resolved dsh home" {
+  let saved_home = @env.get_env_var("DSH_HOME")
+  defer restore_dsh_home_env(saved_home)
+
+  @env.set_env_var("DSH_HOME", "C:/tmp/evo-dsh-home")
+  assert_eq(dsh_profiles_dir(), "C:/tmp/evo-dsh-home/profiles")
+
+  // 反斜杠/尾分隔符写法归一化后等价
+  @env.set_env_var("DSH_HOME", "C:\\tmp\\evo-dsh-home\\")
+  assert_eq(dsh_profiles_dir(), "C:/tmp/evo-dsh-home/profiles")
+
+  // 未设置 → 回落 ~/.dsh/profiles（本测试进程的 cwd/argv 不是安装位，
+  // 推导档不命中，故与 v3.0.0 的默认值一致）
+  @env.unset_env_var("DSH_HOME")
+  assert_eq(dsh_profiles_dir(), @util.path_join(@util.expand_home("~/.dsh"), "profiles"))
+}
+

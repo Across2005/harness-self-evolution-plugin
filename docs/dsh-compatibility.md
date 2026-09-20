@@ -237,9 +237,9 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 
 | 接缝 | DSH |
 |------|-----|
-| 用户级定义目录 | `<DSH home>/skills/`（skill 形式；`dsh_home()` 解析 `$DSH_HOME` → `~/.dsh`） |
-| 插件扫描根 | `~/.dsh/profiles/`（+ speculative `~/.agents/plugins`），受 `.dsh-plugin/plugin.json::scan_targets` 覆盖 |
-| 安装方式 | `dsh plugin add` + `cordis.patch.yml`（mcp-client 挂载） |
+| 用户级定义目录 | `<DSH home>/skills/`（skill 形式；`dsh_home()` 解析 `$DSH_HOME` → 安装路径推导 → `~/.dsh`） |
+| 插件扫描根 | `@store.dsh_profiles_dir()` = `<DSH home>/profiles`（+ speculative `~/.agents/plugins`），与用户级目录**同源**；出厂清单不再设 `scan_targets`（它表达不了 `<DSH home>`） |
+| 安装方式 | `scripts/install-dsh.ps1`（安装期按树注入挂载行）+ `cordis.patch.yml`（出厂行默认 `disabled: true`、零机器路径） |
 | 子 Agent 载体 | skill（`SKILL.md`/`.md`，frontmatter `name`+`description`） |
 
 关键观察：**内核（扫描/监控/提案/执行/状态机）与路径无关；只有「目录路径」和「落盘载体」需要收口。**

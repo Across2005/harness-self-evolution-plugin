@@ -32,9 +32,10 @@ Install into the tree the host actually uses:
 
 ```powershell
 $env:DSH_HOME = '<the host tree>'      # e.g. <pluginData>\dsh-home
-dsh plugin --profile web add "<repo>"
-dsh --profile web --dump-config        # exit 0 + mount row = the layer is in THIS tree
+pwsh -File scripts/install-dsh.ps1 -Profile web   # installs the bundle AND injects the mount row
+dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'  # exit 0, row enabled
 # rollback
+pwsh -File scripts/install-dsh.ps1 -Profile web -Uninstall
 dsh plugin --profile web remove "@across2005/harness-self-evolution"
 ```
 
@@ -42,82 +43,108 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 inside the tree but will not mount a newly added bundle. Until the host restarts, the session shows no
 `mcp__harness-evolution__*` tools even though `--dump-config` is green.
 
-### Forwarding `DSH_HOME` to the plugin
+### How the plugin learns the tree (`DSH_HOME`) — v3.1
 
-Installing into the right tree is only half the job — the MCP child **cannot inherit** `DSH_HOME`.
+Installing into the right tree is only half the job — the MCP child **cannot inherit** `DSH_HOME`:
 DSH spawns it through `scrubbedParentEnv()`, which drops every `DSH_*` name
 (`@deepseek-ai/dsh-subprocess`), and `@deepseek-ai/dsh-mcp-client` merges the mount row's `env`
-**after** that scrub. The value therefore has to sit in the mount row as an absolute literal
-(the Loader expands neither `${ENV_VAR}` nor relative paths — see § Path substitution).
+**after** that scrub. The Loader expands neither `${ENV_VAR}` nor relative paths for
+`config.command` / `config.cwd` (see § Path substitution), so a shipped literal can only ever be
+right for one machine — and a wrong one is not merely useless: with `failOnStartupError: true` the
+failed handshake **aborts the whole profile boot**.
 
-The plugin resolves its harness home in `src/store/paths.mbt::dsh_home`, mirroring the host's own
-`resolveDshHome` precedence (`$DSH_HOME` → `~/.dsh`, blank counts as unset):
+v3.1 therefore removes the literal from the shipped artifact and resolves the tree twice over:
 
-| Mount row `env.DSH_HOME` | Plugin's user-scope directory | Use when |
+| Tier | Source | Set by |
 |---|---|---|
-| `''` (shipped default) | `~/.dsh/skills/` | plain `dsh web`, i.e. the default tree |
-| `<the host tree>` | `<DSH_HOME>/skills/` | a managed launcher, e.g. `…\dsh-home` |
+| 1 | `env.DSH_HOME` in the mount row (absolute literal) | `scripts/install-dsh.ps1`, computed for **this** tree |
+| 2 | **derived from the plugin's own install path** — `<X>/profiles/<name>/node_modules/…` → `X`, read from the child's cwd / `argv[0]` | nothing; the plugin does it itself (`src/store/paths.mbt::dsh_home`) |
+| 3 | `~/.dsh` | fallback, unchanged from `resolveDshHome` |
+
+Tier 2 is the belt to tier 1's braces: the installer writes the mount row's `cwd` as the install
+location inside the profile, so even if `env.DSH_HOME` were dropped, `create_sub_agent scope=user`
+still lands in the tree that actually mounted the plugin. A blank or relative `$DSH_HOME` counts as
+unset, and a relative value is never adopted (the plugin's cwd is not the host's).
+
+The shipped bundle patch keeps the row `disabled: true` with placeholder values; the installer's
+id-targeted override replaces the whole `config` and enables it:
 
 ```powershell
-pwsh -File scripts/replace-paths.ps1 -DshHome "$env:DSH_HOME"   # -DshHome defaults to $env:DSH_HOME
+pwsh -File scripts/install-dsh.ps1 -Profile web    # resolves the tree, writes the row, prints checks
 ```
 
-The script rejects a non-absolute value on purpose: the plugin ignores one, so the mount row would
-*look* configured while definitions kept landing in `~/.dsh`. After a host restart, confirm with
-step 4 of § What you should verify after install.
+After a host restart, confirm with step 4 of § What you should verify after install.
 
-## Install: the standard `dsh plugin add` path
+## Install: the standard path (installer)
 
-Pre-built bundle. After verifying this repo's `cordis.patch.yml` matches the team's open-rigour patch (see [DSH compatibility notes](#dsh-compatibility-notes) below):
+The shipped `cordis.patch.yml` mounts the row **disabled and without machine paths** (see
+§ How the plugin learns the tree). `scripts/install-dsh.ps1` installs the bundle into the target tree
+and injects the enabled row into that profile's patch layer:
 
 ```powershell
-dsh plugin --profile web add "D:\Agent设计\harness-self-evolution-plugin"
-# or, if published to GitHub:
-# dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
-
-dsh --profile web --dump-config    # exit 0, must contain the mcp-client mount row
-dsh --profile web web --port 39401 # or whichever port; test boot
+pwsh -File scripts/install-dsh.ps1 -Profile web                 # $DSH_HOME, else ~/.dsh
+pwsh -File scripts/install-dsh.ps1 -Profile web -DryRun         # print what would be written
+pwsh -File scripts/install-dsh.ps1 -Profile web -SkipPluginAdd  # bundle already installed
+pwsh -File scripts/install-dsh.ps1 -Profile web -Uninstall      # remove the injected row
+# dsh not on PATH:
+pwsh -File scripts/install-dsh.ps1 -Profile web `
+  -DshCommand 'node C:/Users/me/.minimax/v2/plugin-data/local-minimax/dsh/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js'
 ```
 
-Confirm boot by reading the startup log — expect lines like `[HarnessEvolution] Loaded config from <path>` and `Server started (data root: ..., intensity: 50%, scan roots: 8, monitoring: true)`. The exact scan-root count includes profile and overlay paths, so don't hard-compare to a number.
+Then verify statically and boot:
 
-## Install: the `--patch` overlay path
+```powershell
+dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'  # exit 0, row enabled
+dsh --profile web web --port 39401                                       # or whichever port
+```
 
-Use this if you don't have an open-rigour `cordis.patch.yml`, or if you want to layer the plugin on a profile that already has bundles:
+Confirm boot by reading the startup log — expect lines like `[HarnessEvolution] Loaded config from <path>` and `Server started (data root: ..., intensity: 50%, scan roots: N, monitoring: true)`. The scan-root count includes profile and overlay paths, so don't hard-compare to a number.
+
+## Install: the `--patch` overlay path (experiments only)
+
+For a throwaway tree / isolated experiment, or when you want to layer the plugin without touching any
+profile file. Note the entry is an **id-targeted override**, not an `insert`: the bundle already
+carries the `mcp-harness-evolution` row (disabled), and inserting a second row with the same id is an
+error (`duplicate loader entry id`).
 
 ```powershell
 # Write overlay file once (template below)
-dsh --profile web --dump-config --patch .\cordis.patch.overlay.yml    # exit 0
-node "<DSH runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js" \
+dsh --profile web --dump-config --patch .\cordis.overlay.yml          # exit 0
+node "<DSH runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js" `
   --profile web --patch .\cordis.overlay.yml --no-open --port 39401
 ```
 
-Overlay template (`cordis.overlay.yml`):
+Overlay template (`cordis.overlay.yml`) — absolute literals for the machine you are on:
 
 ```yaml
-- insert:
-    - id: mcp-harness-evolution
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        transport: stdio
-        serverName: harness-evolution
-        command: 'D:/Agent设计/harness-self-evolution-plugin/bin/harness-evolution.exe'
-        args: []
-        cwd: 'D:/Agent设计/harness-self-evolution-plugin'
-        env:
-          # empty = unset -> the plugin falls back to ~/.dsh; set it to the host tree
-          # when that tree is not the default (see § Which tree? -> Forwarding DSH_HOME)
-          DSH_HOME: ''
-        failOnStartupError: true
+- id: mcp-harness-evolution            # override the shipped (disabled) row
+  disabled: false
+  config:
+    transport: stdio
+    serverName: harness-evolution
+    command: '<checkout>/bin/harness-evolution.exe'
+    args: []
+    cwd: '<checkout>'
+    env:
+      # absolute literal for the tree this host boots; '' means unset -> the plugin
+      # falls back to install-path derivation, then ~/.dsh
+      DSH_HOME: ''
+    failOnStartupError: true
 ```
 
 `failOnStartupError: true` is the strong check: if the MCP handshake or tool discovery fails, DSH boot aborts. Boot success implies the binary speaks MCP and the fourteen tools are present.
 
-## Path substitution (★ H7)
+## Path literals and path substitution (★ H7)
 
-DSH's cordis Loader does not resolve relative paths or `${ENV_VAR}` interpolation (verified against `@deepseek-ai/dsh-app-boot/lib/index.js`). The `command` and `cwd` values above **must be absolute path literals**.
+DSH's cordis Loader does not resolve relative paths or `${ENV_VAR}` interpolation for
+`config.command` / `config.cwd` (verified against `@deepseek-ai/dsh-app-boot/lib/index.js`: its
+`anchorInsertedPluginNames` only rewrites `entry.name`). Any absolute `command`/`cwd` therefore has
+to be **computed for the machine it runs on** — which is why v3.1 moved it out of the shipped patch
+and into `scripts/install-dsh.ps1` (see § How the plugin learns the tree).
 
-If your checkout lives at a different path, run:
+`scripts/replace-paths.ps1` is the remaining tool for **fork/CI** work: it rewrites checkout-path
+literals inside the repo's own files (the installer needs no such thing — it resolves the target
+tree at run time).
 
 ```powershell
 pwsh -File scripts/replace-paths.ps1 `
@@ -125,13 +152,8 @@ pwsh -File scripts/replace-paths.ps1 `
   -NewPath '<your checkout path>'
 ```
 
-The script rewrites both `cordis.patch.yml` and this doc's overlay template. Verify with:
-
-```powershell
-git grep -n '<your checkout path>' cordis.patch.yml docs/deploy/deepseek-harness.md
-```
-
-You should see 2 hits (one in each file), all inside the `- insert:` block.
+The shipped `cordis.patch.yml` no longer contains a checkout path at all (guard G9 pins that), so
+today the script's main use is rewriting example literals in this document.
 
 ## DSH compatibility notes
 
@@ -151,7 +173,7 @@ $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersio
 $note = '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 $list = '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 $init, $note, $list | & bin\harness-evolution.exe 2>$null
-# expect: serverInfo {name: harness-self-evolution, version: 3.0.0}, then tools[] with 14 entries
+# expect: serverInfo {name: harness-self-evolution, version: 3.1.0}, then tools[] with 14 entries
 
 # 2. The host actually mounted it — check the process parent, not just the config
 Get-CimInstance Win32_Process -Filter "Name='harness-evolution.exe'" |
@@ -224,14 +246,14 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 | `Cannot find module '@deepseek-ai/dsh-mcp-client'` | web profile 没装 mcp-client | 用 `--patch` overlay 注入（见 § Install: the --patch overlay path） |
 | `dsh: failed to read overlay …ENOENT` | `--patch` 用了逗号分隔多文件 | 单文件参数可重复传：`--patch a.yml --patch b.yml` |
 | `duplicate loader entry id: <id>` | profile 已装该 bundle，overlay 又注入同一 id | 二者留一（bundle 内已有则删掉 overlay 的注入行） |
-| 装了插件但会话里没有 `mcp__harness-evolution__*` 工具 | 装到了另一棵树，或 host 未重启 | 见 § Which tree?：确认宿主的 `DSH_HOME`，装进这一棵，然后重启 |
+| 装了插件但会话里没有 `mcp__harness-evolution__*` 工具 | 装到了另一棵树 / 没跑安装器（出厂行 `disabled: true`）/ host 未重启 | 见 § Which tree?：确认宿主的 `DSH_HOME`，用 `scripts/install-dsh.ps1 -Profile <p>` 注入挂载行，然后重启 |
 | 同一个 exe 出现多个进程 | 多个实例各自拉起 | 正常：父进程分别是各实例；需要隔离就给各自设 `HARNESS_EVOLUTION_HOME` |
 | `bin/harness-evolution.exe` 被覆盖失败 | 进程占用 | `Get-Process harness-evolution \| Stop-Process` 后再 build |
 
 ### 部署判据
 
 v3.0.0 起启动日志不再按宿主点名验证状态（多宿主抽象已移除）。以本节步骤的实际结果为准：
-`tools/list` 回显 `version: 3.0.0` + 14 个工具、`create_sub_agent scope=user` 落进
+`tools/list` 回显 `version: 3.1.0` + 14 个工具、`create_sub_agent scope=user` 落进
 `<DSH_HOME>/skills/`、宿主重启后能看到 `mcp__harness-evolution__*` 工具 —— 三条齐即
 说明 DSH 部署已实证。
 

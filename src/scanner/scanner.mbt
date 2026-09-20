@@ -43,9 +43,15 @@ pub struct ScanConfig {
 /// （verified / speculative）。
 ///
 /// ```text
-/// ~/.dsh/profiles/                     # Verified 2026-09-17 (DSH 0.1.6-alpha.1)
+/// <DSH home>/profiles/                 # Verified 2026-09-17 (DSH 0.1.6-alpha.1)
 /// ~/.agents/plugins                    # Speculative — generic convention, not tied to any host
 /// ```
+///
+/// **v3.1：第一条根不再是 `~/.dsh/profiles/` 字面量，而是随 `dsh_home()` 派生**
+/// （`@store.dsh_profiles_dir()`）。理由：宿主可能 boot 任意一棵树（managed launcher
+/// 用 `<pluginData>/dsh-home`），而 `~/.dsh` 只是默认值。写死字面量的后果是
+/// 「扫描扫的是另一棵树、user 作用域写的是这一棵树」—— 两处各说各话。
+/// 派生之后二者由**同一个解析结果**决定（`$DSH_HOME` → 安装路径推导 → `~/.dsh`）。
 ///
 /// 自 v3.0.0 起移除 MiniMax Code 的两条宿主根（`~/.minimax/plugins|extensions`）——
 /// DSH 源码中不存在「MiniMax Code 宿主」概念，属过度声明。
@@ -53,17 +59,19 @@ pub struct ScanConfig {
 /// **配置来源（2.2.0 起接通，此前是已知缺陷第 6 条的配置孤岛）**：
 /// 自述清单（`.dsh-plugin/plugin.json`）的 `scan_targets` 段经
 /// `ScanConfig::from_plugin_json` 解析，在 `main.mbt` 装配时替换默认根；
-/// 未配置时回退到这里的硬编码根。
-/// 接通它会**改变发现哪些插件** —— 这是 2.2.0 经用户「全面升级」授权后
-/// 做出的显式行为变更， rationale 与回退语义见 `from_plugin_json`。
+/// 未配置时回退到这里的默认根。
+/// **v3.1 起出厂清单不再写 `scan_targets`**：该段只支持 `~/` 展开、表达不了
+/// `<DSH home>`，留着就必然与派生根冲突；删掉即静默走派生默认（见 `from_plugin_json`
+/// 的「缺失 → 默认根，无告警」语义）。用户仍可用它显式覆盖扫描根。
 ///
 /// ★ 修订 S14（DSH 0.1.6 兼容）：原两项 `~/.deepseek/harness/plugins|extensions`
 /// 指向**不存在**的目录（DSH 真实用户目录是 `~/.dsh`，插件经 `dsh plugin add`
-/// 挂到 `~/.dsh/profiles/<name>/node_modules/`）。改为 `~/.dsh/profiles/`。
+/// 挂到 `~/.dsh/profiles/<name>/node_modules/`）。改为 profile 根（现为派生根）。
 pub fn default_scan_roots() -> Array[String] {
   [
     // Verified 2026-09-17 (DSH 0.1.6-alpha.1): plugins mount under profiles/<name>/node_modules
-    @util.expand_home("~/.dsh/profiles/"),
+    // v3.1: 随 dsh_home() 派生，扫的树 == user 作用域写的树（store/paths.mbt::dsh_profiles_dir）
+    @store.dsh_profiles_dir(),
     // Speculative: generic plugin convention not tied to any host; verify before relying on it
     @util.expand_home("~/.agents/plugins"),
   ]

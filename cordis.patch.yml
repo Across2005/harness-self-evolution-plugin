@@ -8,43 +8,53 @@
 # `TypeError: patch.insert?.forEach is not a function`，把整个 profile 打挂（ISSUE-01）。
 #
 # 本文件不是 plugin.json 的翻译 —— 元数据只存在于 package.json 与 .dsh-plugin/plugin.json。
+#
+# ──────────────────────────────────────────────────────────────────────────
+# ★ v3.1：本行默认 `disabled: true`，且**不含任何机器绝对路径**
+# ──────────────────────────────────────────────────────────────────────────
+# 为什么：挂载行是**静态**的，而 DSH 树是**每台机器各自**的（`$DSH_HOME` 决定 boot 哪棵，
+# managed launcher 可能指向 `<pluginData>/dsh-home`）。出厂写死一台机器的 command/cwd，
+# 在别的机器上就指向不存在的文件 —— 而 `failOnStartupError: true` 会让 MCP 握手失败
+# **直接中止整个 profile 启动**。出厂产物不该带这种地雷。
+#
+# 谁来激活：`scripts/install-dsh.ps1` 在**目标树**上解析
+# `<DSH_HOME>/profiles/<name>/node_modules/@across2005/harness-self-evolution`，
+# 把安装位绝对路径与 `env.DSH_HOME` 以 **id 定向覆盖行**写进该 profile 的
+# `cordis.patch.yml`（DSH 的 patch 语义：id 命中即 `target[key] = value`，逐字段替换，
+# 故覆盖行重述整个 `config`）。于是「启动路径」由**安装期按树计算**，不再出厂写死。
+#
+# 静态自检（不 boot）：
+#   dsh --profile <name> --dump-config | Select-String 'mcp-harness-evolution'
+# 期望：该行存在、`disabled` 为 false、command/cwd 指向本树安装位。
+#
+# 为什么不用 ${ENV_VAR} 或相对路径：DSH 的 Loader 只对 `name`（模块标识符）做锚定
+# （`./` 或绝对路径 → file URL，以 patch 文件所在目录为基准）；
+# `config.command` / `config.cwd` / `config.env` 原样透传给
+# `@deepseek-ai/dsh-mcp-client` 的 spawn —— 不解析相对路径、不做 `${ENV_VAR}` 插值
+# （app-boot/lib/index.js 的 anchorInsertedPluginNames 只 visit `entry.name`）。
+#
+# 为什么 env.DSH_HOME 必须由挂载行显式给出：宿主 spawn MCP 子进程时用
+# `scrubbedParentEnv()` 丢弃**全部** `DSH_*`（@deepseek-ai/dsh-subprocess），
+# 继承拿不到；只有挂载行 `env` 里的字面量能在清洗**之后**被合并进子进程环境
+# （@deepseek-ai/dsh-mcp-client 的 buildChildEnv）。
+# 注：插件侧另有「从安装路径推导」兜底档（store/paths.mbt::dsh_home），
+# 即使这一项漏配也不会把 user 作用域写进别的树。
 - insert:
     - id: mcp-harness-evolution
       name: '@deepseek-ai/dsh-mcp-client'
+      # 默认禁用：由安装器在目标树上启用并注入该树的绝对路径（见上方 v3.1 说明）。
+      # 先例：@deepseek-ai/dsh-base 的 `- id: hmr … disabled: true`。
+      disabled: true
       config:
         transport: stdio
         serverName: harness-evolution
-        # 指向构建产物 bin/harness-evolution.exe（build.ps1 -Task build 生成）。
         # 工具公开名由 serverName 决定：mcp__harness-evolution__<tool>。
-        # failOnStartupError: true → MCP 握手/工具发现失败时 DSH 启动直接失败（强判据）。
-        #
-        # ★ H7（硬编码绝对路径）：DSH 的 cordis Loader 不解析相对路径、
-        # 不解析 ${ENV_VAR} 插值（实测 @deepseek-ai/dsh-app-boot/lib/index.js），
-        # command/cwd 必须是绝对路径字面量。其他仓库路径需用 `scripts/replace-paths.ps1`
-        # 替换本文件里的 `D:/Agent设计/harness-self-evolution-plugin` 字符串。
-        # 详见 docs/deploy/deepseek-harness.md § Path substitution。
-        command: 'D:/Agent设计/harness-self-evolution-plugin/bin/harness-evolution.exe'
+        # 下面的 command/cwd/env 是**占位**，安装器的覆盖行会整体替换 config。
+        command: 'harness-evolution.exe'
         args: []
-        cwd: 'D:/Agent设计/harness-self-evolution-plugin'
+        cwd: ''
         env:
-          #
-          # ★ 缺陷 3c 的另一半：单靠 `paths.mbt` 读 `$DSH_HOME` 不够 —— 这个变量
-          # **必须在这里显式转发**，因为宿主 spawn MCP 子进程时用
-          # `scrubbedParentEnv()` 丢弃**全部** `DSH_*`（`@deepseek-ai/dsh-subprocess`
-          # 的 `DSH_ENV_PREFIX`），继承是拿不到的；只有本行的字面量能在清洗**之后**
-          # 被合并进子进程环境（`@deepseek-ai/dsh-mcp-client` 的 `buildChildEnv`）。
-          #
-          # 值须为**绝对路径字面量**（Loader 不解析 ${ENV_VAR}，见上面的 H7 注释）。
-          # 空值 = 未设置 → 插件回落 `~/.dsh`：对「用户 CLI 裸跑 dsh web」的默认树
-          # 恰好正确，故留空是**安全默认**。
-          # 宿主若 boot 非默认树（例如 Mavis 的 DSH 插件用 `<pluginData>/dsh-home`），
-          # 就把它填成那一棵树，插件才会把 user 作用域定义写进宿主真正会读的
-          # `<DSH_HOME>/skills/`：
-          #
-          #   pwsh -File scripts/replace-paths.ps1 -DshHome "$env:DSH_HOME"
-          #
-          # （-DshHome 缺省取 `$env:DSH_HOME`；非绝对路径会被脚本拒绝，因为那种值
-          # 到这里会被插件忽略、看着像生效实则没有。语义见 store/paths.mbt::dsh_home，
-          # 部署checklist 见 docs/deploy/deepseek-harness.md § Which tree?）
           DSH_HOME: ''
+        # 强判据：MCP 握手/工具发现失败时 DSH 启动直接失败。
+        # 安装器的覆盖行会原样重述这一项（config 是整体替换，不是深度合并）。
         failOnStartupError: true

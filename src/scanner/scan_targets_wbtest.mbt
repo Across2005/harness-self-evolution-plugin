@@ -115,3 +115,46 @@ test "scan_targets with only unusable items falls back and keeps item warnings" 
   assert_eq(warns.length(), 4)
   assert_true(warns[3].contains("no usable path"))
 }
+
+///|
+/// 环境变量还原（DSH_HOME）。与 `store_wbtest.mbt` 的同名助手同款 —— 各包白盒
+/// 测试各自持有一份，避免为测试把助手提成 `pub`。
+fn restore_dsh_home_env(saved : String?) -> Unit {
+  match saved {
+    Some(v) => @env.set_env_var("DSH_HOME", v)
+    None => @env.unset_env_var("DSH_HOME")
+  }
+}
+
+///|
+/// ★ v3.1：默认扫描根**随 `dsh_home()` 派生**，不再是 `~/.dsh/profiles/` 字面量。
+///
+/// 动机（实测）：宿主 boot 的树是 `<pluginData>/dsh-home`，而写死的字面量让扫描去看
+/// `~/.dsh/profiles/`（**另一棵树**，其 web profile 甚至没装本插件）。派生之后
+/// 「扫哪棵树」与「user 作用域写哪棵树」由同一解析结果决定，不可能再各说各话。
+test "default scan roots follow the resolved dsh home" {
+  let saved_home = @env.get_env_var("DSH_HOME")
+  defer restore_dsh_home_env(saved_home)
+
+  // 显式树：第一条根精确落在 <DSH_HOME>/profiles
+  @env.set_env_var("DSH_HOME", "C:/tmp/evo-dsh-home")
+  let roots = default_scan_roots()
+  assert_eq(roots[0], "C:/tmp/evo-dsh-home/profiles")
+  // 与 store 的收口点同源（同一个 dsh_home() 解析结果）
+  assert_eq(roots[0], @store.dsh_profiles_dir())
+  // 第二条仍是宿主无关的通用约定根，不随树漂移
+  assert_eq(roots[1], @util.expand_home("~/.agents/plugins"))
+
+  // 反斜杠/尾分隔符写法归一化后等价
+  @env.set_env_var("DSH_HOME", "C:\\tmp\\evo-dsh-home\\")
+  assert_eq(default_scan_roots()[0], "C:/tmp/evo-dsh-home/profiles")
+
+  // 未设置 → 回落 ~/.dsh/profiles（与 v3.0.0 的默认值一致；本测试进程的
+  // cwd/argv 不是安装位，故推导档不命中）
+  @env.unset_env_var("DSH_HOME")
+  assert_eq(
+    default_scan_roots()[0],
+    @util.path_join(@util.expand_home("~/.dsh"), "profiles"),
+  )
+}
+

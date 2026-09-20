@@ -1,7 +1,7 @@
 ---
 name: harness-evolution
 description: DeepSeek Harness 全盘自进化升级插件。扫描所有插件，监控性能，基于 Matt Pocock 原则生成进化提案，通过子 Agent 协同完成升级。当用户需要优化插件性能、简化接口、改进文档或扩展能力时使用。
-version: 3.0.0
+version: 3.1.0
 ---
 
 # Harness Self-Evolution
@@ -36,12 +36,13 @@ version: 3.0.0
 **目标**：发现并分析所有 harness 插件
 
 **步骤**：
-1. 扫描配置的插件目录 —— 扫描根来自自述清单 `.dsh-plugin/plugin.json`
-   的 `scan_targets` 段（2.2.0 起真正生效；未配置时回退内置默认根），
-   出厂配置列出：
-   - `~/.dsh/profiles/`
-   - `~/.agents/skills/`
-   - `~/.openclaw-autoclaw/skills/`
+1. 扫描配置的插件目录 —— 默认扫描根由 `dsh_home()` 派生（v3.1 起）：
+   - `<DSH home>/profiles`（宿主树由 `$DSH_HOME` → 安装路径推导 → `~/.dsh` 解析）
+   - `~/.agents/plugins`（宿主无关的通用约定根）
+
+   自述清单 `.dsh-plugin/plugin.json` 的 `scan_targets` 段仍可显式覆盖（2.2.0 起生效；
+   未配置时回退上面的默认根 —— **v3.1 起出厂清单不再写该段**，因为它只支持 `~/`
+   展开、表达不了 `<DSH home>`，留着会把扫描钉在默认树）。
 
    也可在调用 `scan_plugins` 时用 `target_paths` 参数临时替换扫描根。
 
@@ -255,7 +256,7 @@ version: 3.0.0
 | `list_proposals` | 按状态/插件过滤列提案（`limit` 上限） |
 | `approve_proposal` | 批准提案（pending → approved） |
 | `reject_proposal` | 拒绝提案 |
-| `create_sub_agent` | 写子 Agent 定义文件（`scope=plugin` 数据根 / `scope=user` 宿主用户级定义目录，默认宿主 DSH 为 `<DSH home>/skills/`（`$DSH_HOME` 未设置时回落 `~/.dsh/skills/`），以 skill 形式落盘） |
+| `create_sub_agent` | 写子 Agent 定义文件（`scope=plugin` 数据根 / `scope=user` 宿主用户级定义目录，默认宿主 DSH 为 `<DSH home>/skills/`（home 由 `$DSH_HOME` → 安装路径推导 → `~/.dsh` 解析），以 skill 形式落盘） |
 | `list_sub_agents` | 列出子 Agent 定义（缺省列出两个作用域） |
 | `delete_sub_agent` | 删除子 Agent 定义（只删两个可写目录，出厂模板不受影响） |
 | `analyze_plugins` | 分析插件：`mode=scan` 仅扫描 / `mode=metrics` 仅取指标 / `mode=both` 两者；支持 `plugin_ids` 定向重扫、`target_paths` 路径重定向 |

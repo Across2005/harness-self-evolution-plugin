@@ -68,7 +68,17 @@ struct CacheFile {
 } derive(Eq, Debug, ToJson, @json.FromJson)
 
 ///|
-let cache_version : Int = 3
+/// 缓存文件格式版本。**升版即整份作废并重扫**（缓存是派生数据，丢弃只损失一次扫描）。
+///
+/// 演进记录：
+/// - 2 → 3（W3/W5）：`child_mtime_sec` 改纳秒 `child_mtime_ns`（见上）。
+/// - **3 → 4（v3.1）**：扫描根语义变更 —— 默认根由 `~/.dsh/profiles/` 字面量改为
+///   随 `dsh_home()` 派生（`store/paths.mbt::dsh_profiles_dir`），且出厂
+///   `scan_targets` 已删除。旧缓存里混着**多宿主时代**的根（`~/.minimax/plugins`、
+///   `~/.openclaw-autoclaw/skills` 等）与 `target_paths` 临时扫描的档案，
+///   留着会让 `get_runtime_snapshot` 与面板显示一批本树根本不存在的插件。
+///   升版让这些陈旧档案一次清空，按新根重建。
+let cache_version : Int = 4
 
 ///|
 /// 扫描缓存。

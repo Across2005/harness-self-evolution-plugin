@@ -137,6 +137,20 @@ pub fn DataPaths::agent_defs(self : DataPaths) -> String {
 /// 合并」的写法），所以它必须由挂载行的 `env` **显式**转发 —— 继承是拿不到的。
 /// 见 `cordis.patch.yml` 的 `DSH_HOME` 行与 `docs/deploy/deepseek-harness.md`。
 ///
+/// **★ 第三档：安装路径推导（v3.1 起）**。只靠「挂载行转发」有一个现实缺口：
+/// 挂载行是**静态**的，而树是**每台机器各自**的 —— 出厂字面量必然只对某一棵树成立，
+/// 换机器/换树时要么落进别的树、要么（配合 `failOnStartupError: true`）直接拖挂宿主。
+/// 因此新增一档**不依赖任何宿主转发的自解析**：
+///
+/// 安装器把挂载行的 `cwd` 写成 `<profile>/node_modules/<pkg>`，宿主 spawn 时该值
+/// 就是子进程的 cwd；`@env.args()[0]` 在 Windows 下同样是宿主传下来的 exe 字面量。
+/// 两者都落在 `<X>/profiles/<name>/node_modules/…` 形态里 —— 从中取出 `X` 即宿主树。
+/// 于是「本插件被哪棵树装上了」这件事，插件自己就能回答，`scrubbedParentEnv` 丢不丢
+/// `DSH_*` 都不再致命。
+///
+/// 优先级仍是 `$DSH_HOME` 高于推导：显式转发（安装器写入）是权威，
+/// 推导是**它缺席时的兜底**，不改变既有语义。
+///
 /// 宿主取值的**逐字**语义（`dsh-home-paths/lib/index.js::resolveDshHome`）：
 /// `resolve(expandHomePath(configured ?? (trim($DSH_HOME) 非空 ? $DSH_HOME : ~/.dsh)))`。
 /// 本函数镜像「去空白判空 + `expandHomePath`」两层，然后**要求结果为绝对路径**
@@ -166,8 +180,97 @@ fn dsh_home() -> String {
         fallback
       }
     }
-    _ => fallback
+    // 未设置（含空/纯空白）→ 先试**安装路径推导**，再回落 `~/.dsh`。
+    // 顺序不能颠倒：推导只在「没人告诉我们树在哪」时才有发言权。
+    _ =>
+      match dsh_home_from_install_path() {
+        Some(h) => h
+        None => fallback
+      }
   }
+}
+
+///|
+/// 从**安装路径**推导 DSH home，即 `<X>/profiles/<name>/node_modules/…` → `X`。
+///
+/// 两个候选来源，按可信度排序：
+/// 1. `@env.current_dir()` —— 挂载行的 `cwd`，安装器把它写成安装位；
+/// 2. `@env.args()[0]` —— 宿主传下来的可执行文件字面量（Windows 下即 `command`）。
+///
+/// 都推不出就返回 `None`（调用方回落 `~/.dsh`）。刻意**不**在此处做任何文件系统
+/// 探测：纯路径算术，既能在单测里逐字钉住，也不会在启动热路径上摸盘。
+fn dsh_home_from_install_path() -> String? {
+  let candidates : Array[String] = []
+  match @env.current_dir() {
+    Some(d) => candidates.push(d)
+    None => ()
+  }
+  let args = @env.args()
+  if args.length() > 0 {
+    candidates.push(args[0])
+  }
+  for c in candidates {
+    match dsh_home_from_profile_path(c) {
+      Some(h) => return Some(h)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+/// 路径算术：`<X>/profiles/<name>/node_modules/…` → `Some(X)`，其余 → `None`。
+///
+/// 判据刻意收紧到「`profiles` 之后紧跟 `<name>`，再紧跟 `node_modules`，且
+/// `node_modules` 之后还有至少一段（包名）」—— 于是：
+/// - `<repo>/profiles/foo`（仓库里恰好有个 profiles 目录）不命中；
+/// - `<X>/profiles/node_modules/x`（缺 profile 名）不命中；
+/// - 相对路径一律不命中（与 `dsh_home()` 拒绝相对 `$DSH_HOME` 同源：
+///   本进程的 cwd 与宿主的 cwd 不同源，采用相对值只会把定义写进插件仓库）。
+fn dsh_home_from_profile_path(p : String) -> String? {
+  let s = @util.path_lexical_resolve(p)
+  if !is_absolute_path(s) {
+    return None
+  }
+  let segs : Array[String] = []
+  for seg in s.split("/") {
+    if seg.length() > 0 {
+      segs.push(seg.to_owned())
+    }
+  }
+  // 需要 `<home…> / profiles / <name> / node_modules / <pkg…>`：
+  // 故 i ≥ 1（home 至少一段）且 i + 3 < length（node_modules 之后**还有**一段包名）。
+  for i = 1; i + 3 < segs.length(); i = i + 1 {
+    if segs[i] == "profiles" && segs[i + 1] != "node_modules" &&
+      segs[i + 2] == "node_modules" {
+      let parts : Array[String] = []
+      for j = 0; j < i; j = j + 1 {
+        parts.push(segs[j])
+      }
+      let body = parts.join("/")
+      // 还原绝对前缀：盘符（`C:`）不带引导斜杠，UNC 带 `//`，其余带 `/`。
+      let home = if segs[0].length() == 2 && segs[0][1:2].to_owned() == ":" {
+        body
+      } else if s.has_prefix("//") {
+        "//" + body
+      } else {
+        "/" + body
+      }
+      if is_absolute_path(home) {
+        return Some(home)
+      }
+      return None
+    }
+  }
+  None
+}
+
+///|
+/// DSH 的 profile 根：`<dsh home>/profiles`。**扫描根的单一来源** ——
+/// scanner 的 `default_scan_roots()` 从这里派生，于是「扫哪棵树」与
+/// 「user 作用域写哪棵树」由同一个解析结果决定，不可能再各说各话。
+pub fn dsh_profiles_dir() -> String {
+  @util.path_join(dsh_home(), "profiles")
 }
 
 ///|

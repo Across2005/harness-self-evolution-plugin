@@ -70,11 +70,12 @@
 
 ### 2.3 宿主注册与数据目录
 
-- **宿主清单**：DSH 侧权威 manifest 是 `package.json` 的 `dsh.bundle`（→ `cordis.patch.yml`）；`.dsh-plugin/plugin.json` 是自述清单与运行时配置载体（`mcp.transport: stdio`、protocolVersion `2024-11-05`、`scan_targets`、`evolution_config`）。
-- **DSH bundle patch**：`cordis.patch.yml`（顶层 YAML 数组、`- insert:` 形式），是 **loader 挂载行**（`insert: [{id, name, config}]`，`name` = npm 包名），**不是** plugin.json 的元数据翻译——元数据只存在于 `package.json` 与 `.dsh-plugin/plugin.json`。
+- **宿主清单**：DSH 侧权威 manifest 是 `package.json` 的 `dsh.bundle`（→ `cordis.patch.yml`）；`.dsh-plugin/plugin.json` 是自述清单与运行时配置载体（`mcp.transport: stdio`、protocolVersion `2024-11-05`、`evolution_config`、`monitoring`）。**v3.1 起不再写 `scan_targets`**（该段只支持 `~/` 展开，表达不了 `<DSH home>`；出厂语义改为回落「随 `dsh_home()` 派生」的默认根）。
+- **DSH bundle patch**：`cordis.patch.yml`（顶层 YAML 数组、`- insert:` 形式），是 **loader 挂载行**（`insert: [{id, name, config}]`，`name` = npm 包名），**不是** plugin.json 的元数据翻译——元数据只存在于 `package.json` 与 `.dsh-plugin/plugin.json`。**v3.1 起该行默认 `disabled: true` 且不含机器绝对路径**：由 `scripts/install-dsh.ps1` 在目标树上以 id 定向覆盖行启用并注入本树路径。
 - **安装**（公开渠道）：
   ```sh
-  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v2.6.0"
+  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v3.1.0"
+  pwsh -File scripts/install-dsh.ps1 -Profile web     # 注入挂载行（按树解析路径）
   ```
   Linux/macOS 沙箱首次安装可能需要在宿主侧显式放行构建（`allowBuilds`）。
 - **配置链**：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.dsh-plugin/plugin.json` → `.dsh-plugin/plugin.json`（相对插件根兜底）→ 内置默认。`AGENTS.md` 不参与配置解析。**破坏性变更（v2.7.0，开发中）**：旧布局 `<cwd>/.zcode-plugin/plugin.json` 的回退已移除，该文件不再被读取；已部署实例需把它改名为 `.dsh-plugin/plugin.json`（内容无需改），否则其中的 `evolution_config` / `scan_targets` 静默失效、回落内置默认。

@@ -3,6 +3,27 @@
 > v2.6.0 已于 2026-09-17 发布（性能优化与缺陷修复：C1 定向重扫 + S1–S6 整改，测试 420→424；同批发布 mooncakes 0.2.6）。
 > v2.5.0 已于 2026-09-16 发布（工程质量版本：全仓评审修复 56 个问题、测试 383→420）。
 
+## v3.1（已完成：启动路径可移植化 A/B/C/E）
+
+> 2026-09-20：兼容性实测暴露「出厂挂载行写死本机路径」——换机器/换树时 `command` 指向
+> 不存在的文件，配合 `failOnStartupError: true` **直接中止 profile 启动**；且插件回落
+> `~/.dsh`，user 作用域定义落进宿主不读的另一棵树。决策与证据见 `CONTEXT.md` § v3.1 决策记录。
+
+| 切片 | 内容 | 状态 |
+|---|---|---|
+| A1 | 出厂挂载行改 **`disabled: true` + 零机器路径**（先例：`dsh-base` 的 `- id: hmr … disabled: true`） | ✅ |
+| A2 | 新增 `scripts/install-dsh.ps1`：按目标树解析 `$DSH_HOME`，以 **id 定向覆盖行**注入 profile patch 层（标记块幂等；`-DryRun` / `-Uninstall` / `-SkipPluginAdd` / `-Verify`） | ✅ |
+| A3 | `paths.mbt::dsh_home()` 新增**安装路径推导**档（`<X>/profiles/<name>/node_modules/…` → `X`，取自 `@env.current_dir()` / `@env.args()[0]`），优先级 `$DSH_HOME` > 推导 > `~/.dsh` | ✅ |
+| A4 | `default_scan_roots()` 随 `dsh_home()` 派生（`@store.dsh_profiles_dir()`），与 user 作用域同源 | ✅ |
+| B | 出厂 `.dsh-plugin/plugin.json` 删除 `scan_targets`（表达不了 `<DSH home>`，且旧值带多宿主时代的 `.agents/skills` / `.openclaw-autoclaw/skills`） | ✅ |
+| C | `read_manifest_meta` 对非 JSON 清单（`SKILL.md`）短路，消掉每 skill 一条 `Cannot parse … SKILL.md` 噪声；判据 `manifest_is_json` 为纯函数 | ✅ |
+| E | `cache_version` 3 → 4：清掉多宿主时代 + `target_paths` 临时扫描留下的陈旧档案 | ✅ |
+
+**验证**：`moon check --deny-warn` 零错零警；`moon test` **443 → 453**（新增 10 条：安装路径推导 5 /
+默认根派生 1 / 清单判定与回退 2 / G8 出厂清单无 `scan_targets` + G9 出厂行禁用且无机器路径 2）；
+G5b 锚点同步；版本五处一并升 **3.1.0**（`moon.mod` 0.3.2）。
+**未做**：缺陷 9 生态数据源、`dsh-watcher` 挂载（D/F 本轮不碰）。
+
 ## v2.7（进行中：运行时可视化 + 清单迁移）
 
 > 2026-09-18：开发机完成**实机接入**——DSH web profile（宿主自己那棵 home）装入本插件 + 面板，

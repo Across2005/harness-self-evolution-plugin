@@ -10,7 +10,9 @@ import {
 
 // 主代码已不直接用 json，仅白盒测试解析 fixture 时需要
 // （放主导入块会在主构建上触发 unused_package 警告）。
+// v3.1：白盒测试还要改 `$DSH_HOME`，验证默认扫描根随 dsh_home() 派生。
 import {
+  "moonbitlang/core/env",
   "moonbitlang/core/json",
 } for "wbtest"
 

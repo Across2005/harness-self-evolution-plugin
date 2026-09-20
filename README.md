@@ -1,6 +1,6 @@
 # Harness Self-Evolution Plugin
 
-A MoonBit-native plugin that scans, monitors, proposes, and rolls back evolutions for the DeepSeek Harness (DSH) plugin ecosystem. Version 3.0.0. MIT.
+A MoonBit-native plugin that scans, monitors, proposes, and rolls back evolutions for the DeepSeek Harness (DSH) plugin ecosystem. Version 3.1.0. MIT.
 
 This plugin targets DeepSeek Harness. Deployment hinges on how DSH launches the binary, where data is read and written, and which files (patches, manifests, panels) sit alongside the binary.
 
@@ -28,7 +28,12 @@ If you are **writing or debugging a DSH plugin** rather than deploying this one,
 
 ## Architecture in one paragraph
 
-The compiled binary (`bin/harness-evolution.exe`) is a stdio MCP server exposing fourteen tools. The user-scope path resolves through `src/store/paths.mbt::dsh_agents_dir` (`<DSH home>/skills`, `$DSH_HOME`-aware), and the scan roots through `src/scanner/scanner.mbt::default_scan_roots`; `HARNESS_EVOLUTION_USER_DIR` overrides the user directory explicitly. Since v3.0.0 the multi-host abstraction is gone — DSH is the only target.
+The compiled binary (`bin/harness-evolution.exe`) is a stdio MCP server exposing fourteen tools. The DSH
+home resolves in `src/store/paths.mbt::dsh_home`: `$DSH_HOME` when set, else **derived from the plugin's own
+install path** (`<X>/profiles/<name>/node_modules/...`), else `~/.dsh`. The user-scope directory is
+`<DSH home>/skills` (`HARNESS_EVOLUTION_USER_DIR` overrides it), and the default scan roots follow the same
+resolved home (`src/scanner/scanner.mbt::default_scan_roots`). Since v3.0.0 the multi-host abstraction is
+gone — DSH is the only target.
 
 See [docs/code-architecture.md](docs/code-architecture.md) for the path-resolution detail.
 
@@ -59,13 +64,25 @@ If none exist the plugin starts with built-in defaults — missing config is not
 Installing is **per DSH tree**: `dsh plugin add` writes into `$DSH_HOME/profiles/<name>`, and `$DSH_HOME`
 decides which tree boots (`~/.dsh` by default — a managed launcher may point it somewhere else). Trees
 share nothing: `bundles`, `node_modules`, sessions, and skills are all per-tree, so an install verified in
-one tree stays invisible to a host booting another. `dsh.profile.bundles` is read at boot, so the host must
-be **restarted** before the fourteen `mcp__harness-evolution__*` tools appear in a session.
+one tree stays invisible to a host booting another.
+
+Since v3.1 the shipped mount row is **`disabled: true` and carries no machine path** — a literal path for
+one machine would point at a missing file everywhere else, and `failOnStartupError: true` would then abort
+the whole profile boot. The row is written **per tree at install time**:
 
 ```powershell
-$env:DSH_HOME                                                            # which tree is dsh touching?
-dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'  # already mounted in this tree?
+# resolves $DSH_HOME (or ~/.dsh), installs the bundle, and injects the mount row
+# into that tree's profile patch layer; add -DryRun to inspect first
+pwsh -File scripts/install-dsh.ps1 -Profile web
+
+# then verify statically (no boot needed)
+dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'
 ```
+
+`dsh.profile.bundles` and the patch layers are read at **boot**, so the host must be **restarted** before
+the fourteen `mcp__harness-evolution__*` tools appear in a session. The plugin additionally derives its
+own tree from the install path, so `create_sub_agent scope=user` lands in `<DSH home>/skills/` even if
+`env.DSH_HOME` were left unset.
 
 Full install, verification, and rollback: [docs/deploy/deepseek-harness.md](docs/deploy/deepseek-harness.md);
 the live-install practice (multi-home reality, `.dsh-module-fallback` pitfalls):

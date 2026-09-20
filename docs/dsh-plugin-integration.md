@@ -58,6 +58,13 @@ dsh plugin --profile web add <spec>
 
 对账是**按已安装状态**而非依赖差异——所以 `update` 能让一个在新版本里才获得 `dsh.bundle` 的包自动入栈；反过来，依赖被移除或不再声明 bundle 的包会**自动出栈**。
 
+> **本插件的挂载行不由 bundle patch 直接启用**（v3.1）：`cordis.patch.yml` 里的
+> `mcp-harness-evolution` 行出厂 `disabled: true` 且不含机器路径 —— 静态字面量只对一台机器
+> 成立，而 `failOnStartupError: true` 会让它在别的机器上**中止整个 profile 启动**。
+> `scripts/install-dsh.ps1` 负责在该树上写一条 **id 定向覆盖行**（`applyEntryPatches` 对
+> id 命中者逐字段 `target[key] = value`，故覆盖行重述整个 `config`）到
+> `<profile>/cordis.patch.yml`，即下面第 (2) 层。`dsh plugin add` 单独运行**不会**挂载工具。
+
 ### 1.3 合成：四层叠加
 
 ```

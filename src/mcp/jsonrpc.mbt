@@ -55,10 +55,15 @@ pub let default_protocol_version : String = "2024-11-05"
 /// `$DSH_HOME` 路由收敛）；新增 `get_runtime_snapshot` 后仍是 14 个工具。
 /// 3.0.0：破坏性 —— 砍掉 MiniMax Code 兼容、host 抽象塌缩为 DSH 单宿主
 /// （移除 `HARNESS_EVOLUTION_HOST` / `host_agents_dir` / MiniMax 扫描根）。
+/// 3.1.0：启动路径可移植化（安装期注入 + 插件侧自解析）。**工具面零变更**
+/// （仍 14 个、schema 不变），但部署方式有变：出厂挂载行改为 `disabled: true`
+/// 且不含机器绝对路径，由 `scripts/install-dsh.ps1` 在目标树上注入；
+/// 扫描根随 `dsh_home()` 派生；出厂清单删除 `scan_targets`；
+/// `SKILL.md` 清单不再打解析告警；`cache_version` 3→4。
 pub let server_name : String = "harness-self-evolution"
 
 ///|
-pub let server_version : String = "3.0.0"
+pub let server_version : String = "3.1.0"
 
 // JSON-RPC 2.0 的标准错误码
 

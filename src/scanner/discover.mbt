@@ -48,6 +48,24 @@ pub let manifest_priority : Array[String] = [
 ]
 
 ///|
+/// 该清单形态能否被 `read_json` 解析（即是否为 JSON）。
+///
+/// 判据是**扩展名**而不是白名单字面量：`manifest_priority` 里三种 JSON 形态
+/// （`package.json` / `.claude-plugin/plugin.json` / `.mcp.json`）都以 `.json` 结尾，
+/// 而 `SKILL.md` 不是 —— 将来新增任何 JSON 形态也自动落对，不必同步两张表。
+///
+/// 为什么需要这个判定：`read_manifest_meta` 会对每个命中的清单调 `read_json`，
+/// 而 Markdown **永远**不是 JSON → 每个 skill 目录都会打一条
+/// `[Store] Cannot parse … SKILL.md: Invalid character '-' at line 1, column 1`。
+/// 实测全量扫描（含 `~/.agents/skills` 等根）约 60 行纯噪声，且把「设计内回退」
+/// 伪装成「解析失败」。真损坏的 JSON 清单**仍**照旧告警 —— 那条诊断有价值，别一起静音。
+///
+/// 提取为纯函数以便逐字钉住（本仓 G3 的「行级判定提取为纯函数」同款做法）。
+pub fn manifest_is_json(manifest : String) -> Bool {
+  @util.path_extname(manifest) == ".json"
+}
+
+///|
 /// 遍历时剪掉的目录名（P14）。
 pub let pruned_dirs : Array[String] = [
   "node_modules", ".git", "dist", "target", "_build", ".mooncakes", ".venv", "__pycache__",
@@ -238,11 +256,18 @@ async fn scan_children(
 /// 于是 `.mcp.json`（结构是 `{"mcpServers":{...}}`，没有 name/version）
 /// 与 `SKILL.md`（根本不是 JSON）都自然落到回退分支 —— 它们只证明
 /// 「这是个插件」，不提供元数据。
+///
+/// **v3.1 补丁**：非 JSON 清单（`SKILL.md`）**不再调用 `read_json`**，直接回退。
+/// 行为完全不变（本来也解析失败 → 回退），但不再产生「Cannot parse … SKILL.md」
+/// 告警噪声 —— 那把一个**设计内**的回退伪装成了故障。判据见 `manifest_is_json`。
 pub async fn read_manifest_meta(
   dir : String,
   manifest : String,
 ) -> (String, String, Array[String]) {
   let fallback_name = @util.path_basename(dir)
+  if !manifest_is_json(manifest) {
+    return (fallback_name, "0.0.0", [])
+  }
   let json = match @store.read_json(@util.path_join(dir, manifest)) {
     Some(j) => j
     None => return (fallback_name, "0.0.0", [])

@@ -29,8 +29,8 @@ Everything in `src/`:
 
 Two things the runtime reads from configuration:
 
-1. **User-level sub-agent directory** (`src/store/paths.mbt::user_agents_dir`) — `HARNESS_EVOLUTION_USER_DIR` if set, otherwise `dsh_agents_dir()` = `<DSH home>/skills`. The DSH home (`dsh_home()`) mirrors the host's `resolveDshHome`: `explicit > $DSH_HOME > ~/.dsh`, treating a blank `$DSH_HOME` as unset and rejecting non-absolute values (see the function's doc for the two deliberate divergences).
-2. **Default plugin scan roots** (`src/scanner/scanner.mbt::default_scan_roots`) — `~/.dsh/profiles/` plus a speculative `~/.agents/plugins`; overridable by `.dsh-plugin/plugin.json::scan_targets`.
+1. **User-level sub-agent directory** (`src/store/paths.mbt::user_agents_dir`) — `HARNESS_EVOLUTION_USER_DIR` if set, otherwise `dsh_agents_dir()` = `<DSH home>/skills`. The DSH home (`dsh_home()`) resolves in three tiers: `$DSH_HOME` (blank counts as unset, non-absolute rejected) → **derived from the plugin's own install path** (`<X>/profiles/<name>/node_modules/…` → `X`, read from the child's cwd / `argv[0]`) → `~/.dsh`. The first tier mirrors the host's `resolveDshHome`; the second is what makes a hand-written mount row survivable (`scrubbedParentEnv` drops every `DSH_*`).
+2. **Default plugin scan roots** (`src/scanner/scanner.mbt::default_scan_roots`) — `@store.dsh_profiles_dir()` (= `<DSH home>/profiles`, the *same* resolved home as the user directory) plus a speculative `~/.agents/plugins`. Overridable by `.dsh-plugin/plugin.json::scan_targets`, which the **shipped** manifest no longer sets (it cannot express `<DSH home>`).
 
 The resolution priority for the user directory is `HARNESS_EVOLUTION_USER_DIR` > `dsh_agents_dir()`. The implementation is in `src/store/paths.mbt::user_agents_dir` and is unit-tested with a temporary-directory injection (the test never touches the real home).
 
@@ -39,13 +39,14 @@ The resolution priority for the user directory is `HARNESS_EVOLUTION_USER_DIR` >
 | Symptom | File |
 |---|---|
 | Sub-agent definition lands in the wrong directory | `src/store/paths.mbt::user_agents_dir` / `dsh_home` / `dsh_agents_dir` |
-| Scan picks up the wrong set of plugins | `src/scanner/scanner.mbt::default_scan_roots` and the `scan_targets` block in `.dsh-plugin/plugin.json` |
+| Scan picks up the wrong set of plugins | `src/scanner/scanner.mbt::default_scan_roots` (derives from `@store.dsh_profiles_dir()`) — and, if the tree itself is wrong, `src/store/paths.mbt::dsh_home` |
 | Plugin fails to load under DSH | `docs/deploy/deepseek-harness.md` — usually a launcher mechanism or a manifest dialect problem |
+| Mounted tools missing after a fresh install | the row is `disabled: true` until `scripts/install-dsh.ps1` enables it for that tree |
 
 ## Changing paths
 
-To move where user-scope definitions land, edit `dsh_agents_dir()` (or set `HARNESS_EVOLUTION_USER_DIR`)
-and update `default_scan_roots` / `scan_targets` together, plus the `.dsh-plugin/plugin.json` mirror. The
+To move where user-scope definitions land, edit `dsh_home()` (or set `HARNESS_EVOLUTION_USER_DIR`);
+`default_scan_roots()` follows automatically because it derives from the same resolved home. The
 name/validation contract that keeps definitions discoverable by DSH is pinned in
 `factory/factory_wbtest.mbt` (see "name validation enforces kebab-case").
 

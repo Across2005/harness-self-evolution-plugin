@@ -288,6 +288,56 @@ async test "F3: accepts the four manifest forms, in priority order" {
 }
 
 ///|
+/// ★ v3.1（缺陷 C）：非 JSON 清单**不再走 `read_json`**，从根上消掉
+/// `[Store] Cannot parse … SKILL.md` 噪声。
+///
+/// 判定是纯函数，这里逐字钉住它与 `manifest_priority` 四种形态的对应关系：
+/// 三种 JSON 形态为真，`SKILL.md` 为假。判据取**扩展名**（不是白名单字面量），
+/// 故将来新增任何 `.json` 形态自动落对，不必同步两张表。
+test "manifest_is_json classifies the four manifest forms by extension" {
+  assert_true(manifest_is_json("package.json"))
+  assert_true(manifest_is_json(".claude-plugin/plugin.json"))
+  assert_true(manifest_is_json(".mcp.json"))
+  // SKILL.md 是 Markdown：只证明「这个目录是个插件」，不提供元数据
+  assert_false(manifest_is_json("SKILL.md"))
+  // 边界：无扩展名 / 点开头无扩展名 / 大小写
+  assert_false(manifest_is_json("SKILL"))
+  assert_false(manifest_is_json(".gitignore"))
+  assert_true(manifest_is_json("PLUGIN.JSON"))
+}
+
+///|
+/// ★ v3.1（缺陷 C）：`read_manifest_meta` 对 `SKILL.md` 直接回退，
+/// 元数据形状与 v3.0.0 完全一致（`basename` + `0.0.0` + 空依赖）——
+/// 变的只是「不再先解析一次必然失败的 JSON 并打告警」。
+async test "read_manifest_meta falls back for SKILL.md without parsing it" {
+  let tmp = @fs.tmpdir(prefix="evo-manifest-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let dir = @util.path_join(tmp, "skill-only")
+  @fs.mkdir(dir, recursive=true)
+  @fs.write_file(
+    @util.path_join(dir, "SKILL.md"),
+    "# Just a skill\ncan read\n",
+    create_mode=CreateOrTruncate,
+  )
+
+  let (name, version, deps) = read_manifest_meta(dir, "SKILL.md")
+  assert_eq(name, "skill-only")
+  assert_eq(version, "0.0.0")
+  assert_eq(deps.length(), 0)
+
+  // 对照：JSON 清单仍走解析（损坏时回退，但那是**真**故障，告警有价值）
+  @fs.write_file(
+    @util.path_join(dir, "package.json"),
+    "{\"name\":\"real-name\",\"version\":\"9.9.9\"}",
+    create_mode=CreateOrTruncate,
+  )
+  let (jname, jversion, _) = read_manifest_meta(dir, "package.json")
+  assert_eq(jname, "real-name")
+  assert_eq(jversion, "9.9.9")
+}
+
+///|
 /// **缺陷 F2 的回归测试（scanner 侧）。**
 /// store 侧已有一条针对 `PluginCache::validate` 的用例；
 /// 这一条覆盖完整链路：`scan_all` 不得因为缓存里有一条幽灵记录就整份返回它。
@@ -300,7 +350,7 @@ async test "F2: a ghost cache entry does not resurrect itself on the next scan" 
   // 格式必须与当前 cache_version 一致，否则在版本校验处就被整份丢弃，
   // 这条用例就测不到「幽灵条目被逐条判无效」的 validate 路径了。
   let poisoned =
-    #|{"version":3,"plugins":[{"profile":{"plugin_id":"cached-plugin-0.1.0","name":"cached-plugin","version":"0.1.0","kind":"official","capabilities":[],"tools":[],"events":[],"dependencies":[],"scanned_at":"1757000000000","path":"__GHOST__/cached-plugin","initial_metrics":{"complexity_score":2.0,"interface_clarity":9.0,"documentation_quality":5.0,"usage_frequency":"idle"}},"fingerprint":{"mtime_sec":"1","mtime_nsec":0,"entry_count":3,"child_mtime_ns":"1000000000"}}]}
+    #|{"version":4,"plugins":[{"profile":{"plugin_id":"cached-plugin-0.1.0","name":"cached-plugin","version":"0.1.0","kind":"official","capabilities":[],"tools":[],"events":[],"dependencies":[],"scanned_at":"1757000000000","path":"__GHOST__/cached-plugin","initial_metrics":{"complexity_score":2.0,"interface_clarity":9.0,"documentation_quality":5.0,"usage_frequency":"idle"}},"fingerprint":{"mtime_sec":"1","mtime_nsec":0,"entry_count":3,"child_mtime_ns":"1000000000"}}]}
   let ghost = poisoned.replace_all(
     old="__GHOST__",
     new=@util.path_join(tmp, "already-deleted"),

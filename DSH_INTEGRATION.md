@@ -7,38 +7,49 @@
 ## 挂载方式
 
 本插件是 MoonBit 编译的**原生 stdio MCP server**（`bin/harness-evolution.exe`）。它在 DSH 里经
-`@deepseek-ai/dsh-mcp-client` 以 stdio 拉起，挂载行写在 `cordis.patch.yml`（loader patch list）：
+`@deepseek-ai/dsh-mcp-client` 以 stdio 拉起，挂载行由 `scripts/install-dsh.ps1` 在**目标树**上
+写进该 profile 的 patch 层（`<DSH_HOME>/profiles/<name>/cordis.patch.yml`）：
 
 ```yaml
-- insert:
-    - id: mcp-harness-evolution
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        transport: stdio
-        serverName: harness-evolution
-        command: '<插件路径>/bin/harness-evolution.exe'
-        args: []
-        cwd: '<插件路径>'
-        env:
-          # 空 = 未设置 → 插件回落 ~/.dsh。宿主 spawn 子进程时丢弃**全部** DSH_*
-          # （scrubbedParentEnv），所以只能在这里显式转发；宿主 boot 非默认树时
-          # 填该树的绝对路径，插件才会写进宿主真正会读的 <DSH_HOME>/skills/。
-          DSH_HOME: ''
-        failOnStartupError: true
+# >>> mcp-harness-evolution (install-dsh.ps1) >>>
+- id: mcp-harness-evolution          # id 定向覆盖行：命中即逐字段替换（config 是整体替换）
+  disabled: false
+  config:
+    transport: stdio
+    serverName: harness-evolution
+    command: '<profile>/node_modules/@across2005/harness-self-evolution/bin/harness-evolution.exe'
+    args: []
+    cwd: '<profile>/node_modules/@across2005/harness-self-evolution'
+    env:
+      # 宿主 spawn MCP 子进程时用 scrubbedParentEnv() 丢弃**全部** DSH_*（继承拿不到），
+      # 只有挂载行 env 里的字面量能在清洗**之后**被合并（dsh-mcp-client 的 buildChildEnv）。
+      # 值由安装器按目标树计算 —— 插件侧另有「从安装路径推导」兜底档，漏配也不会写错树。
+      DSH_HOME: '<DSH_HOME>'
+    failOnStartupError: true
+# <<< mcp-harness-evolution (install-dsh.ps1) <<<
 ```
 
 - **`serverName: harness-evolution`** 决定工具公开名：`mcp__harness-evolution__<tool>`。
 - **`failOnStartupError: true`** 是强判据：MCP 握手/工具发现失败时 DSH 启动直接失败。
+- **出厂 `cordis.patch.yml` 的同一行默认 `disabled: true` 且不含机器绝对路径**（v3.1）：
+  静态字面量只对某一台机器成立，换机器就指向不存在的文件，而 `failOnStartupError: true`
+  会**直接中止整个 profile 启动**。安装器负责在该树上启用并注入绝对路径。
 
-安装二选一：
+安装：
 
 ```powershell
-# A) 标准安装（把上面的挂载行经 bundle patch 写入 profile）
-dsh plugin --profile web add "D:/Agent设计/harness-self-evolution-plugin"
+# ① 安装 + 注入挂载行（解析 $DSH_HOME，缺省回落 ~/.dsh；-DryRun 可先看将写入什么）
+pwsh -File scripts/install-dsh.ps1 -Profile web
 
-# B) overlay 临时挂载（不常驻，不写 profile）
-dsh --profile web --dump-config --patch cordis.patch.yml   # 静态合成验证
+# ② 静态自检（不 boot）
+dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'
+
+# ③ 重启宿主后才挂载（bundles 与 patch 层都在 boot 时读取）
 ```
+
+`-DshHome` / `-DshCommand` / `-SkipPluginAdd` / `-Uninstall` 见脚本头注释；
+`dsh` 不在 PATH 时用 `-DshCommand 'node <DSH runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js'`。
+`scripts/replace-paths.ps1` 保留给 fork/CI 改仓库字面量的场景，不再是安装主路径。
 
 ## 权威工具清单（14 个）
 
@@ -92,11 +103,14 @@ scan_plugins → propose_evolution → approve_proposal → execute_evolution
   其真实机制是从 `<DSH home>/skills/` 扫描发现 **skill**（`dsh-skill-filesystem`，
   frontmatter 需 `name` + `description`，正文即指令体）。因此 DSH 侧 user-scope 定义
   以 skill 形式落盘到 `<DSH home>/skills/<name>.md`，宿主在后续会话经 skills 发现加载。
-  home 由 `paths.mbt::dsh_home()` 解析：`$DSH_HOME`（去空白判空）→ `~/.dsh`。
-  宿主 spawn MCP 子进程时会用 `scrubbedParentEnv()` 丢弃**全部** `DSH_*`，
-  继承拿不到该值，必须由 `cordis.patch.yml` 挂载行的 `env` 显式转发（见
-  `docs/deploy/deepseek-harness.md` § Forwarding `DSH_HOME` to the plugin）。
-  可用 `HARNESS_EVOLUTION_USER_DIR` 显式指定目录。
+  home 由 `paths.mbt::dsh_home()` 解析，优先级三档：
+  **`$DSH_HOME`（去空白判空、须绝对）→ 安装路径推导 → `~/.dsh`**。
+  第二档（v3.1 新增）从 `@env.current_dir()` 与 `@env.args()[0]` 里识别
+  `<X>/profiles/<name>/node_modules/…` 形态并取出 `X` —— 即「本插件被哪棵树装上了」。
+  宿主 spawn MCP 子进程时会用 `scrubbedParentEnv()` 丢弃**全部** `DSH_*`，继承拿不到该值，
+  所以第一档须由挂载行的 `env` 显式转发（安装器已写好）；第二档保证即使那一项漏配，
+  定义也不会落进宿主不读的另一棵树。
+  可用 `HARNESS_EVOLUTION_USER_DIR` 显式指定目录（优先级最高）。
 
 > 注：`create_sub_agent` 产出的 frontmatter 含 `color` / `tools` 键，DSH 的 skill 解析器
 > 会忽略这些未知键，仅读 `name` / `description` —— 格式天然兼容，无需改渲染层。
@@ -112,15 +126,19 @@ scan_plugins → propose_evolution → approve_proposal → execute_evolution
 ## 验证
 
 ```powershell
-# 1. 静态合成（不落 profile，先证 patch 合法）
-dsh --profile web --dump-config --patch cordis.patch.yml   # exit 0 且含 mcp-client 行
+# 1. 安装 + 注入挂载行（先看将写入什么：加 -DryRun）
+pwsh -File scripts/install-dsh.ps1 -Profile web
 
-# 2. 标准安装闭环
-dsh plugin --profile web add "D:/Agent设计/harness-self-evolution-plugin"
-dsh --profile web --dump-config                            # exit 0（无崩溃）
-# boot 新端口 → stderr 见 "[HarnessEvolution] Server started"
-# 会话内 `/` 目录含 mcp__harness-evolution__* 14 工具
+# 2. 静态合成（不 boot，先证 patch 合法且该行已启用）
+dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'
+#    exit 0；该行 disabled 为 false，command/cwd 指向本树安装位
 
-# 3. 收尾还原
+# 3. 重启宿主后（bundles 与 patch 层都在 boot 时读取）
+#    boot stderr 见 "[HarnessEvolution] Server started (data root: ..., scan roots: N, ...)"
+#    会话内 14 个 mcp__harness-evolution__* 工具可调
+#    create_sub_agent scope=user → 文件落 <DSH_HOME>/skills/（不是 ~/.dsh/skills/）
+
+# 4. 收尾还原
+pwsh -File scripts/install-dsh.ps1 -Profile web -Uninstall
 dsh plugin --profile web remove @across2005/harness-self-evolution
 ```

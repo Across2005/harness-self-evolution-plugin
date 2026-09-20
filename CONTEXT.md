@@ -31,7 +31,7 @@
 | **DAG Layer（DAG 层）** | Sub-Agent 任务按依赖拓扑排序后的分层，同层可并行 | `executor/dag.mbt` 的 `topo_layers` |
 | **Agent Definition（子 Agent 定义）** | Markdown + YAML frontmatter 的 agent 载体文件（name / description / 可选 color / tools，正文为系统提示词），工厂只产出定义文件——**创建 ≠ 派发** | `factory/factory.mbt` 的 `AgentDefinition` |
 | **Sub-Agent Factory（子 Agent 工厂）** | 校验、渲染、解析定义文件并管理两个作用域的工厂（v2.1 新增，`docs/subagent-factory.md`） | `factory/`、`store/agent_defs.mbt` |
-| **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主的用户级定义目录，跨出数据根，宿主在后续会话加载；默认宿主 DeepSeek Harness 为 `<DSH home>/skills/`（home 由 `paths.mbt::dsh_home()` 解析 `$DSH_HOME`，未设置时回落 `~/.dsh/skills/`——DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘）） | `types/agent_scope.mbt`、`store/paths.mbt`、wire 表 `agent_scope_wire` |
+| **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主的用户级定义目录，跨出数据根，宿主在后续会话加载；默认宿主 DeepSeek Harness 为 `<DSH home>/skills/`（home 由 `paths.mbt::dsh_home()` 三档解析：`$DSH_HOME` → **安装路径推导**（`<X>/profiles/<name>/node_modules/…` → `X`）→ `~/.dsh`——DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘）） | `types/agent_scope.mbt`、`store/paths.mbt`、wire 表 `agent_scope_wire` |
 
 ## 提案状态机
 
@@ -163,8 +163,8 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 └── agents/             # 子 Agent 定义（factory 写，scope=plugin）
                         # scope=user 写宿主的用户级定义目录（跨出数据根；
                         # 默认宿主 DSH 为 <DSH home>/skills/——home 由
-                        # paths.mbt::dsh_home() 解析，未设置 $DSH_HOME 时回落
-                        # ~/.dsh/skills/；以 skill 形式落盘）
+                        # paths.mbt::dsh_home() 三档解析：$DSH_HOME →
+                        # 安装路径推导 → ~/.dsh；以 skill 形式落盘）
 ```
 
 **窗口裁剪（Retention）**：metrics / signals 两个 JSONL 是 append-only 的
@@ -214,7 +214,7 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 ### `scan_targets` 的接通语义（2.2.0）
 
 `main.mbt` 装配时从**同一份** plugin.json 解析 `scan_targets`，替换默认扫描根
-（`default_scan_roots()` 的硬编码根降级为回退值）。容错与
+（`default_scan_roots()` 的派生根降级为回退值）。容错与
 `evolution_config` 同一套原则 —— 缺失静默回落、退化取值点名告警：
 
 | 输入 | 结果 |
@@ -228,6 +228,12 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 解析是**纯函数**，不做文件系统存在性检查 —— 不存在的路径由 `scan_root`
 在扫描时打一行 `Path does not exist` 后跳过（与默认根同款行为）。
 `main.mbt` 的启动日志会报告生效的扫描根数量。
+
+> **v3.1：出厂清单不再写这一段。** 该段只支持 `~/` 展开，表达不了 `<DSH home>`，
+> 而默认根自 v3.1 起随 `dsh_home()` 派生（`@store.dsh_profiles_dir()`）。留着旧值
+> （`~/.dsh/profiles/` + 多宿主时代的 `~/.agents/skills` / `~/.openclaw-autoclaw/skills`）
+> 就等于把扫描钉在默认树 + 继续扫别的产品的目录。删除后走「缺失 → 默认根，无告警」这一行，
+> 即派生根。用户仍可用该段显式覆盖；守卫见 `architecture_test.mbt` 的 G8。
 
 ## 已修复的缺陷（1.0 → 2.0）
 
@@ -581,3 +587,39 @@ eal_validation 函数已实现
 ### 测试状态
 - Total tests: 347, passed: 347, failed: 0
 - 新增测试用例：13 个（信号衰减、模式识别、struggle 去重、SecurityHardening、AccessibilityImprovement、PerformanceTuning、param-simplification）
+
+## v3.1 决策记录：启动路径可移植化（A/B/C/E）
+
+**问题**：挂载行是**静态**的，DSH 树是**每台机器各自**的。出厂 `cordis.patch.yml` 写死
+本机仓库绝对路径 + `env.DSH_HOME: ''`，于是换机器/换树时：① `command` 指向不存在的文件，
+配合 `failOnStartupError: true` **直接中止整个 profile 启动**；② 插件回落 `~/.dsh`，
+`create_sub_agent(scope=user)` 落进宿主不读的另一棵树（实测：宿主 boot 的是
+`<pluginData>/dsh-home`，定义却写进了 `~/.dsh/skills/`）；③ 扫描根写死 `~/.dsh/profiles/`，
+扫的是**另一棵树**的 profile。
+
+**已核实、因而排除的两条路**（证据取自 DSH 0.1.6-alpha.1 源码，非文档）：
+
+- **`config.command` / `config.cwd` 无法写成相对或 `${ENV_VAR}`** —— `dsh-app-boot` 的
+  `anchorInsertedPluginNames` 只 visit `entry.name`（模块标识符），`config.*` 原样透传给
+  `@deepseek-ai/dsh-mcp-client` 的 `spawn`。
+- **loader 的 `!!js` 求值可用但不是本轮的选型** —— 它确实存在（`dsh-base` 就写了
+  `root: !!js dshHomePath('sessions')`），但把兼容性绑在 loader 方言上；本轮按用户选择
+  走「安装期注入」，出厂产物零方言依赖。
+
+**选型与落地**：
+
+| 面 | 决策 | 落点 |
+|---|---|---|
+| 挂载行 | 出厂 **`disabled: true` + 零机器路径**；由安装器按树写 id 定向覆盖行启用 | `cordis.patch.yml`、`scripts/install-dsh.ps1` |
+| 宿主树解析 | **三档**：`$DSH_HOME` → 安装路径推导（`<X>/profiles/<name>/node_modules/…` → `X`，取自 cwd / `argv[0]`）→ `~/.dsh` | `store/paths.mbt::dsh_home` |
+| 扫描根 | 随同一个解析结果派生（`@store.dsh_profiles_dir()`），与 user 作用域**同源** | `scanner/scanner.mbt::default_scan_roots` |
+| 出厂 `scan_targets` | **删除**（表达不了 `<DSH home>`；旧值还带多宿主时代的根） | `.dsh-plugin/plugin.json`、守卫 G8 |
+| `SKILL.md` 清单 | 非 JSON 清单**不再调 `read_json`**（消掉每 skill 一条 `Cannot parse` 噪声） | `scanner/discover.mbt::manifest_is_json` |
+| 缓存 | `cache_version` **3 → 4**（清掉多宿主时代 + `target_paths` 临时扫描的陈旧档案） | `store/cache.mbt` |
+
+**为什么安装路径推导是「纯路径算术」**：不摸盘、不猜 —— 形态不匹配就返回 `None` 并回落
+`~/.dsh`。它只在第一档缺席时有发言权（`$DSH_HOME` 仍是权威），故不改变既有优先级语义
+（`HARNESS_EVOLUTION_USER_DIR` > `$DSH_HOME` > 推导 > `~/.dsh`）。
+
+**未做**：缺陷 9 的生态数据源与 `dsh-watcher` 挂载（本轮明确不碰）；
+`dsh-evolution-panel` 的旧版/残留清理（另行处理）。
