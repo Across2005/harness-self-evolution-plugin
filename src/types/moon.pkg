@@ -13,5 +13,14 @@ import {
 // 关闭范围仅限本包，且本包内几乎不存在「包内私有的 impl」，
 // 因此不会掩盖真正的死代码。impl 的**正确性**由 types_wbtest.mbt 的
 // 19 表 × 79 变体往返测试保证，而非依赖 lint。
+//
+// 关闭 implicit_impl_as_method（moonc v0.10.14 起新增的 deprecation）：本层
+// 的 `derive(Eq, Debug, ToJson, @json.FromJson)` 与 `impl ToJson/FromJson for X
+// with fn` 会把这些 trait 方法隐式提升为 `x.to_json()` 式的点号方法，编译器已
+// 将「隐式提升」标记为 deprecated。本层刻意**不依赖**该提升 —— 消费方一律用
+// trait 调用形式 `ToJson::to_json(x)`（见 types_wbtest.mbt / change.mbt 的头注
+// 释），所以提升对本包既非所需、也非可去掉（derive/impl 语法本身仍会生成它）。
+// 在 `--deny-warn` 下，这条纯声明点的 deprecation 会淹没整层；故按包关闭，
+// 与 unused_value 同一立场。将来该隐式提升被正式移除时，本包无需改动。
 
-warnings = "-unused_value"
+warnings = "-unused_value-implicit_impl_as_method"

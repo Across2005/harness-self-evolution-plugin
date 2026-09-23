@@ -30,10 +30,19 @@
 ```
 
 - **`serverName: harness-evolution`** 决定工具公开名：`mcp__harness-evolution__<tool>`。
-- **`failOnStartupError: true`** 是强判据：MCP 握手/工具发现失败时 DSH 启动直接失败。
+- **`failOnStartupError: true`** 的**真实**语义：MCP 握手/工具发现失败时**拒绝该插件激活**
+  （宿主打一行 `warning`），**不中止 harness 启动**。原因：本行 id 不在宿主的
+  `requiredStartupEntryIds`（`agent-loop` / `webserver` / `modules` / `connection` /
+  `headless-runner` / `acp` / `sdk-jsonrpc-server`）里，app-boot 把它的激活失败归入
+  **optional**（`dsh-app-boot/lib/index.js:2408-2416` / `2513-2515`）。
+  它的价值是「把握手与工具发现纳入启动诊断」，**不是**「让 boot 失败」。
+- **真正会打挂 profile 启动的是 patch 层解析失败**：`parsePatchList` 是 `throw`
+  （`dsh-app-boot/lib/index.js:2158-2163`），异常一路上抛到 `prepareProfile`。
+  `scripts/install-dsh.ps1` 写的正是这个文件，其产物由
+  `scripts/test-install-dsh.ps1`（用宿主的 `js-yaml` 解析）机器化钉住。
 - **出厂 `cordis.patch.yml` 的同一行默认 `disabled: true` 且不含机器绝对路径**（v3.1）：
-  静态字面量只对某一台机器成立，换机器就指向不存在的文件，而 `failOnStartupError: true`
-  会**直接中止整个 profile 启动**。安装器负责在该树上启用并注入绝对路径。
+  静态字面量只对某一台机器成立，换机器就指向不存在的文件，**结果是该插件静默不挂载**
+  （一行 warning，宿主照常启动）。安装器负责在该树上启用并注入绝对路径。
 
 安装：
 
@@ -45,6 +54,12 @@ pwsh -File scripts/install-dsh.ps1 -Profile web
 dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'
 
 # ③ 重启宿主后才挂载（bundles 与 patch 层都在 boot 时读取）
+```
+
+改安装器前后请跑它的回归套件（在临时树上跑**真实**脚本，用宿主的 `js-yaml` 验产物）：
+
+```powershell
+pwsh -File scripts/test-install-dsh.ps1     # 7 个场景，全绿才算通过
 ```
 
 `-DshHome` / `-DshCommand` / `-SkipPluginAdd` / `-Uninstall` 见脚本头注释；

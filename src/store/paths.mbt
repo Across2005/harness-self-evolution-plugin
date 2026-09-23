@@ -139,7 +139,14 @@ pub fn DataPaths::agent_defs(self : DataPaths) -> String {
 ///
 /// **★ 第三档：安装路径推导（v3.1 起）**。只靠「挂载行转发」有一个现实缺口：
 /// 挂载行是**静态**的，而树是**每台机器各自**的 —— 出厂字面量必然只对某一棵树成立，
-/// 换机器/换树时要么落进别的树、要么（配合 `failOnStartupError: true`）直接拖挂宿主。
+/// 换机器/换树时 user 作用域定义会落进宿主**根本不读**的另一棵树。
+///
+/// 注：这里**不**写「否则会拖挂宿主」。2026-09-22 复验更正：`failOnStartupError: true`
+/// 的作用域只有该 entry 的激活（`mcp-harness-evolution` 不在宿主的
+/// `requiredStartupEntryIds` 里），路径写错的结果是**该插件静默不挂载 + 一行 warning**，
+/// harness 照常启动。真正会打挂 profile 的是 patch 层 YAML 解析失败
+/// （`parsePatchList` 是 throw），与本函数无关。见 `docs/dsh-compatibility.md` §2.5。
+///
 /// 因此新增一档**不依赖任何宿主转发的自解析**：
 ///
 /// 安装器把挂载行的 `cwd` 写成 `<profile>/node_modules/<pkg>`，宿主 spawn 时该值

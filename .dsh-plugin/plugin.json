@@ -53,7 +53,7 @@
   "dependencies": {},
   "devDependencies": {},
   "engines": {
-    "deepseek-harness": ">=0.1.6"
+    "dsh": ">=0.1.6"
   },
   "evolution_config": {
     "intensity": "50%",

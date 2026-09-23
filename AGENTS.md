@@ -199,6 +199,12 @@ Code Generator ─┬─ Test Writer ── Validator (T1)
 7. **一个字符串枚举只有一张 wire 表** — 词汇表约束
 8. **包依赖图严格分层，每条边只向下** — 架构约束
 9. **默认数据目录只有一处定义** — 配置约束
+10. **写进 DSH 树的文件必须是宿主能解析的** — 兼容约束。
+    `scripts/install-dsh.ps1` 产出的是 DSH 的 profile patch 层，宿主解析失败是 `throw`
+    （`parsePatchList`）→ **profile 完全无法 boot**。改它必跑 `scripts/test-install-dsh.ps1`
+    （用宿主的 `js-yaml` 验产物）。注意区分量级：`failOnStartupError: true` 只拒绝**该插件**
+    的激活（一行 warning，harness 照常启动），它**不是**启动开关。见
+    [docs/dsh-compatibility.md](docs/dsh-compatibility.md) §2.5–2.6。
 
 ### Matt Pocock 原则
 
@@ -281,7 +287,7 @@ single-context：根 `CONTEXT.md` 是词汇表与架构不变量的单一事实�
 
 ## 版本信息
 
-- **当前版本**：3.1.0
-- **最后更新**：2026-09-20
+- **当前版本**：3.1.0（2026-09-22 复验修复属补丁线：协议与工具面零变更，故不升版本号）
+- **最后更新**：2026-09-22
 - **维护者**：AI Agent Designer
 - **许可证**：MIT

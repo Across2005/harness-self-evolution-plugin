@@ -101,7 +101,10 @@ pub async fn ExecutionLog::append(
         message,
         malformed: false,
       }
-      let json_line = "\{record.to_json().stringify()}\n"
+      // 用 trait 调用形式 `ToJson::to_json(record)` 而非 `record.to_json()`：
+      // 后者是从 derive(ToJson) 隐式提升的点号方法，moonc v0.10.14 起已 deprecated，
+      // 未来会随隐式提升一并移除；改走 trait 形式以免依赖该提升。
+      let json_line = "\{ToJson::to_json(record).stringify()}\n"
       @fs.write_file(ep, json_line, create_mode=OpenOrCreate, append=true)
     }
     None => ()

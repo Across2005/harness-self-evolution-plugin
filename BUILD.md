@@ -59,12 +59,24 @@
 | 命令 | 等价裸命令 | 验收标准 | 对应验证级 |
 |---|---|---|---|
 | `.\build.ps1 check` | `moon check --deny-warn --target native` | **零错零警**（任何新警告都算失败） | T0 语法 |
-| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 443，以实际输出为准），内含架构守卫 G1–G7 | T1 功能 |
+| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 **454**，以实际输出为准），内含架构守卫 G1–G10 | T1 功能 |
 | `.\build.ps1 build` | `moon build --target native --release` + 产物复制 | 生成 `bin\harness-evolution.exe` | — |
 | `.\build.ps1 all` | check → test → build 依次执行、逐步核对退出码 | 三步全绿 | T2 回归 |
 | `.\build.ps1 fmt` | `moon fmt` | — | — |
+| `pwsh -File scripts/test-install-dsh.ps1` | 同上（在临时树上跑**真实**安装器 7 场景） | `PASS: 7/7 scenarios` | T1（安装器专项） |
 
-> **写就时点实测**：本文档交付前在本机实跑了 `check` 与 `test`：T0 零错零警（`moon check --deny-warn --target native`，46 tasks）；T1 `Total tests: 434, passed: 434, failed: 0`。测试输出里的 `Parse error` / `OSError(...Incorrect function.)` 等行是**负向路径用例的预期日志**（store/monitor/mcp 的容错测试），不是失败。
+> **写就时点实测（2026-09-22 复验后刷新）**：T0 零错零警（`moon check --deny-warn --target native`）；
+> T1 `Total tests: 454, passed: 454, failed: 0`；安装器回归 `PASS: 7/7 scenarios`。
+> 测试输出里的 `Parse error` / `OSError(...Incorrect function.)` 等行是**负向路径用例的预期日志**
+> （store/monitor/mcp 的容错测试），不是失败。
+
+> **为什么安装器有独立回归套件**（★ 2026-09-22 新增）：`scripts/install-dsh.ps1` 写的是
+> **DSH 的 profile patch 层**，而宿主解析该文件失败是 `throw`
+> （`dsh-app-boot/lib/index.js::parsePatchList`）→ **profile 完全无法 boot**。
+> 也就是说「这个脚本写坏一个 YAML，用户就打挂了自己的 DSH」。2026-09-22 复验发现的阻塞缺陷
+> 正是如此（出厂空模板的 `[]` 后面被追加了块序列项），故这条不变量必须机器化：
+> 套件用**宿主的 `js-yaml`**（不是「看起来对」）验证产物，且只写临时树。
+> 详见 `docs/dsh-compatibility.md` §2.6。
 
 产物落点：`_build\native\release\build\**\harness_evolution.exe` → 由脚本复制为 `bin\harness-evolution.exe`（**不要**手工去 `target\` 找，native 后端产物在 `_build\`）。
 
@@ -95,6 +107,9 @@
 | G5/G5b | 测试覆盖（含守卫自身的负向探针） |
 | G6 | `moon.mod` 只有一个外部依赖，native 是首选目标 |
 | G7 | 配置监听器在首轮轮询**之前**预置 mtime 基线（源码守卫；store 侧原语测不出「调用方真的预置了」，见 `src/store/config_watch.mbt` 注释） |
+| G8 | 出厂 `.dsh-plugin/plugin.json` 不写 `scan_targets`（表达不了 `<DSH home>`） |
+| G9 | 出厂 `cordis.patch.yml` 的挂载行默认 `disabled: true` 且**零机器绝对路径** |
+| G10 | 两处清单的 `engines` 键名统一为宿主的 `dsh`（`DshEnginesManifest.dsh`），不得用非契约键名 |
 
 另注意：提案状态只能 `pending → approved → executing → completed`（或 `reject_proposal` → `rejected`）；审批必须人工（`auto_approve: true` 会被告警并回落 `false`，这是故意设计，不是缺陷）。
 
@@ -235,7 +250,14 @@ Session 事件流（assistant/chunk·reasoning-delta 等）
 | [`docs/subagent-factory.md`](docs/subagent-factory.md) | 子 Agent 工厂设计 |
 | [`dsh-watcher/README.md`](dsh-watcher/README.md) | 单元 B 概述与安装（英文版 [`README.en.md`](dsh-watcher/README.en.md) 同步） |
 | [`dsh-watcher/DESIGN.md`](dsh-watcher/DESIGN.md) | 单元 B 设计契约（浮窗交互、计时语义、quality gates） |
+| [`docs/dsh-compatibility.md`](docs/dsh-compatibility.md) | DSH 兼容性原理与判据（含 2026-09-22 复验的三处新接缝 §2.5–2.7） |
+| [`docs/dsh-plugin-integration.md`](docs/dsh-plugin-integration.md) | DSH 插件接入机制说明书（host 半 / client 半 / 启动成败分级 / 诊断顺序） |
+| [`scripts/install-dsh.ps1`](scripts/install-dsh.ps1) | 安装入口（按树注入挂载行；**改它必跑下面的回归**） |
+| [`scripts/test-install-dsh.ps1`](scripts/test-install-dsh.ps1) | 安装器回归套件（7 场景，临时树；`PASS: 7/7`） |
+| [`scripts/test-patch-layer.mjs`](scripts/test-patch-layer.mjs) | patch 层合法性验证器（用**宿主的 `js-yaml`**） |
 
 ---
 
-*本文由接手交接流程生成于 v2.6.0 基线；文中所有命令、路径、版本均按写就时点仓库实况逐项核实，其中单元 A 的 T0（`moon check --deny-warn`，零错零警）与 T1（434/434）已在本机实跑验证。*
+*本文由接手交接流程生成于 v2.6.0 基线；2026-09-22 兼容性复验后刷新了 §2.2 的门禁基线与守卫表。
+文中所有命令、路径、版本均按写就时点仓库实况逐项核实。当前实测：单元 A 的 T0
+（`moon check --deny-warn --target native`）零错零警、T1（454/454）、安装器回归（7/7）。*

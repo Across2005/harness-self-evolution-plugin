@@ -147,6 +147,19 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
    *守卫 G1 / G1b*
 9. **默认数据目录只有一处定义** — `.harness-evolution` 字面量只允许出现在
    `store/paths.mbt`。　*守卫 G4 / G4b*
+10. **写进 DSH 树的文件必须是宿主能解析的**（2026-09-22 复验新增）——
+    `scripts/install-dsh.ps1` 产出的是 DSH 的 **profile patch 层**，宿主解析失败是
+    `throw`（`dsh-app-boot/lib/index.js::parsePatchList` :2158-2163），一路上抛到
+    `prepareProfile` → **profile 完全无法 boot**（不只是插件不挂载）。
+    历史破口正是这里：出厂空模板的 `[]`（flow 序列）后面被追加了块序列项，而
+    `[]` + 注释正是 DSH 为**每个新 profile** 生成的默认状态。
+    *守卫：`scripts/test-install-dsh.ps1`（7 场景，临时树跑真实安装器）+
+    `scripts/test-patch-layer.mjs`（用**宿主的 `js-yaml`** 判合法）。*
+
+    > 量级必须分清（这条不变量存在的理由）：`failOnStartupError: true` **只**拒绝该
+    > entry 的激活 —— `mcp-harness-evolution` 不在宿主的 `requiredStartupEntryIds`
+    > 里，故其失败被归入 optional，**只打印一行 warning，harness 照常启动**。
+    > 它是**诊断开关，不是启动开关**。见 `docs/dsh-compatibility.md` §2.5。
 
 ## 数据文件布局
 
@@ -592,7 +605,9 @@ eal_validation 函数已实现
 
 **问题**：挂载行是**静态**的，DSH 树是**每台机器各自**的。出厂 `cordis.patch.yml` 写死
 本机仓库绝对路径 + `env.DSH_HOME: ''`，于是换机器/换树时：① `command` 指向不存在的文件，
-配合 `failOnStartupError: true` **直接中止整个 profile 启动**；② 插件回落 `~/.dsh`，
+**该插件静默不挂载**（一行 warning，harness 照常启动 —— 2026-09-22 复验更正：`failOnStartupError: true`
+的作用域只有该 entry 的激活，本行 id 不在 `requiredStartupEntryIds` 里，见 `docs/dsh-compatibility.md` §2.5）；
+② 插件回落 `~/.dsh`，
 `create_sub_agent(scope=user)` 落进宿主不读的另一棵树（实测：宿主 boot 的是
 `<pluginData>/dsh-home`，定义却写进了 `~/.dsh/skills/`）；③ 扫描根写死 `~/.dsh/profiles/`，
 扫的是**另一棵树**的 profile。
@@ -623,3 +638,33 @@ eal_validation 函数已实现
 
 **未做**：缺陷 9 的生态数据源与 `dsh-watcher` 挂载（本轮明确不碰）；
 `dsh-evolution-panel` 的旧版/残留清理（另行处理）。
+
+## 2026-09-22 复验决策记录（v3.1.0 补丁线；产品版本不升）
+
+**来源**：`COMPATIBILITY_RECHECK_2026-09-22.md`（独立复验，不复用首版结论）。
+
+**复验总评**：协议层 / 传输层 / 工具面 / 构建层与 DSH 0.1.6-alpha.1 完全兼容，
+v3.1 的路径可移植化在真实条件下端到端成立。但复验在**安装器**里发现一个阻塞缺陷，
+并指出两处文档失真。
+
+| # | 发现 | 级别 | 修法 | 落点 |
+|---|---|---|---|---|
+| 1 | 安装器在**出厂空 patch 层**（注释 + `[]`）上把块序列项追加到 flow 序列之后 → 非法 YAML → `parsePatchList` throw → **profile 完全无法 boot**（触发条件=新 profile 的默认状态） | **BLOCKER** | 先整行删 `[]` 再判定「追加 / 直接接块」；加写前守卫 `Assert-PatchLayerShape`；卸载补回 `[]` 使文件可逆 | `scripts/install-dsh.ps1` |
+| 2 | 文档把 `failOnStartupError: true` 描述为「直接中止整个 profile 启动」——**过度声明**。真实语义：拒绝该插件激活 + 一行 warning；本行 id 不在 `requiredStartupEntryIds` 里 | 文档失真 | 六处文案改写为真实语义；v3.1 的**决策结论不变**，理由重述为「装错树=插件静默不工作」 | `cordis.patch.yml`、`README.md`、`DSH_INTEGRATION.md`、`docs/*` |
+| 3 | `engines` 两处键名不一致（`dsh` vs `deepseek-harness`），且被当作运行时契约 | 文档失真 | 统一为宿主权威键 `dsh`；文档标注「声明性、宿主当前不校验」；加守卫 G10 | `package.json`、`.dsh-plugin/plugin.json`、`docs/dsh-compatibility.md` §2.7 |
+| 4 | 出厂 `bin/harness-evolution.exe` 落后源码一个修订 | 发布完整性 | `.\build.ps1 -Task build` 刷新（协议行为无差异，见复验 §4.3） | `bin/` |
+| 5 | `scripts/` 下 10 个一次性探针脚本入库，混在正式脚本之间 | 仓库卫生 | 归档到 `scripts/_archive/`（保留历史、不再干扰阅读） | `scripts/_archive/` |
+
+**新增回归网**（缺陷 1 的判据机器化）：
+
+| 文件 | 作用 |
+|---|---|
+| `scripts/test-patch-layer.mjs` | 用**宿主的 `js-yaml`** 解析 patch 层并逐条断言（顶层数组 / entry 映射 / 无「`[]`+块」/ 行恰好一条 / id 定向覆盖形态 / 路径与树一致） |
+| `scripts/test-install-dsh.ps1` | 在临时树里跑**真实**安装器的 7 个场景（出厂空模板 / 文件不存在 / 仅注释 / 幂等 / 已有其它插件 / 装后卸载可逆 / 卸载不误伤） |
+
+**沉淀的两条纪律**（写进 `docs/dsh-compatibility.md` §2.5–2.7 与 §3.1）：
+
+1. **名字 ≠ 行为**：兼容性断言必须以宿主对该字段的**分类代码**为依据。
+   `failOnStartupError` 的名字像「启动开关」，实际作用域只有该 entry 的激活。
+2. **写宿主的文件，就用宿主的解析器当判据**：安装器产出 patch 层，就由宿主的 `js-yaml`
+   判定其合法性，并固化成回归测试。「看起来对」不是判据。

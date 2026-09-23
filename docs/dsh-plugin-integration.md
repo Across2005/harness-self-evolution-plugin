@@ -15,7 +15,7 @@
 |---|---|---|---|---|
 | ① | **host 半**（Node 代码） | `package.json` 的 `dsh.bundle.patch` → 自己的 `cordis.patch.yml` | Loader entry → fiber | 该 entry 不激活（日志警告）；required id 失败则整进程退出 |
 | ② | **client 半**（浏览器代码） | `package.json` 的 `dsh.client` + `exports["./client"]` | 产物拼进 `/plugins/??…` combo | **整条 combo 解析失败 → 同 combo 全部插件一起崩** |
-| ③ | **MCP 桥**（外部进程） | patch 里 `insert` 一行 `@deepseek-ai/dsh-mcp-client` 配置 | stdio 子进程 + 工具表 | 该行不激活；`failOnStartupError: true` 时 boot 直接失败 |
+| ③ | **MCP 桥**（外部进程） | patch 里 `insert` 一行 `@deepseek-ai/dsh-mcp-client` 配置 | stdio 子进程 + 工具表 | 该行不激活（`failOnStartupError: true` 时亦然）；**只有** `requiredStartupEntryIds` 里的 id 失败才整进程退出 |
 | ④ | **纯声明**（无代码） | profile 的 `cordis.patch.yml` 或 `--patch` overlay | 直接改 entry 树 | patch 未命中会 warn；文件格式错则 boot 失败 |
 
 **三条最容易踩的硬规则**（各对应一次真实事故）：
@@ -60,7 +60,7 @@ dsh plugin --profile web add <spec>
 
 > **本插件的挂载行不由 bundle patch 直接启用**（v3.1）：`cordis.patch.yml` 里的
 > `mcp-harness-evolution` 行出厂 `disabled: true` 且不含机器路径 —— 静态字面量只对一台机器
-> 成立，而 `failOnStartupError: true` 会让它在别的机器上**中止整个 profile 启动**。
+> 成立，在别的机器上该插件会**静默不挂载**（一行 warning，宿主照常启动；见下「启动成败」）。
 > `scripts/install-dsh.ps1` 负责在该树上写一条 **id 定向覆盖行**（`applyEntryPatches` 对
 > id 命中者逐字段 `target[key] = value`，故覆盖行重述整个 `config`）到
 > `<profile>/cordis.patch.yml`，即下面第 (2) 层。`dsh plugin add` 单独运行**不会**挂载工具。
@@ -108,7 +108,32 @@ Loader 并发挂载所有 entry。启动审计（`auditStartupEntries`）在树�
 **required 名单**（全局，与具体 profile 无关）：`agent-loop`、`webserver`、`modules`、`connection`、`headless-runner`、`acp`、`sdk-jsonrpc-server`。
 **缺失或显式 disabled 的 required id 不影响启动**——只有"enabled 但激活失败"才算。
 
-> **可操作判据**：如果你看到"**N entries did not activate**"且 N 是个大数，几乎不可能是"host 半某一处写错"——host 半的失败是**逐 entry 隔离**的。大数集体失败指向共享的公共依赖（见 §2 的 combo 连坐，或模块解析层断裂）。
+**`failOnStartupError: true` 到底管什么**（★ 2026-09-22 复验更正，此前文档过度声明为"中止整个 profile 启动"）：
+
+```
+auditStartupEntries(ctx, binName, warn)                      // dsh-app-boot/lib/index.js:2509
+  ├─ requiredStartupEntryIds = { agent-loop, webserver, modules, connection,
+  │                              headless-runner, acp, sdk-jsonrpc-server }   // :2408-2416
+  ├─ 逐条失败分类：entry === bootstrapInclude || id ∈ required → required
+  │                其余                                       → optional      // :2513
+  ├─ optional 非空 → warn(一行 "N entries did not activate")                  // :2514
+  └─ required 非空 → throw                                                    // :2515
+```
+
+`mcp-harness-evolution` 是 **optional**。因此：
+
+| 情形 | 实际后果 |
+|---|---|
+| MCP 握手/工具发现失败（`failOnStartupError: true`） | 该插件**不激活** + 一行 warning；**其余条目照常运行**，harness 正常启动 |
+| `config.command` 指向不存在的文件（换机器/换树的典型症状） | 同上：插件静默不工作，宿主照常起来 |
+| **patch 层 YAML 解析失败** | `parsePatchList` **throw**（:2158-2163）→ 上抛 `prepareProfile` → **profile 完全无法 boot** |
+| 该行 patch 的 `id` 在树里不存在 | 该 patch 未命中，Loader 记一条 per-entry warning，不影响启动（:2150-2151 的设计意图） |
+
+> **教训（值得推广的纪律）**：把「声明性选项的名字」当成「行为的证据」是兼容性文档最常见的失真源。
+> `failOnStartupError` 这个名字听起来像"启动失败开关"，但它的作用域被宿主限制在**该 entry 的激活**
+> 上。写兼容性断言时，必须回到宿主的分类代码，而不是按字段名推理。
+
+> **可操作判据**：如果你看到"**N entries did not activate**"且 N 是个大数，几乎不可能是"host 半某一处写错"——host 半的失败是**逐 entry 隔离**的。大数集体失败指向共享的公共依赖（见 §2 的 combo 连坐，或模块解析层断裂）。N 为 1 且点名 MCP 桥，就是本插件的挂载行没生效（查 `disabled`、`command` 路径、`DSH_HOME`）。
 
 ---
 
@@ -299,10 +324,10 @@ profile 目录下的 `.dsh-module-fallback/` 是宿主为**插件声明的 peer 
 | boot 抛 `duplicate loader entry id: X` | 同一 id 被两条路径挂载 | 常见于"profile 已装该 bundle"+"overlay 又注入同 id"；二者留一 |
 | boot 抛 `failed to read overlay` + ENOENT | `--patch` 用法错 | 单文件。多文件写多个 `--patch`，**不要**逗号分隔 |
 | `N entries did not activate`（N 很大） | 共享依赖层（client combo 连坐 / 模块解析断裂） | 先按 §4.2 顺序分诊 |
-| MCP 工具不出现 | ③ MCP 桥 | patch 里有 `dsh-mcp-client` 行吗？`failOnStartupError` 开没开？ |
+| MCP 工具不出现 | ③ MCP 桥 | patch 里有 `dsh-mcp-client` 行吗？该行 `disabled` 是不是 `true`？宿主 stderr 有无 `N entries did not activate` 的 warning？ |
 | 插件"装了但没进层" | 声明缺失 | 包 `package.json` 有 `dsh.bundle` 吗？ |
 | 终端里 `dump-config` 有该层，GUI/会话里却没有工具 | 看错了树 / 宿主未重启 | `$env:DSH_HOME` 与宿主是同一棵吗？宿主进程下有无插件子进程？`bundles` 只在 boot 读（§3.1） |
-| 按上面排查都对，重启后仍无工具 | mount row 未真正生效 | 宿主 stderr 有无 `[HarnessEvolution] Server started`；`failOnStartupError` 是否开着 |
+| 按上面排查都对，重启后仍无工具 | mount row 未真正生效 | 宿主 stderr 有无 `[HarnessEvolution] Server started`；有没有 `warning: 1 entry did not activate`（说明该行被拒绝激活） |
 
 ### 4.2 诊断顺序（不要跳步）
 
@@ -341,7 +366,7 @@ profile 目录下的 `.dsh-module-fallback/` 是宿主为**插件声明的 peer 
 - [ ] 安装走 `dsh plugin … add`，**不要**手改 `dsh.profile.bundles`
 - [ ] 装完先 `--dump-config` 静态合成，再真启
 - [ ] 真启后：服务端看 `[pkg] loaded`；浏览器看 console 零错误
-- [ ] 需要 MCP 工具的：走 `dsh-mcp-client` 桥，`failOnStartupError: true` 当强判据
+- [ ] 需要 MCP 工具的：走 `dsh-mcp-client` 桥；`failOnStartupError: true` 用来把握手/工具发现纳入启动诊断（**不**中止 harness）
 - [ ] 收尾：确认 `DSH_HOME` 指向你要影响的那棵树
 
 ### 5.2 零污染实验纪律

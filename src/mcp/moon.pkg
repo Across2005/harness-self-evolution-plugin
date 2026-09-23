@@ -29,3 +29,8 @@ options(
   // mcp 的用例会经 store/scanner 触碰真实文件系统（见 monitor 包的同名注释）。
   "max-concurrent-tests": 1,
 )
+
+// 关闭 implicit_impl_as_method（moonc v0.10.14 新增 deprecation）：本包
+// derive(Debug/@json.FromJson)（schema.mbt / jsonrpc.mbt 等）的隐式方法提升
+// 不再依赖，与 types/store 同一立场。
+warnings = "-implicit_impl_as_method"

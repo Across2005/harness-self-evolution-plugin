@@ -67,8 +67,10 @@ share nothing: `bundles`, `node_modules`, sessions, and skills are all per-tree,
 one tree stays invisible to a host booting another.
 
 Since v3.1 the shipped mount row is **`disabled: true` and carries no machine path** — a literal path for
-one machine would point at a missing file everywhere else, and `failOnStartupError: true` would then abort
-the whole profile boot. The row is written **per tree at install time**:
+one machine points at a missing file everywhere else, so the plugin would simply never mount (DSH reports
+one `warning` line and keeps booting: `mcp-harness-evolution` is not in the host's
+`requiredStartupEntryIds`, so its activation failure is *optional*). The row is written **per tree at
+install time**:
 
 ```powershell
 # resolves $DSH_HOME (or ~/.dsh), installs the bundle, and injects the mount row
@@ -83,6 +85,16 @@ dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'
 the fourteen `mcp__harness-evolution__*` tools appear in a session. The plugin additionally derives its
 own tree from the install path, so `create_sub_agent scope=user` lands in `<DSH home>/skills/` even if
 `env.DSH_HOME` were left unset.
+
+> **What is actually fatal, and what is not.** `failOnStartupError: true` on the mount row does **not**
+> abort the profile boot: it only rejects that one plugin's activation, and app-boot downgrades it to an
+> `optional` entry warning (see the paragraph above). The genuinely fatal case is a **patch layer DSH
+> cannot parse** — `parsePatchList` throws and the profile never boots. `scripts/install-dsh.ps1` writes
+> that file, so its output is pinned by a regression suite that parses it with the host's own `js-yaml`:
+>
+> ```powershell
+> pwsh -File scripts/test-install-dsh.ps1     # 7 scenarios; writes only to a temp tree
+> ```
 
 Full install, verification, and rollback: [docs/deploy/deepseek-harness.md](docs/deploy/deepseek-harness.md);
 the live-install practice (multi-home reality, `.dsh-module-fallback` pitfalls):

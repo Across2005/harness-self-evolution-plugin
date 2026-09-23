@@ -50,8 +50,8 @@ DSH spawns it through `scrubbedParentEnv()`, which drops every `DSH_*` name
 (`@deepseek-ai/dsh-subprocess`), and `@deepseek-ai/dsh-mcp-client` merges the mount row's `env`
 **after** that scrub. The Loader expands neither `${ENV_VAR}` nor relative paths for
 `config.command` / `config.cwd` (see § Path substitution), so a shipped literal can only ever be
-right for one machine — and a wrong one is not merely useless: with `failOnStartupError: true` the
-failed handshake **aborts the whole profile boot**.
+right for one machine — and a wrong one means the plugin **silently never mounts** (one `warning`
+line, harness keeps booting; see the box below).
 
 v3.1 therefore removes the literal from the shipped artifact and resolves the tree twice over:
 
@@ -132,7 +132,25 @@ Overlay template (`cordis.overlay.yml`) — absolute literals for the machine yo
     failOnStartupError: true
 ```
 
-`failOnStartupError: true` is the strong check: if the MCP handshake or tool discovery fails, DSH boot aborts. Boot success implies the binary speaks MCP and the fourteen tools are present.
+`failOnStartupError: true` rejects **this plugin's activation** when the MCP handshake or tool
+discovery fails — it does **not** abort the harness. `mcp-harness-evolution` is not in the host's
+`requiredStartupEntryIds`, so app-boot classifies its failure as *optional* and only prints one
+`warning` line (`dsh-app-boot/lib/index.js:2408-2416`, `2513-2515`). Boot success therefore still
+implies the binary speaks MCP and the fourteen tools are present — but boot failure does **not**
+imply the plugin failed.
+
+> **The genuinely fatal failure is a patch layer DSH cannot parse.** `parsePatchList` *throws*
+> (`dsh-app-boot/lib/index.js:2158-2163`) and the profile never boots at all. That file is written by
+> `scripts/install-dsh.ps1`, so its output is pinned by a regression suite that parses it with the
+> host's own `js-yaml`:
+>
+> ```powershell
+> pwsh -File scripts/test-install-dsh.ps1     # 7 scenarios, temp tree only, no real DSH tree touched
+> ```
+>
+> The historical trigger was the factory-fresh patch template (three comment lines plus a bare `[]`):
+> a block sequence item appended after a flow sequence is invalid YAML, and that template is exactly
+> what DSH writes for every new profile.
 
 ## Path literals and path substitution (★ H7)
 
@@ -227,7 +245,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 | 3 | `dsh --profile web web --port 39402 --no-open` | 日志含 `[HarnessEvolution]` 与 `Server started (data root: ...)` | exe 启动失败：`Get-Content bin/harness-evolution.exe` 是否 > 1MB；`HARNESS_EVOLUTION_HOME` 是否设 |
 | 4 | 从 startup 日志末尾读 `dsh web: http://127.0.0.1:39402/?token=<token>` | URL 带 token 段 | MCP `deepseek_harness_start` 只返回裸 URL，token 在日志里 |
 | 5 | 浏览器打开 `http://127.0.0.1:39402/?token=<token>` | 主 UI 真实加载，无 `authentication required` | URL 缺 token；从日志拿 |
-| 6 | 在 DSH 工具面板调 `scan_plugins` | 返回 ≥ 1 个插件记录 | MCP 未注入：检查 overlay 路径与 failOnStartupError |
+| 6 | 在 DSH 工具面板调 `scan_plugins` | 返回 ≥ 1 个插件记录 | MCP 未注入：检查 mount row 的 `disabled`/`command`，以及宿主 stderr 的 `1 entry did not activate` warning |
 | 7 | 调 `get_runtime_snapshot` | 返回非空 JSON，含 `serverInfo.version` 与 `dataPaths` | MCP 握手失败：`dsh --profile web --dump-config --patch <abs>` 验证 |
 | 8 | 调 `list_proposals` | `[]`（空数组，无错） | 数据根写入权限：检查 `HARNESS_EVOLUTION_HOME` 指向可写目录 |
 
@@ -247,6 +265,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 | `dsh: failed to read overlay …ENOENT` | `--patch` 用了逗号分隔多文件 | 单文件参数可重复传：`--patch a.yml --patch b.yml` |
 | `duplicate loader entry id: <id>` | profile 已装该 bundle，overlay 又注入同一 id | 二者留一（bundle 内已有则删掉 overlay 的注入行） |
 | 装了插件但会话里没有 `mcp__harness-evolution__*` 工具 | 装到了另一棵树 / 没跑安装器（出厂行 `disabled: true`）/ host 未重启 | 见 § Which tree?：确认宿主的 `DSH_HOME`，用 `scripts/install-dsh.ps1 -Profile <p>` 注入挂载行，然后重启 |
+| `dsh: failed to parse patches/overlay <…cordis.patch.yml>`（`YAMLException`） | **profile 完全无法 boot** —— patch 层 YAML 非法。历史上由 `install-dsh.ps1` 在出厂空模板上写出 `[]` + 块序列项触发 | 把该文件里的裸 `[]` 整行删掉（块序列项已在则不要再加 `[]`）；升级到修好的安装器并跑 `scripts/test-install-dsh.ps1` |
 | 同一个 exe 出现多个进程 | 多个实例各自拉起 | 正常：父进程分别是各实例；需要隔离就给各自设 `HARNESS_EVOLUTION_HOME` |
 | `bin/harness-evolution.exe` 被覆盖失败 | 进程占用 | `Get-Process harness-evolution \| Stop-Process` 后再 build |
 

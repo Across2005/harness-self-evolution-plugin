@@ -14,8 +14,24 @@
 # ──────────────────────────────────────────────────────────────────────────
 # 为什么：挂载行是**静态**的，而 DSH 树是**每台机器各自**的（`$DSH_HOME` 决定 boot 哪棵，
 # managed launcher 可能指向 `<pluginData>/dsh-home`）。出厂写死一台机器的 command/cwd，
-# 在别的机器上就指向不存在的文件 —— 而 `failOnStartupError: true` 会让 MCP 握手失败
-# **直接中止整个 profile 启动**。出厂产物不该带这种地雷。
+# 在别的机器上就指向不存在的文件 —— 插件静默不工作，而用户看到的是一个「装了却没反应」
+# 的插件。把易变的那一维（路径）从出厂产物挪到安装期，才是「可复现产物 + 每机部署」
+# 的正确切分。
+#
+# ⚠ 关于「后果有多严重」的更正（2026-09-22 复验）：本文件此前声称路径写错会让
+# `failOnStartupError: true` **直接中止整个 profile 启动**。**那是过度声明**，宿主真实
+# 语义（dsh-app-boot/lib/index.js:2408-2416 / 2513-2515）是：该行**不在**
+# `requiredStartupEntryIds`（agent-loop / webserver / modules / connection /
+# headless-runner / acp / sdk-jsonrpc-server）里，故其激活失败归入 **optional**，
+# 只打印一行 warning，其余条目照常运行。宿主 README 亦明说：
+# 「app-boot's startup policy still permits an optional MCP entry to fail without
+# aborting the harness.」
+#
+# 真正会打挂 profile 的是**本文件解析失败**：`parsePatchList` 是 `throw`（:2158-2163），
+# 异常一路上抛到 prepareProfile。所以「产出合法 YAML」是本文件的最高不变量，
+# 回归测试见 `scripts/test-install-dsh.ps1` + `scripts/test-patch-layer.mjs`。
+#
+# 决策结论（出厂不写死机器路径）**不变**，只是理由改为上面这条：装错树 = 插件不工作。
 #
 # 谁来激活：`scripts/install-dsh.ps1` 在**目标树**上解析
 # `<DSH_HOME>/profiles/<name>/node_modules/@across2005/harness-self-evolution`，
@@ -55,6 +71,8 @@
         cwd: ''
         env:
           DSH_HOME: ''
-        # 强判据：MCP 握手/工具发现失败时 DSH 启动直接失败。
+        # 握手/工具发现失败时**拒绝本插件激活**（一行 warning，不中止 harness ——
+        # 本行 id 不在 requiredStartupEntryIds 里，见文件头更正说明）。
+        # 它的价值是「把 MCP 握手 + 工具发现纳入启动诊断」，而不是「让 boot 失败」。
         # 安装器的覆盖行会原样重述这一项（config 是整体替换，不是深度合并）。
         failOnStartupError: true

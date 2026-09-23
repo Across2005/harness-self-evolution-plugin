@@ -18,3 +18,10 @@ options(
   // 整个测试进程，只留下一串「active at exit」的名字而无法定位。
   "max-concurrent-tests": 1,
 )
+
+// 关闭 implicit_impl_as_method（moonc v0.10.14 起新增的 deprecation）：本包的
+// `derive(Eq, Debug, ToJson, @json.FromJson)`（ExecLogRecord / CacheFile 等）会
+// 把 trait 方法隐式提升为点号方法，编译器已将「隐式提升」标记 deprecated。
+// 与 types 包同一立场：不依赖该提升，序列化统一走 trait 调用形式；仅关闭这一
+// 条纯声明点的 deprecation，将来提升被正式移除时本包无需改动。
+warnings = "-implicit_impl_as_method"

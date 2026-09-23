@@ -6,7 +6,7 @@
 ## v3.1（已完成：启动路径可移植化 A/B/C/E）
 
 > 2026-09-20：兼容性实测暴露「出厂挂载行写死本机路径」——换机器/换树时 `command` 指向
-> 不存在的文件，配合 `failOnStartupError: true` **直接中止 profile 启动**；且插件回落
+> 不存在的文件，**该插件静默不挂载**（一行 warning，harness 照常启动）；且插件回落
 > `~/.dsh`，user 作用域定义落进宿主不读的另一棵树。决策与证据见 `CONTEXT.md` § v3.1 决策记录。
 
 | 切片 | 内容 | 状态 |
@@ -23,6 +23,27 @@
 默认根派生 1 / 清单判定与回退 2 / G8 出厂清单无 `scan_targets` + G9 出厂行禁用且无机器路径 2）；
 G5b 锚点同步；版本五处一并升 **3.1.0**（`moon.mod` 0.3.2）。
 **未做**：缺陷 9 生态数据源、`dsh-watcher` 挂载（D/F 本轮不碰）。
+
+## 2026-09-22 复验修复（v3.1.0 补丁线；**产品版本不升** —— 协议与工具面零变更）
+
+> 2026-09-22：独立复验（`COMPATIBILITY_RECHECK_2026-09-22.md`）在**安装器**里发现一个
+> 阻塞缺陷 —— 出厂空 patch 层（注释 + `[]`）上追加块序列项会写出非法 YAML，
+> `parsePatchList` throw 让 **profile 完全无法 boot**，而触发条件正是新 profile 的默认状态。
+> 同时更正两处文档失真（`failOnStartupError` 的致命性、`engines` 键名）。
+> 决策与证据见 `CONTEXT.md` § 2026-09-22 复验决策记录。
+
+| 切片 | 内容 | 状态 |
+|---|---|---|
+| F1 | `install-dsh.ps1` 修 flow 序列 `[]` 阻塞缺陷：先整行删 `[]` 再判定；加写前守卫；卸载补回 `[]` 使文件可逆 | ✅ |
+| F2 | 新增回归网：`scripts/test-install-dsh.ps1`（7 场景，临时树跑真实脚本）+ `scripts/test-patch-layer.mjs`（用**宿主 js-yaml** 判合法） | ✅ |
+| F3 | 改写 `failOnStartupError` 语义（6 处文档 + 1 处源码注释）：真实语义是「拒绝该插件激活 + 一行 warning」，**不**中止 harness；真正致命的是 patch 层解析失败 | ✅ |
+| F4 | `engines` 键名统一为宿主权威键 `dsh`（两处清单一致）+ 文档标注「声明性、宿主不校验」+ 守卫 G10 | ✅ |
+| F5 | 刷新出厂 `bin/harness-evolution.exe`（此前落后源码一个修订） | ✅ |
+| F6 | `scripts/` 一次性探针脚本归档到 `scripts/_archive/` | ✅ |
+
+**验证**：`moon check --deny-warn` 零错零警；`moon test` **453 → 454**（新增 G10：两处清单的
+`engines` 键名统一为宿主的 `dsh`）；`pwsh -File scripts/test-install-dsh.ps1` **7/7 全绿**
+（含出厂空模板这一历史触发态）。
 
 ## v2.7（进行中：运行时可视化 + 清单迁移）
 

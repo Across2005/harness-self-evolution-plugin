@@ -18,3 +18,7 @@ options(
   // （见 monitor 包同名注释里记录的那次并行 I/O panic）。
   "max-concurrent-tests": 1,
 )
+
+// 关闭 implicit_impl_as_method（moonc v0.10.14 新增 deprecation）：本包
+// derive(Eq/Debug) 的隐式方法提升不再依赖，与 types/store 同一立场。
+warnings = "-implicit_impl_as_method"

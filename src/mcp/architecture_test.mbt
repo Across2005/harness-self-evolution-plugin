@@ -602,9 +602,11 @@ async test "G4b: store/paths.mbt is the single source of the data directory" {
 // G8/G9：出厂产物**零机器依赖**（v3.1 路径可移植化的守卫）
 //
 // 背景（实测）：挂载行是静态的、DSH 树是每台机器各自的。出厂写死一台机器的
-// command/cwd，换机器就指向不存在的文件，而 `failOnStartupError: true` 会让
-// MCP 握手失败**直接中止整个 profile 启动**。同理 `scan_targets` 只支持 `~/`
-// 展开、表达不了 `<DSH home>`，留着必然与「扫描根随 dsh_home() 派生」冲突。
+// command/cwd，换机器就指向不存在的文件，结果是**该插件静默不挂载**（一行 warning，
+// harness 照常启动 —— 2026-09-22 复验更正：`failOnStartupError: true` 的作用域只有
+// 该 entry 的激活，`mcp-harness-evolution` 不在 `requiredStartupEntryIds` 里）。
+// 同理 `scan_targets` 只支持 `~/` 展开、表达不了 `<DSH home>`，留着必然与
+// 「扫描根随 dsh_home() 派生」冲突。
 // 这两条守卫把「出厂产物里不许再出现机器路径 / 树相关字面量」机器化。
 // ============================================================================
 
@@ -649,6 +651,99 @@ async test "G9: the shipped mount row is disabled and free of machine paths" {
     abort(
       "cordis.patch.yml must not ship machine absolute paths (they break boot on other machines); found \{join_names(offenders)}",
     )
+  }
+}
+
+// ============================================================================
+// G10：包元数据的键名对齐宿主（v3.1 复验：engines 键名统一）
+//
+// 背景（2026-09-22 复验）：两处清单的 engines 键名不一致 —— `package.json` 写
+// `"dsh"`，`.dsh-plugin/plugin.json` 写 `"deepseek-harness"`。宿主**不校验**该字段
+// （`@deepseek-ai/dsh-package-manifest` README 明说 installers/loaders 不强制
+// `engines.dsh`），所以当时无害；但一旦未来宿主开始校验，双写不一致会先绊到自己。
+//
+// 权威键名是 DSH 自己的 `DshEnginesManifest.dsh`
+// （`dsh-package-manifest/lib/types/types.d.ts`：`dsh?` / `node?` / `npm?`）。
+// `deepseek-harness` 只是被 index signature 兜住的任意键，不是宿主定义的契约。
+//
+// 这条守卫把「两处清单都写 `engines.dsh`」机器化 —— 属于 §「词汇即文档」：
+// 键名也是词汇，词汇只有一个来源。
+// ============================================================================
+
+///|
+/// G10：两处出厂清单的 `engines` 键名都必须是 `dsh`（宿主权威键名），
+/// 不得在 `engines` 里出现非契约的 `deepseek-harness`。
+///
+/// 判据要**精确到 `engines` 段**：`deepseek-harness` 作为 keywords 里的普通字符串是
+/// 完全合法的（它只是描述性标签）。只有 `engines.deepseek-harness` 这种「被当成运行时
+/// 契约的键名」才是要禁止的。这条区分本身就是「名字 ≠ 行为」纪律的体现。
+async test "G10: both shipped manifests declare engines under the host key `dsh`" {
+  let root = module_root()
+  let package_json = read_text(@util.path_join(root, "package.json"))
+  let plugin_json = read_text(
+    @util.path_join(@util.path_join(root, ".dsh-plugin"), "plugin.json"),
+  )
+  for (label, text) in [("package.json", package_json), ("plugin.json", plugin_json)] {
+    let engines = engines_block(text)
+    if engines == "" {
+      abort("\{label} must declare an `engines` block")
+    }
+    // ① 键名必须是宿主权威键 `dsh`
+    if !engines.contains("\"dsh\"") {
+      abort("\{label}: `engines` must declare the host key `dsh` (got: \{engines})")
+    }
+    // ② 不得把非契约名当契约键（`deepseek-harness` 只是 index signature 兜住的任意键）
+    if engines.contains("\"deepseek-harness\"") {
+      abort(
+        "\{label}: `engines` must not use the non-contract key `deepseek-harness` (host key is `dsh`); got: \{engines}",
+      )
+    }
+  }
+}
+
+///|
+/// 从 JSON 文本里取出 `"engines": { ... }` 段的原文（含键名）。
+///
+/// 为什么需要它：`engines` 里禁止的键名 `deepseek-harness` 在别处是合法字符串
+/// （如 `keywords`），所以断言必须限定在这一段内，否则会误报。
+/// 返回 `""` 表示该段不存在。用括号配平扫描，不依赖字段顺序或缩进。
+fn engines_block(text : String) -> String {
+  let start = text.find("\"engines\"")
+  match start {
+    None => ""
+    Some(i) => {
+      // 从 `"engines"` 之后找到第一个 `{`，再配平到对应的 `}`
+      let rest = text[i:].to_owned()
+      let open = rest.find("{")
+      match open {
+        None => ""
+        Some(o) => {
+          let mut depth = 0
+          let mut j = o
+          let mut in_string = false
+          let mut escaped = false
+          while j < rest.length() {
+            let c = rest[j]
+            if escaped {
+              escaped = false
+            } else if c == '\\' {
+              escaped = true
+            } else if c == '"' {
+              in_string = !in_string
+            } else if !in_string && c == '{' {
+              depth = depth + 1
+            } else if !in_string && c == '}' {
+              depth = depth - 1
+              if depth == 0 {
+                return rest[o:j + 1].to_owned()
+              }
+            }
+            j = j + 1
+          }
+          rest[o:].to_owned()
+        }
+      }
+    }
   }
 }
 
@@ -700,8 +795,11 @@ async test "G5b: MoonBit test suite maintains minimum size" {
   // · scanner_wbtest.mbt +2（`manifest_is_json` 判定 + `SKILL.md` 直接回退）；
   // · architecture_test.mbt +2（G8 出厂清单无 `scan_targets` / G9 出厂挂载行
   //   默认禁用且无机器绝对路径）。443→453。
+  // 453 为上一锚点——2026-09-22 兼容性复验修复新增 1 条：
+  // · architecture_test.mbt +1（G10 两处清单的 `engines` 键名统一为宿主的 `dsh`）。
+  //   453→454。
   // 这个数字变了说明测试增删，必须重新核对。
-  assert_eq(mb_names.length(), 453)
+  assert_eq(mb_names.length(), 454)
 }
 
 ///|

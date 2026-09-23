@@ -15,3 +15,7 @@ options(
   // 文件系统密集型用例在默认并行度下会触发 async I/O worker 的 panic）。
   "max-concurrent-tests": 1,
 )
+
+// 关闭 implicit_impl_as_method（moonc v0.10.14 新增 deprecation）：本包
+// derive(Eq/Debug) 的隐式方法提升不再依赖，与 types/store 同一立场。
+warnings = "-implicit_impl_as_method"
