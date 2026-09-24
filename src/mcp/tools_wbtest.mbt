@@ -342,7 +342,7 @@ async test "tools/list works before any initialize handshake" {
     Some(Array(a)) => a
     _ => abort("tools must be an array")
   }
-  assert_eq(list.length(), 14)
+  assert_eq(list.length(), 16)
 }
 
 // ============================================================================
@@ -1379,7 +1379,7 @@ async test "tools/list advertises the three sub-agent factory tools after the le
     Some(Array(a)) => a
     _ => abort("tools must be an array")
   }
-  assert_eq(list.length(), 14)
+  assert_eq(list.length(), 16)
   let names : Array[String] = []
   for t in list {
     match obj(t).get("name") {
@@ -1749,4 +1749,47 @@ async test "every tools/call is recorded as a self-measurement event" {
   ignore(send(state, call_line(3, "no_such_tool", Json::empty_object())))
   state.monitor.flush_buffers()
   assert_eq(jsonl_line_count(metrics), 2)
+}
+
+///|
+/// ★ 缺陷 9 第二步回归：`record_tool_call` / `record_user_feedback` 注入面
+/// 必须真的写穿到 metrics/signals 磁盘文件（不只是 tools/list 里出现名字）。
+async test "record_tool_call and record_user_feedback write through to metrics and signals" {
+  let tmp = @fs.tmpdir(prefix="evo-mcp-inject-")
+  defer @fs.rmdir(tmp, recursive=true)
+  let state = isolated_state(tmp)
+  let paths = @store.DataPaths::at(tmp)
+  let metrics = paths.metrics()
+  let signals = paths.signals()
+  ignore(
+    send(
+      state,
+      call_line(1, "record_tool_call", {
+        "plugin_id": "browser-use-0.4.1",
+        "tool": "navigate",
+        "latency_ms": 120,
+        "success": false,
+        "error_message": "timeout",
+      }),
+    ),
+  )
+  ignore(
+    send(
+      state,
+      call_line(2, "record_user_feedback", {
+        "plugin_id": "browser-use-0.4.1",
+        "feedback": "negative",
+        "context": "wrong page",
+      }),
+    ),
+  )
+  state.monitor.flush_buffers()
+  assert_true(jsonl_line_count(metrics) >= 1, msg="record_tool_call must land a metrics line")
+  let mtext = @fs.read_file(metrics).text()
+  assert_true(mtext.contains("browser-use-0.4.1"))
+  assert_true(mtext.contains("navigate"))
+  // negative 反馈 → strong/correction 信号
+  assert_true(jsonl_line_count(signals) >= 1, msg="negative feedback must enqueue a signal")
+  let stext = @fs.read_file(signals).text()
+  assert_true(stext.contains("browser-use-0.4.1"))
 }

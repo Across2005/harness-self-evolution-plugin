@@ -4,8 +4,8 @@
 
 ### 1.1 核心目标
 创建一个针对 DeepSeek Harness 的全盘自进化升级插件，实现：
-- **启动时扫描**：自动发现并分析所有 harness 插件
-- **实时监控**：跟踪当前对话中各插件的实际表现
+- **按需扫描**：经 `scan_plugins` 等 MCP 工具发现并分析 harness 插件（stdio 服务器**不会**启动即扫描）
+- **实时监控**：跟踪工具调用延迟/成败（自测量 + `record_*` 注入面）
 - **智能进化**：基于 Matt Pocock 工程原则自动生成升级提案
 - **自主迭代**：通过子 Agent 协同完成插件的持续优化
 
@@ -100,7 +100,7 @@
 
 ### 3.1 Plugin Scanner（插件扫描器）
 
-**职责**：启动时扫描所有 harness 插件，建立初始档案
+**职责**：按 `scan_plugins`（或合并工具）调用扫描 harness 插件，建立初始档案
 
 **扫描范围**：
 ```bash
@@ -356,7 +356,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 // .dsh-plugin/plugin.json
 {
   "name": "harness-self-evolution",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",
@@ -447,9 +447,9 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
   `SignalThresholds` 字段逐字相同）与 1.0 的 `strong`/`medium` 嵌套形状（回退）。
 - **`agents` 指向出厂子 Agent 模板目录**（5 个 `.md`，随插件分发；
   经 `create_sub_agent` 在数据根/宿主目录新建或覆盖的是**另一批**文件）。
-- **`mcp` 段声明了 14 个工具**（7 个 1.0 legacy 顺序 + 3 个 v2.1 子 Agent 工厂
+- **`mcp` 段声明了 16 个工具**（7 个 1.0 legacy 顺序 + 3 个 v2.1 子 Agent 工厂
   `create/list/delete_sub_agent` + 3 个聚合工具 `analyze_plugins/evolve_plugin/manage_sub_agent`
-  + `get_runtime_snapshot`）；实现侧的真实清单见 `src/mcp/tools.mbt`。
+  + `get_runtime_snapshot` + v3.2 注入面 `record_tool_call/record_user_feedback`）；实现侧的真实清单见 `src/mcp/tools.mbt`。
 - **`scan_targets` 自 2.2.0 起真正被读取**（2.0/2.1 期间是配置孤岛，见
   `CONTEXT.md` 已知缺陷第 6 条的历史记录）：`main.mbt` 装配时经
   `ScanConfig::from_plugin_json` 解析该段并替换默认扫描根；
@@ -598,7 +598,7 @@ server.addEventHandler('on_user_feedback', async (event) => {
 ```markdown
 ---
 name: harness-evolution
-description: DeepSeek Harness 全盘自进化升级插件。启动时扫描所有插件，实时监控性能，基于 Matt Pocock 原则自动生成进化提案，通过子 Agent 协同完成升级。
+description: DeepSeek Harness 全盘自进化升级插件。经 MCP 工具按需扫描插件，监控性能，基于 Matt Pocock 原则自动生成进化提案，通过子 Agent 协同完成升级。
 version: 1.0.0
 ---
 
@@ -606,14 +606,14 @@ version: 1.0.0
 
 ## 触发时机
 
-- **启动时**：自动扫描所有 harness 插件
-- **运行中**：实时监控插件性能
+- **工具调用**：`scan_plugins` / `analyze_plugins` 触发扫描（启动时**不会**自动扫描）
+- **运行中**：自测量与 `record_tool_call` / `record_user_feedback` 注入面累积性能数据
 - **信号触发**：检测到强信号或累积中信号
 - **用户请求**：用户主动请求进化分析
 
 ## 工作流程
 
-### Phase 1 - 启动扫描
+### Phase 1 - 按需扫描
 1. 扫描所有 harness 插件目录
 2. 解析 plugin.json 和 SKILL.md
 3. 建立初始档案到 Registry

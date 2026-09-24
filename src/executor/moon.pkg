@@ -4,6 +4,7 @@ import {
   "Across2005/harness-self-evolution/types",
   "Across2005/harness-self-evolution/util",
   "moonbitlang/async",
+  "moonbitlang/async/process",
   "moonbitlang/core/env",
 }
 

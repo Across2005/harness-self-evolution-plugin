@@ -1,5 +1,5 @@
 ///|
-/// 14 个 MCP 工具的 JSON Schema 与参数解码。
+/// 16 个 MCP 工具的 JSON Schema 与参数解码。
 /// 取代 legacy-ts/src/mcp/server.ts L27-55 的 6 个 Zod raw shape。
 ///
 /// 前 7 个工具与 legacy-ts/package.json 的 `mcp.tools` 逐项同序，
@@ -73,6 +73,25 @@ pub let default_snapshot_tail : Int = 200
 /// `get_runtime_snapshot` 的参数（v2.7 可视化数据面）。
 pub(all) struct GetRuntimeSnapshotArgs {
   tail_lines : Int?
+} derive(Debug, @json.FromJson)
+
+///|
+/// `record_tool_call` 的参数（缺陷 9 第二步：宿主/Agent 注入面）。
+/// params **不进 schema**：与自测量同策略，只记延迟与成败，避免 metrics 膨胀与隐私外溢。
+pub(all) struct RecordToolCallArgs {
+  plugin_id : String
+  tool : String
+  latency_ms : Int
+  success : Bool
+  error_message : String?
+} derive(Debug, @json.FromJson)
+
+///|
+/// `record_user_feedback` 的参数（缺陷 9 第二步）。
+pub(all) struct RecordUserFeedbackArgs {
+  plugin_id : String
+  feedback : @types.UserFeedback
+  context : String?
 } derive(Debug, @json.FromJson)
 
 // ----------------------------------------------------------------------------
@@ -558,5 +577,50 @@ pub fn get_runtime_snapshot_schema() -> Json {
       ),
     },
     [],
+  )
+}
+
+// ----------------------------------------------------------------------------
+// v3.2 新增：监控注入面（缺陷 9 第二步）
+// ----------------------------------------------------------------------------
+
+///|
+/// `record_tool_call`：宿主/Agent 向本插件 monitor 注入一次工具调用事件。
+/// 参数体刻意不暴露 —— 只关心延迟与成败（与 tools/call 自测量同策略）。
+pub fn record_tool_call_schema() -> Json {
+  object_schema(
+    {
+      "plugin_id": str_prop(
+        "目标插件 ID（如 browser-use-0.4.1；本插件为 harness-evolution）",
+      ),
+      "tool": str_prop("被调用的工具名"),
+      "latency_ms": bounded_number_prop(
+        "调用延迟（毫秒，>= 0）", 0, 0,
+      ),
+      "success": {
+        "type": "boolean",
+        "description": "调用是否成功",
+      },
+      "error_message": str_prop("失败摘要（success=false 时可选）"),
+    },
+    ["plugin_id", "tool", "latency_ms", "success"],
+  )
+}
+
+///|
+/// `record_user_feedback`：注入用户对该插件的显式反馈。
+/// negative 会触发 strong/correction 信号（monitor 既有语义）。
+pub fn record_user_feedback_schema() -> Json {
+  object_schema(
+    {
+      "plugin_id": str_prop("目标插件 ID"),
+      "feedback": {
+        "type": "string",
+        "description": "反馈极性",
+        "enum": ToJson::to_json(@types.user_feedback_wire.names()),
+      },
+      "context": str_prop("补充上下文（可选，会写入信号描述）"),
+    },
+    ["plugin_id", "feedback"],
   )
 }

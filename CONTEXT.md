@@ -32,6 +32,7 @@
 | **Agent Definition（子 Agent 定义）** | Markdown + YAML frontmatter 的 agent 载体文件（name / description / 可选 color / tools，正文为系统提示词），工厂只产出定义文件——**创建 ≠ 派发** | `factory/factory.mbt` 的 `AgentDefinition` |
 | **Sub-Agent Factory（子 Agent 工厂）** | 校验、渲染、解析定义文件并管理两个作用域的工厂（v2.1 新增，`docs/subagent-factory.md`） | `factory/`、`store/agent_defs.mbt` |
 | **AgentScope（定义作用域）** | 定义文件写在哪：`plugin`（插件数据根的 `agents/`，默认）/ `user`（宿主的用户级定义目录，跨出数据根，宿主在后续会话加载；默认宿主 DeepSeek Harness 为 `<DSH home>/skills/`（home 由 `paths.mbt::dsh_home()` 三档解析：`$DSH_HOME` → **安装路径推导**（`<X>/profiles/<name>/node_modules/…` → `X`）→ `~/.dsh`——DSH 无独立 agents 目录，user-scope 定义以 skill 形式落盘）） | `types/agent_scope.mbt`、`store/paths.mbt`、wire 表 `agent_scope_wire` |
+| **注入面（Injection Surface）** | v3.2 缺陷 9 第二步：MCP 工具 `record_tool_call` / `record_user_feedback`，供宿主/Agent 向本插件 monitor 写入**其他插件**的性能事件与用户反馈；与本插件 `tools/call` 自测量共用同一条 monitor 缝。未注入时 `data_gaps` 如实点名覆盖范围 | `mcp/tools.mbt` 的 `handle_record_*`、`mcp/schema.mbt` 的 `Record*Args` |
 
 ## 提案状态机
 
@@ -514,18 +515,18 @@ frontmatter）。
    `false`，用例 `auto_approve: true is reported and falls back to false` 钉住。
    **刻意不接通**：人工审批是「自动改代码失控」这条最大风险的唯一闸门，接通它属于
    对外语义变更，要单独决策，不在缺陷修复范围内。
-9. **monitor 的生产数据源：自测量已接线（2026-09-18 第一步），全生态仍缺**。
+9. **monitor 的生产数据源：自测量已接线（2026-09-18 第一步），注入面已暴露（v3.2 第二步）**。
    原先 `record_tool_call` / `record_user_feedback` 在**整个仓库（含 `legacy-ts/src`）都没有
    非测试调用方**，MCP 侧只暴露读取用的 `get_plugin_metrics`，于是「指标采集 → 信号识别
    → 自动提案」这条链**第一环没有输入**（`metrics.jsonl` 等一个不存在的喂数据方）。
    **第一步已落地**：MCP 分发点（`mcp/tools.mbt::handle_message` 的 `tools/call` 分支）
    为**本插件自身**每次工具调用记一条 `record_tool_call`（延迟 + 成败；参数刻意不落盘，
-   避免 metrics 膨胀与隐私外溢），`metrics.jsonl` / `signals.jsonl` 因此有了真实生产数据；
-   快照与面板的缺口文案同步改为「尚未产生 + 覆盖范围」。
-   **仍未解决**：覆盖面只有本插件——其他插件的工具调用需要平台提供回调
-   （就是 `addEventHandler` 那段从未实现的草图），属功能决策而非缺陷修复，故仍记在此。
-   面板「指标与缺口」区**必须**在 UI 上标注这个覆盖范围（已实现，见
-   `dsh-evolution-panel/src/client/Panel.tsx`），不得让人把自测量读成全生态指标。
+   避免 metrics 膨胀与隐私外溢），`metrics.jsonl` / `signals.jsonl` 因此有了真实生产数据。
+   **第二步（v3.2）已落地**：`record_tool_call` / `record_user_feedback` 作为 MCP 工具暴露
+   （工具面 14→16），宿主/Agent 可为**其他插件**注入事件；未注入时 `data_gaps` 如实点名
+   「覆盖范围仅本插件」。跨插件进程内观测仍由 `dsh-watcher` 承担（未挂载）。
+   面板「指标与缺口」区**必须**在 UI 上标注覆盖范围（已实现，见
+   `dsh-evolution-panel/src/client/Panel.tsx`）。
 10. **`target_paths` 生效后带来的两处覆盖**（见「有意的语义修正」第二条）。
     一次带 `target_paths` 的扫描会冲掉默认根的插件缓存、并把注册表替换成这批临时档案。
 11. **struggle 信号没有一次性抑制**（已修复）。

@@ -2,6 +2,8 @@
 
 Verified against DSH 0.1.6-alpha.1 web profile on 2026-09-17, and re-verified on 2026-09-18 against a **running** web profile (install into the host's own tree → restart → all fourteen tools callable in-session; see [docs/dsh-compatibility.md](../dsh-compatibility.md) §5). The patch dialect, the `dsh-mcp-client` schema, the `~/.dsh` user directory, and the four host-related facts below are from DSH 0.1.6 source bundles (`@deepseek-ai/dsh-app-boot`, `dsh-mcp-client`, `dsh-home-paths`, `dsh-skill`) — not from documentation, which can drift.
 
+> **v3.2 note**: the tool surface is now **sixteen** (added `record_tool_call` / `record_user_feedback`); the 2026-09-18 end-to-end run above observed fourteen at that time.
+
 ## What this host uses
 
 | Thing | DSH value |
@@ -136,7 +138,7 @@ Overlay template (`cordis.overlay.yml`) — absolute literals for the machine yo
 discovery fails — it does **not** abort the harness. `mcp-harness-evolution` is not in the host's
 `requiredStartupEntryIds`, so app-boot classifies its failure as *optional* and only prints one
 `warning` line (`dsh-app-boot/lib/index.js:2408-2416`, `2513-2515`). Boot success therefore still
-implies the binary speaks MCP and the fourteen tools are present — but boot failure does **not**
+implies the binary speaks MCP and the sixteen tools are present — but boot failure does **not**
 imply the plugin failed.
 
 > **The genuinely fatal failure is a patch layer DSH cannot parse.** `parsePatchList` *throws*
@@ -191,7 +193,7 @@ $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersio
 $note = '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 $list = '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 $init, $note, $list | & bin\harness-evolution.exe 2>$null
-# expect: serverInfo {name: harness-self-evolution, version: 3.1.0}, then tools[] with 14 entries
+# expect: serverInfo {name: harness-self-evolution, version: 3.2.0}, then tools[] with 16 entries
 
 # 2. The host actually mounted it — check the process parent, not just the config
 Get-CimInstance Win32_Process -Filter "Name='harness-evolution.exe'" |
@@ -220,7 +222,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 ## See also
 
 - [docs/dsh-compatibility.md](../dsh-compatibility.md) — the historical record of the 0.1.6 fix, including the patch-dialect crash analysis and the directory-model correction
-- [DSH_INTEGRATION.md](../../DSH_INTEGRATION.md) — the per-tool contract: what each of the fourteen tools does, `execute_evolution` being a self-contained tool, sub-agent scope mechanics, and the monitor boundary declaration
+- [DSH_INTEGRATION.md](../../DSH_INTEGRATION.md) — the per-tool contract: what each of the sixteen tools does, `execute_evolution` being a self-contained tool, sub-agent scope mechanics, and the monitor boundary declaration
 
 ## 用户自验 Checklist（A9 — 用户在 DSH 上跑）
 
@@ -251,7 +253,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 
 > **生效时机**：`dsh.profile.bundles` 只在 boot 时读取。刚 `dsh plugin add` 进 profile 的插件必须
 > **重启 host** 才会挂载——旧进程里第 1 步 `dump-config` 是绿的，也不代表工具已可用
-> （2026-09-18 实测：`dump-config` exit 0 但会话内无工具；重启后 14 个工具即刻可调）。
+> （2026-09-18 实测：`dump-config` exit 0 但会话内无工具；重启后当时 14 个工具即刻可调——v3.2 起为 16 个）。
 
 ### 异常诊断速查
 
@@ -272,7 +274,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 ### 部署判据
 
 v3.0.0 起启动日志不再按宿主点名验证状态（多宿主抽象已移除）。以本节步骤的实际结果为准：
-`tools/list` 回显 `version: 3.1.0` + 14 个工具、`create_sub_agent scope=user` 落进
+`tools/list` 回显 `version: 3.2.0` + 16 个工具、`create_sub_agent scope=user` 落进
 `<DSH_HOME>/skills/`、宿主重启后能看到 `mcp__harness-evolution__*` 工具 —— 三条齐即
 说明 DSH 部署已实证。
 

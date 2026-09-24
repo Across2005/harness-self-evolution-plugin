@@ -9,7 +9,8 @@ name = "Across2005/harness-self-evolution"
 //        扫描根随 dsh_home 派生，出厂清单去 scan_targets，cache_version 3→4）；
 // 0.3.3 ↔ 产品 v3.1.0 仅更新 mooncakes 包简介（description），源码与行为不变。
 // 0.3.4 ↔ 产品 v3.1.0 同上：0.3.3 已在 registry，仅递增号位以完成该简介发布，源码与行为不变。
-version = "0.3.4"
+// 0.3.5 ↔ 产品 v3.2.0：record_* 注入面（工具 14→16）+ M7 真实派发（process_task/real_validation）。
+version = "0.3.5"
 
 readme = "README.md"
 
@@ -28,7 +29,7 @@ preferred_target = "native"
 
 source = "src"
 
-description = "面向 DeepSeek Harness（DSH）的全盘自进化 stdio MCP 插件（MoonBit 原生）：14 个工具完成 扫描→监控→提案→审批→执行 闭环，含子 Agent 工厂与只读运行时快照；人工审批闸门 + 确定性回滚。v3.0 起 DSH 单宿主，v3.1 启动路径可移植化。"
+description = "面向 DeepSeek Harness（DSH）的全盘自进化 stdio MCP 插件（MoonBit 原生）：16 个工具完成 扫描→监控→提案→审批→执行 闭环，含子 Agent 工厂与只读运行时快照；人工审批闸门 + 确定性回滚。v3.0 起 DSH 单宿主，v3.1 启动路径可移植化，v3.2 注入面 + M7 真实派发。"
 
 // 版本必须锁死在 0.20.1：0.21.x 起 async 使用 `noraise + nocancel` 效果标注语法，
 // 撰写时（moon 0.1.20260819）无法解析（报 [3002] Parse error, unexpected token `+`）。

@@ -15,7 +15,7 @@ default `~/.harness-evolution/v2`) is per-deployment; the user-scope sub-agent d
 
 Everything in `src/`:
 
-- `src/mcp/` — JSON-RPC server, schema definitions, fourteen tool handlers, architecture guards.
+- `src/mcp/` — JSON-RPC server, schema definitions, sixteen tool handlers, architecture guards.
 - `src/scanner/` — plugin discovery, manifest parsing, metrics extraction; default scan roots live here.
 - `src/monitor/` — performance event collection, signal detection, statistics, flush.
 - `src/engine/` — proposal generation, risk analysis, planning, academic-writing evolution.

@@ -1,5 +1,5 @@
 ///|
-/// 14 个 MCP 工具的定义、派发与集中式错误处理。
+/// 16 个 MCP 工具的定义、派发与集中式错误处理。
 /// 取代 legacy-ts/src/mcp/server.ts L57-290。
 ///
 /// 前 7 个与 legacy-ts/package.json 的 `mcp.tools` 逐项同序；
@@ -78,6 +78,8 @@ pub fn ServerState::with_scan_config(
     executor: @executor.UpgradeExecutor::new(
       proposals,
       @store.ExecutionLog::at(paths),
+      run_task=@executor.process_task,
+      validate_level=@executor.real_validation,
     ),
     proposals,
     factory: @factory.AgentFactory::at(paths),
@@ -116,6 +118,8 @@ pub fn ServerState::with_harness_config(
     executor: @executor.UpgradeExecutor::new(
       proposals,
       @store.ExecutionLog::at(paths),
+      run_task=@executor.process_task,
+      validate_level=@executor.real_validation,
     ),
     proposals,
     factory: @factory.AgentFactory::at(paths),
@@ -289,7 +293,7 @@ pub async fn call_tool(state : ServerState, tool : Tool, args : Json) -> Json {
 }
 
 // ----------------------------------------------------------------------------
-// 14 个工具（前 7 个与 legacy-ts/package.json mcp.tools 逐项同序，
+// 16 个工具（前 7 个与 legacy-ts/package.json mcp.tools 逐项同序，
 // 后 3 个为 2.1 子 Agent 工厂新增，再 3 个为 2.3 合并工具，
 // 最后 1 个为 v2.7 运行时快照——可视化数据面，只读）
 // ----------------------------------------------------------------------------
@@ -386,11 +390,24 @@ pub fn tools() -> Array[Tool] {
       schema: get_runtime_snapshot_schema(),
       handler: handle_get_runtime_snapshot,
     },
+    // v3.2 监控注入面（缺陷 9 第二步）：宿主/Agent 上报其他插件的事件
+    {
+      name: "record_tool_call",
+      description: "注入一次工具调用性能事件（延迟/成败）到本插件的 monitor，供 get_plugin_metrics 与信号检测消费。用于补齐**其他插件**的生态指标——本插件自身的 tools/call 已自动自测量，无需重复上报。参数体不落盘（只记延迟与成败）。这是 out-of-process 下宿主向 metrics/signals 注入数据的标准入口。",
+      schema: record_tool_call_schema(),
+      handler: handle_record_tool_call,
+    },
+    {
+      name: "record_user_feedback",
+      description: "注入用户对某插件的显式反馈（positive/negative/neutral）。negative 会生成 strong/correction 进化信号。与 record_tool_call 配套，构成缺陷 9 的宿主注入面。",
+      schema: record_user_feedback_schema(),
+      handler: handle_record_user_feedback,
+    },
   ]
 }
 
 ///|
-/// 按名字找工具。O(n) 但 n == 14，比维护一张 Map 更直白。
+/// 按名字找工具。O(n) 但 n == 16，比维护一张 Map 更直白。
 pub fn find_tool(name : String) -> Tool? {
   for t in tools() {
     if t.name == name {
@@ -401,7 +418,7 @@ pub fn find_tool(name : String) -> Tool? {
 }
 
 ///|
-/// `tools/list` 的响应体。不分页（省略 `nextCursor`）—— 14 个工具远小于任何客户端的页大小。
+/// `tools/list` 的响应体。不分页（省略 `nextCursor`）—— 16 个工具远小于任何客户端的页大小。
 pub fn tools_list_result() -> Json {
   let list : Array[Json] = []
   for t in tools() {
@@ -1104,13 +1121,56 @@ async fn handle_get_runtime_snapshot(state : ServerState, args : Json) -> Json {
 }
 
 // ----------------------------------------------------------------------------
+// 缺陷 9 第二步：监控注入面（v3.2）
+// ----------------------------------------------------------------------------
+
+///|
+/// `record_tool_call`：宿主/Agent 向 monitor 注入一次工具调用事件。
+/// 与自测量同一条 monitor 缝；params 刻意 `Json::empty_object()`。
+async fn handle_record_tool_call(state : ServerState, args : Json) -> Json {
+  let a : RecordToolCallArgs = @json.from_json(args)
+  if a.latency_ms < 0 {
+    raise Failure("latency_ms must be >= 0")
+  }
+  state.monitor.record_tool_call(
+    a.plugin_id,
+    a.tool,
+    Json::empty_object(),
+    a.latency_ms,
+    a.success,
+    error_message=a.error_message,
+  )
+  {
+    "success": true,
+    "plugin_id": Json::string(a.plugin_id),
+    "tool": Json::string(a.tool),
+    "message": Json::string("tool call recorded"),
+  }
+}
+
+///|
+/// `record_user_feedback`：注入用户对该插件的显式反馈。
+/// handler 类型要求 `async`，但本体无 await 点 —— 局部关掉 unused_async。
+#warnings("-unused_async")
+async fn handle_record_user_feedback(state : ServerState, args : Json) -> Json {
+  let a : RecordUserFeedbackArgs = @json.from_json(args)
+  state.monitor.record_user_feedback(a.plugin_id, a.feedback, context=a.context)
+  {
+    "success": true,
+    "plugin_id": Json::string(a.plugin_id),
+    "feedback": ToJson::to_json(a.feedback),
+    "message": Json::string("user feedback recorded"),
+  }
+}
+
+// ----------------------------------------------------------------------------
 
 ///|
 /// 本插件自身的 plugin_id —— 自测量（缺陷 9 第一步）用。
 ///
-/// **覆盖面只有本插件**：其他插件的工具调用宿主没有上报通道（CONTEXT 缺陷 9），
-/// 所以 `metrics.jsonl` / `signals.jsonl` 里的数字只说明本插件自己的工具表现，
-/// 面板的「指标与缺口」区必须如实标注这一点，不得当作全生态指标。
+/// **默认覆盖面仍以本插件自测量为主**；其他插件经 v3.2 的
+/// `record_tool_call` / `record_user_feedback` 注入后才进入同一 metrics/signals。
+/// 面板与 data_gaps 必须如实区分「已注入」与「尚未注入」。
 let self_plugin_id : String = "harness-evolution"
 
 ///|
@@ -1171,7 +1231,7 @@ fn tool_call_target(params : Json) -> Result[(Tool, Json), String] {
 /// |---|---|
 /// | `initialize` | protocolVersion（回显）+ capabilities.tools + serverInfo |
 /// | `ping` | `{}` |
-/// | `tools/list` | 14 个工具 |
+/// | `tools/list` | 16 个工具 |
 /// | `tools/call` | 工具结果或 isError |
 /// | 其他 | `-32601 Method not found` |
 pub async fn handle_message(state : ServerState, req : RpcRequest) -> Json? {

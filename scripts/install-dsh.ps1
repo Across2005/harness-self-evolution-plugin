@@ -90,7 +90,7 @@
 #   -DshCommand 'node C:/Users/me/.minimax/v2/plugin-data/local-minimax/dsh/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js'）
 #
 # 生效时机：`dsh.profile.bundles` 与 patch 层都在 **boot** 时读取 —— 写完必须**重启宿主**，
-# 会话里才会出现 14 个 `mcp__harness-evolution__*` 工具。
+# 会话里才会出现 16 个 `mcp__harness-evolution__*` 工具。
 
 [CmdletBinding()]
 param(

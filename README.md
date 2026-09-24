@@ -1,6 +1,6 @@
 # Harness Self-Evolution Plugin
 
-A MoonBit-native plugin that scans, monitors, proposes, and rolls back evolutions for the DeepSeek Harness (DSH) plugin ecosystem. Version 3.1.0. MIT.
+A MoonBit-native plugin that scans, monitors, proposes, and rolls back evolutions for the DeepSeek Harness (DSH) plugin ecosystem. Version 3.2.0. MIT.
 
 This plugin targets DeepSeek Harness. Deployment hinges on how DSH launches the binary, where data is read and written, and which files (patches, manifests, panels) sit alongside the binary.
 
@@ -28,7 +28,7 @@ If you are **writing or debugging a DSH plugin** rather than deploying this one,
 
 ## Architecture in one paragraph
 
-The compiled binary (`bin/harness-evolution.exe`) is a stdio MCP server exposing fourteen tools. The DSH
+The compiled binary (`bin/harness-evolution.exe`) is a stdio MCP server exposing sixteen tools. The DSH
 home resolves in `src/store/paths.mbt::dsh_home`: `$DSH_HOME` when set, else **derived from the plugin's own
 install path** (`<X>/profiles/<name>/node_modules/...`), else `~/.dsh`. The user-scope directory is
 `<DSH home>/skills` (`HARNESS_EVOLUTION_USER_DIR` overrides it), and the default scan roots follow the same
@@ -82,7 +82,7 @@ dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'
 ```
 
 `dsh.profile.bundles` and the patch layers are read at **boot**, so the host must be **restarted** before
-the fourteen `mcp__harness-evolution__*` tools appear in a session. The plugin additionally derives its
+the sixteen `mcp__harness-evolution__*` tools appear in a session. The plugin additionally derives its
 own tree from the install path, so `create_sub_agent scope=user` lands in `<DSH home>/skills/` even if
 `env.DSH_HOME` were left unset.
 

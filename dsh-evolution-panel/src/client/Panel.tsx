@@ -179,9 +179,9 @@ export function EvolutionBody({ view, conn, rawShape }: EvolutionBodyProps) {
               指标事件：{view.metrics.wired ? `${view.metrics.lines} 条` : '未接线'} · 信号：
               {view.signals.wired ? `${view.signals.lines} 条` : '未接线'}
             </div>
-            {/* 覆盖范围必须写在 UI 上：这些数字只说明本插件自己的工具表现 */}
+            {/* 覆盖范围必须写在 UI 上：自测量 + 注入面已就绪，但未注入时仍只说明本插件 */}
             <div style={{ fontSize: 12, color: 'var(--dsw-text-tertiary, #858a94)', marginTop: 3 }}>
-              覆盖范围：仅本插件自身的 MCP 工具调用（其他插件的工具调用宿主未上报，见缺陷 9）
+              覆盖范围：自测量=本插件；其他插件需经 record_tool_call / record_user_feedback 注入（缺陷 9）
             </div>
             {view.dataGaps.map((g, i) => (
               <div key={i} style={{ fontSize: 12, color: 'var(--dsw-text-secondary, #5f636d)', marginTop: 3 }}>

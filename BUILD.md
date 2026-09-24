@@ -59,14 +59,15 @@
 | 命令 | 等价裸命令 | 验收标准 | 对应验证级 |
 |---|---|---|---|
 | `.\build.ps1 check` | `moon check --deny-warn --target native` | **零错零警**（任何新警告都算失败） | T0 语法 |
-| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 **454**，以实际输出为准），内含架构守卫 G1–G10 | T1 功能 |
+| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 **457**，以实际输出为准），内含架构守卫 G1–G10 | T1 功能 |
 | `.\build.ps1 build` | `moon build --target native --release` + 产物复制 | 生成 `bin\harness-evolution.exe` | — |
 | `.\build.ps1 all` | check → test → build 依次执行、逐步核对退出码 | 三步全绿 | T2 回归 |
 | `.\build.ps1 fmt` | `moon fmt` | — | — |
 | `pwsh -File scripts/test-install-dsh.ps1` | 同上（在临时树上跑**真实**安装器 7 场景） | `PASS: 7/7 scenarios` | T1（安装器专项） |
 
-> **写就时点实测（2026-09-22 复验后刷新）**：T0 零错零警（`moon check --deny-warn --target native`）；
-> T1 `Total tests: 454, passed: 454, failed: 0`；安装器回归 `PASS: 7/7 scenarios`。
+> **写就时点实测（2026-09-24 v3.2 + 审查补网）**：T0 零错零警（`moon check --deny-warn --target native`）；
+> T1 `Total tests: 457, passed: 457, failed: 0`；安装器回归 `PASS: 7/7 scenarios`；
+> 面板 `npm test` 全绿（18 用例）。
 > 测试输出里的 `Parse error` / `OSError(...Incorrect function.)` 等行是**负向路径用例的预期日志**
 > （store/monitor/mcp 的容错测试），不是失败。
 

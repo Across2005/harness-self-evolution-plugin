@@ -66,7 +66,7 @@ pwsh -File scripts/test-install-dsh.ps1     # 7 个场景，全绿才算通过
 `dsh` 不在 PATH 时用 `-DshCommand 'node <DSH runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js'`。
 `scripts/replace-paths.ps1` 保留给 fork/CI 改仓库字面量的场景，不再是安装主路径。
 
-## 权威工具清单（14 个）
+## 权威工具清单（16 个）
 
 以 `src/mcp/tools.mbt` 为准，宿主内公开名为 `mcp__harness-evolution__<name>`：
 
@@ -86,6 +86,8 @@ pwsh -File scripts/test-install-dsh.ps1     # 7 个场景，全绿才算通过
 | `evolve_plugin` | 合并工具：生成或执行提案 |
 | `manage_sub_agent` | 合并工具：管理子 Agent 定义 |
 | `get_runtime_snapshot` | 只读运行时快照 |
+| `record_tool_call` | 注入工具调用事件（缺陷 9 宿主注入面） |
+| `record_user_feedback` | 注入用户反馈（negative → strong 信号） |
 
 ## `execute_evolution` 是自包含工具
 
@@ -133,10 +135,10 @@ scan_plugins → propose_evolution → approve_proposal → execute_evolution
 ## 监控边界（如实声明）
 
 本插件作为 out-of-process stdio MCP server，**无法订阅宿主进程内的事件流**。性能事件与
-进化信号需宿主侧注入（`record_tool_call` / `record_user_feedback` 已就绪但暂无生产调用方）。
-在无注入时，`get_plugin_metrics` / 信号检测返回空 —— 这是「未接线」而非「无活动」，
-`get_runtime_snapshot` 的 `data_gaps` 字段会如实点名。跨插件观测由进程内的
-`dsh-watcher` 子插件承担。
+进化信号需宿主侧注入：`record_tool_call` / `record_user_feedback` **自 v3.2 起已作为 MCP 工具暴露**
+（缺陷 9 第二步）。未注入时，其他插件的 `get_plugin_metrics` / 信号检测返回空 —— 这是
+「尚未注入」而非「无活动」，`get_runtime_snapshot` 的 `data_gaps` 字段会如实点名。
+本插件自身的 tools/call 已自动自测量。跨插件观测也可由进程内的 `dsh-watcher` 子插件承担。
 
 ## 验证
 
@@ -150,7 +152,7 @@ dsh --profile web --dump-config | Select-String 'mcp-harness-evolution'
 
 # 3. 重启宿主后（bundles 与 patch 层都在 boot 时读取）
 #    boot stderr 见 "[HarnessEvolution] Server started (data root: ..., scan roots: N, ...)"
-#    会话内 14 个 mcp__harness-evolution__* 工具可调
+#    会话内 16 个 mcp__harness-evolution__* 工具可调
 #    create_sub_agent scope=user → 文件落 <DSH_HOME>/skills/（不是 ~/.dsh/skills/）
 
 # 4. 收尾还原

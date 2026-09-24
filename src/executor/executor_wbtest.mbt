@@ -842,11 +842,12 @@ fn restore_env(name : String, saved : String?) -> Unit {
 }
 
 ///|
-/// X9 回归网：配置了 HARNESS_EVOLUTION_AGENT_CMD 但真实执行未实现，
-/// 必须报错而不是返回模拟成功（修复前返回 "Process execution placeholder"）。
-async test "process_task raises instead of faking success when the agent command is configured" {
+/// M7：配置了 HARNESS_EVOLUTION_AGENT_CMD 时执行真实进程；
+/// 坏命令必须失败（不返回模拟成功）。
+async test "process_task raises when the configured agent command fails" {
   let saved = @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD")
-  @env.set_env_var("HARNESS_EVOLUTION_AGENT_CMD", "some-agent --prompt {prompt}")
+  // Windows 下用 cmd /c exit 1 保证可执行且必失败
+  @env.set_env_var("HARNESS_EVOLUTION_AGENT_CMD", "cmd.exe /c exit 1")
   defer restore_env("HARNESS_EVOLUTION_AGENT_CMD", saved)
   let task : @types.SubAgentTask = {
     id: "cg-real",
@@ -854,15 +855,39 @@ async test "process_task raises instead of faking success when the agent command
     task: "t",
     input: Json::null(),
     deps: [],
-    timeout_ms: 1000,
+    timeout_ms: 5000,
   }
   let outcome : Result[Json, String] = Ok(process_task(task)) catch {
     e => Err(e.to_string())
   }
   match outcome {
-    Err(msg) => assert_true(msg.contains("process execution not implemented"))
+    Err(msg) => assert_true(msg.contains("agent process failed"))
     Ok(_) =>
-      abort("process_task must not fake success when the agent command is configured")
+      abort("process_task must not fake success when the agent command fails")
+  }
+}
+
+///|
+/// M7 正例：配置成功命令时返回非模拟结果（exit_code=0、simulated=false）。
+async test "process_task succeeds with a configured working agent command" {
+  let saved = @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD")
+  @env.set_env_var("HARNESS_EVOLUTION_AGENT_CMD", "cmd.exe /c echo ok")
+  defer restore_env("HARNESS_EVOLUTION_AGENT_CMD", saved)
+  let task : @types.SubAgentTask = {
+    id: "cg-ok",
+    agent: @types.AgentType::CodeGenerator,
+    task: "t",
+    input: Json::null(),
+    deps: [],
+    timeout_ms: 5000,
+  }
+  let result = process_task(task)
+  match result {
+    Object(o) => {
+      assert_eq(o.get("simulated"), Some(Json::boolean(false)))
+      assert_eq(o.get("exit_code"), Some(Json::number(0.0)))
+    }
+    _ => abort("process_task must return an object result")
   }
 }
 
@@ -884,25 +909,59 @@ async test "process_task falls back to the simulated implementation without the 
     e => Err(e.to_string())
   }
   assert_true(outcome is Ok(_))
+  match outcome {
+    Ok(Object(o)) => assert_eq(o.get("simulated"), Some(Json::boolean(true)))
+    Ok(_) => abort("simulated result must be an object")
+    Err(_) => abort("unexpected failure")
+  }
 }
 
 ///|
-/// X10 回归网：HARNESS_EVOLUTION_REAL_VALIDATION=true 但真实验证未实现，
-/// 必须报错而不是返回模拟通过（验证闸门：宁可失败不可假绿）。
-async test "real_validation raises instead of faking a pass when the switch is on" {
+/// M7：开关打开时 real_validation 跑真实 moon check ——
+/// 绝不在开关打开时返回模拟文案 "Syntax validation passed"。
+async test "real_validation runs moon check when the switch is on" {
   let saved = @env.get_env_var("HARNESS_EVOLUTION_REAL_VALIDATION")
+  let saved_wd = @env.get_env_var("HARNESS_EVOLUTION_WORKDIR")
   @env.set_env_var("HARNESS_EVOLUTION_REAL_VALIDATION", "true")
+  @env.set_env_var(
+    "HARNESS_EVOLUTION_WORKDIR",
+    "D:\\Agent设计\\harness-self-evolution-plugin",
+  )
   defer restore_env("HARNESS_EVOLUTION_REAL_VALIDATION", saved)
-  let outcome : Result[(Bool, String), String] = Ok(
-    real_validation(@types.ValidationLevelTag::T0, make_proposal()),
-  ) catch {
-    e => Err(e.to_string())
+  defer restore_env("HARNESS_EVOLUTION_WORKDIR", saved_wd)
+  let (ok, message) = real_validation(
+    @types.ValidationLevelTag::T0,
+    make_proposal(),
+  )
+  assert_true(message.contains("T0 "))
+  if ok {
+    assert_true(message.contains("T0 passed"))
+    assert_false(message.contains("Syntax validation passed"))
+  } else {
+    assert_true(message.contains("T0 failed"))
+    assert_false(message.contains("Syntax validation passed"))
   }
-  match outcome {
-    Err(msg) => assert_true(msg.contains("real validation not implemented"))
-    Ok(_) =>
-      abort("real_validation must not fake a pass when the switch is on")
-  }
+}
+
+///|
+/// M7：假 cwd（目录不存在）时真实验证必须失败，且消息是 Tn failed 而非模拟文案。
+async test "real_validation fails with a fake workdir" {
+  let saved = @env.get_env_var("HARNESS_EVOLUTION_REAL_VALIDATION")
+  let saved_wd = @env.get_env_var("HARNESS_EVOLUTION_WORKDIR")
+  @env.set_env_var("HARNESS_EVOLUTION_REAL_VALIDATION", "true")
+  @env.set_env_var(
+    "HARNESS_EVOLUTION_WORKDIR",
+    "C:\\evo-definitely-missing-workdir-xyz",
+  )
+  defer restore_env("HARNESS_EVOLUTION_REAL_VALIDATION", saved)
+  defer restore_env("HARNESS_EVOLUTION_WORKDIR", saved_wd)
+  let (ok, message) = real_validation(
+    @types.ValidationLevelTag::T0,
+    make_proposal(),
+  )
+  assert_false(ok)
+  assert_true(message.contains("T0 failed"))
+  assert_false(message.contains("Syntax validation passed"))
 }
 
 ///|

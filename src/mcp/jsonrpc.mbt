@@ -52,18 +52,19 @@ pub let default_protocol_version : String = "2024-11-05"
 /// 同时补齐 2.5.0 版本升级遗漏的本常量同步（此前停留在 2.4.0）。
 /// 2.6.0：mooncakes 0.2.6 同批发布，产品版本号重对齐（内容即 2.5.1 批次）。
 /// 2.7.0：mooncakes 0.3.0 同批发布（客户端产物契约加固 + 配置监听首轮误报修复 +
-/// `$DSH_HOME` 路由收敛）；新增 `get_runtime_snapshot` 后仍是 14 个工具。
+/// `$DSH_HOME` 路由收敛）；新增 `get_runtime_snapshot` 后为 14 个；
+/// v3.2 注入面 `record_tool_call` / `record_user_feedback` 后为 16 个。
 /// 3.0.0：破坏性 —— 砍掉 MiniMax Code 兼容、host 抽象塌缩为 DSH 单宿主
 /// （移除 `HARNESS_EVOLUTION_HOST` / `host_agents_dir` / MiniMax 扫描根）。
 /// 3.1.0：启动路径可移植化（安装期注入 + 插件侧自解析）。**工具面零变更**
-/// （仍 14 个、schema 不变），但部署方式有变：出厂挂载行改为 `disabled: true`
+/// （v3.2：16 个），但部署方式有变：出厂挂载行改为 `disabled: true`
 /// 且不含机器绝对路径，由 `scripts/install-dsh.ps1` 在目标树上注入；
 /// 扫描根随 `dsh_home()` 派生；出厂清单删除 `scan_targets`；
 /// `SKILL.md` 清单不再打解析告警；`cache_version` 3→4。
 pub let server_name : String = "harness-self-evolution"
 
 ///|
-pub let server_version : String = "3.1.0"
+pub let server_version : String = "3.2.0"
 
 // JSON-RPC 2.0 的标准错误码
 

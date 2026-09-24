@@ -61,7 +61,7 @@
 | T1/T2 | `moon test --target native` | ✅ 434/434（0 失败） |
 | patch 静态合成 | `dsh --profile web --dump-config --patch cordis.patch.yml` | ✅ exit 0，合成 mcp-client 行 |
 | 标准安装 | `dsh plugin add <repo>` → `--dump-config` → `remove` | ✅ 全程 exit 0，profile 还原 |
-| 端到端闭环 | 宿主内依次调 14 个工具 | ✅ 见下 |
+| 端到端闭环 | 宿主内依次调 16 个工具（v3.1 时为 14；v3.2 起含注入面） | ✅ 见下 |
 
 端到端闭环（在真实 DSH 宿主内直调 `mcp__harness-evolution__*`）：
 
@@ -379,7 +379,7 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 ### 5.1 现象与归因
 
 现象：终端里 `dsh plugin add` + `--dump-config` + boot 全部通过，但用户正在使用的 GUI 里**看不到**
-那 14 个工具。归因不是兼容性，而是**看的是另一棵树**——同一台机器上并存两棵 DSH home，互不可见：
+那 16 个工具（v3.1 时 14 个）。归因不是兼容性，而是**看的是另一棵树**——同一台机器上并存两棵 DSH home，互不可见：
 
 | home | 谁在用 | 当日证据 |
 |---|---|---|
@@ -397,7 +397,7 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 2. 新树：分两步 `add`（插件 → `--dump-config` 校验 → 面板 → 再校验），每步必须 exit 0；
    面板若破坏合成立即 `remove` 回退（本次未触发）。
 3. **重启 host** 才生效——`bundles` 只在 boot 时读取（见 5.3）。
-4. 生效判据：会话内 14 个 `mcp__harness-evolution__*` 可调；`get_runtime_snapshot` 返回 `root`
+4. 生效判据：会话内 16 个 `mcp__harness-evolution__*` 可调；`get_runtime_snapshot` 返回 `root`
    与 `data_gaps`（本机实测数据根 `~/.harness-evolution/v2`，缓存 61 个插件）。
 5. 装之前先在**隔离 DSH_HOME** 里预演一遍（含 `--store-dir` 指到工作区内、真 boot 到备用端口），
    确认「插件 + 面板」这个组合能 boot，再动宿主正用的那棵树。

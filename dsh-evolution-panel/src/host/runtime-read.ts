@@ -216,12 +216,12 @@ export function readEvolutionView(root: string, opts: ReadOptions = {}): Evoluti
   const signalsLines = signalsExists ? countLines(paths.signals) : 0
   if (metricsLines === 0) {
     dataGaps.push(
-      'metrics.jsonl 尚未产生：本插件的自测量已接线（每次 tools/call 记一条），等第一次工具调用落盘。覆盖范围仅本插件自身——其他插件的工具调用宿主未上报（缺陷 9）。',
+      'metrics.jsonl 尚未产生：自测量（每次 tools/call）与注入面（record_tool_call）均已接线，等第一次事件落盘。未调用注入面时，覆盖范围仅本插件自身（缺陷 9）。',
     )
   }
   if (signalsLines === 0) {
     dataGaps.push(
-      'signals.jsonl 尚未产生：monitor 的信号检测已接线，等第一次命中阈值（连续失败 / 循环 / 延迟回退）。覆盖范围仅本插件自身（缺陷 9）。',
+      'signals.jsonl 尚未产生：monitor 信号检测与 record_user_feedback 注入面已接线，等第一次命中阈值（连续失败 / 循环 / 延迟回退 / negative 反馈）。未注入时覆盖范围仅本插件自身（缺陷 9）。',
     )
   }
 

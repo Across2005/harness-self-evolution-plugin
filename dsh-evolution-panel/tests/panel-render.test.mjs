@@ -31,7 +31,7 @@ const view = {
   },
   metrics: { wired: false, lines: 0 },
   signals: { wired: false, lines: 0 },
-  dataGaps: ['metrics.jsonl 不存在：record_tool_call 无生产调用方（缺陷 9），指标链未接线'],
+  dataGaps: ['metrics.jsonl 尚未产生：自测量与注入面均已接线（缺陷 9）'],
 }
 
 test('EvolutionBody renders the three sections for a live view', () => {
@@ -43,8 +43,9 @@ test('EvolutionBody renders the three sections for a live view', () => {
   assert.match(html, /结构化镜像/)
   assert.match(html, /Execution completed successfully/) // 时间线真渲染出事件行
   assert.match(html, /指标事件：未接线/) // 缺陷 9 的诚实呈现
-  // 自测量只覆盖本插件：覆盖范围必须出现在 UI 上，不能让人误读成全生态指标
-  assert.match(html, /覆盖范围：仅本插件自身的 MCP 工具调用/)
+  // 覆盖范围必须出现在 UI 上：自测量 + 注入面，不能让人误读成全生态指标
+  assert.match(html, /覆盖范围：自测量=本插件/)
+  assert.match(html, /record_tool_call/)
   assert.match(html, /数据根 C:\/Users\/19207\/\.harness-evolution\/v2/)
   assert.doesNotMatch(html, /连接中/)
 })

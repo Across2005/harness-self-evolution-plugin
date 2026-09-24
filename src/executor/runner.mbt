@@ -119,69 +119,241 @@ pub async fn hanging_task(task : @types.SubAgentTask) -> Json {
 }
 
 ///|
-/// 真实进程执行器（环境变量驱动）。
-///
-/// **设计决策**：
-/// - 通过环境变量 `HARNESS_EVOLUTION_AGENT_CMD` 配置命令模板
-/// - 未设置时回退到模拟实现
-/// - 使用 `@process` 模块执行子进程
+/// 真实进程执行器（环境变量驱动，M7）。
 ///
 /// **环境变量**：
-/// - `HARNESS_EVOLUTION_AGENT_CMD`：命令模板，支持 `{prompt}` 和 `{input}` 占位符
-///   示例：`dsh --profile headless "{prompt}"`（DSH 单任务模式；也可换成任何
-///   CLI 形态的宿主命令）
+/// - `HARNESS_EVOLUTION_AGENT_CMD`：命令模板，支持 `{prompt}` 与 `{input}` 占位符。
+///   示例：`node agent.js --task {prompt}`。`{prompt}` 是任务描述，
+///   `{input}` 是任务输入（JSON 序列化）。**未设置时回退模拟实现**。
+/// - `HARNESS_EVOLUTION_WORKDIR`：子进程 cwd（可选；缺省继承本进程 cwd）。
 ///
-/// **扩展点**：
-/// - 沙箱执行：可通过 Docker/gVisor 包装命令
-/// - 流式回传：可通过 `@process.spawn` + 管道实现
+/// **执行**：`@process.collect_output`；退出码非 0 → `raise Failure`（含 stderr 截断），
+/// 由 executor 既有回滚路径接管。成功返回带 `simulated: false` 的结果摘要。
 ///
-/// **当前实现**：
-/// - 检查环境变量是否存在
-/// - 存在 → 显式失败（真实进程执行尚未实现；静默返回模拟成功会让上层
-///   把「假执行」当真，执行结果是回滚/合入决策的依据 —— 宁可报错不可假绿）
-/// - 不存在时回退到模拟实现
+/// MoonBit async **不用 `await` 关键字**：async 函数直接调用（见 server.mbt）。
 pub async fn process_task(task : @types.SubAgentTask) -> Json {
-  // 检查环境变量
-  let has_env = match @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD") {
-    Some(cmd) => cmd != ""
-    None => false
+  let cmd_template = match @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD") {
+    Some(cmd) if cmd.trim() != "" => cmd
+    _ => return simulated_task(task)
   }
 
-  if has_env {
-    // X9: 已配置真实执行命令但实现未就绪 —— 必须显式失败，不返回模拟成功。
-    raise Failure("process execution not implemented")
+  // {prompt} = 任务描述 + 换行 + input 的 JSON；哨兵保证多词只占一个 argv 槽
+  let input = task.input.stringify()
+  let prompt_body = task.task + "\n" + input
+  let prompt_sent = "<<EVO_PROMPT>>"
+  let input_sent = "<<EVO_INPUT>>"
+  let prepared = cmd_template.replace(old="{prompt}", new=prompt_sent).replace(
+    old="{input}",
+    new=input_sent,
+  )
+  let (program0, args0) = match tokenize_command(prepared) {
+    Some(pair) => pair
+    None => raise Failure("empty agent command after placeholder expansion")
   }
-  // 未配置环境变量，回退到模拟实现
-  simulated_task(task)
+  let program = program0.replace(old=prompt_sent, new=prompt_body).replace(
+    old=input_sent,
+    new=input,
+  )
+  let args : Array[String] = []
+  for a in args0 {
+    args.push(a.replace(old=prompt_sent, new=prompt_body).replace(
+      old=input_sent,
+      new=input,
+    ))
+  }
+  let cwd = match @env.get_env_var("HARNESS_EVOLUTION_WORKDIR") {
+    Some(w) if w.trim() != "" => Some(w)
+    _ => None
+  }
+  let (exit_code, stdout, stderr) = match cwd {
+    Some(w) =>
+      @process.collect_output(
+        program,
+        args,
+        cwd=w,
+        no_console_window=true,
+      )
+    None =>
+      @process.collect_output(
+        program,
+        args,
+        no_console_window=true,
+      )
+  }
+  let out_text = stdout.text()
+  let err_text = stderr.text()
+  if exit_code != 0 {
+    raise Failure(
+      "agent process failed (exit \{exit_code}): \{clip_fail(err_text, out_text)}",
+    )
+  }
+  let out_clip = if out_text.length() > 2000 {
+    out_text[out_text.length() - 2000 :].to_owned()
+  } else {
+    out_text
+  }
+  {
+    "simulated": false,
+    "exit_code": Json::number(exit_code.to_double()),
+    "task": Json::string(task.task),
+    "stdout_tail": Json::string(out_clip),
+  }
 }
 
 ///|
-/// 真实三级验证（环境变量驱动）。
+/// 失败细节截断：stderr 优先、回退 stdout，上限 400 字符。
+fn clip_fail(err_text : String, out_text : String) -> String {
+  let detail = if err_text.trim() != "" { err_text } else { out_text }
+  if detail.length() > 400 {
+    detail[:400].to_owned()
+  } else {
+    detail
+  }
+}
+
+///|
+/// 把展开后的命令行拆成 `(program, args)`：支持双引号包裹的参数。
+/// 找不到 program 时返回 `None`。
+fn tokenize_command(line : String) -> (String, Array[String])? {
+  let tokens : Array[String] = []
+  let mut current = ""
+  let mut in_quotes = false
+  let mut has_token = false
+  for c in line {
+    if c == '"' {
+      in_quotes = !in_quotes
+      has_token = true
+    } else if (c == ' ' || c == '\t') && !in_quotes {
+      if has_token {
+        tokens.push(current)
+        current = ""
+        has_token = false
+      }
+    } else {
+      current = current + c.to_string()
+      has_token = true
+    }
+  }
+  if has_token {
+    tokens.push(current)
+  }
+  if tokens.length() == 0 {
+    None
+  } else {
+    let program = tokens[0]
+    let args : Array[String] = []
+    let mut i = 1
+    while i < tokens.length() {
+      args.push(tokens[i])
+      i = i + 1
+    }
+    Some((program, args))
+  }
+}
+
+///|
+/// 真实三级验证（环境变量驱动，M7）。
 ///
-/// **设计决策**：
-/// - T0：`moon check --deny-warn`（真实编译检查）
-/// - T1：`moon test`（真实单元测试）
-/// - T2：`build.ps1 all`（真实全量构建）
+/// **开关**：`HARNESS_EVOLUTION_REAL_VALIDATION=true` 才走真命令；
+/// 否则回退 `simulated_validation`（既有语义）。
 ///
-/// **当前实现**：
-/// - 检查环境变量 `HARNESS_EVOLUTION_REAL_VALIDATION`
-/// - 为 "true" → 显式失败（真实验证未实现；这是验证闸门，
-///   返回模拟通过就是假绿，比失败更危险 —— 宁可报错不可假绿）
-/// - 未开启时回退到模拟实现
+/// | 级 | 命令（cwd = `HARNESS_EVOLUTION_WORKDIR` 或继承） |
+/// |----|--------------------------------------------------|
+/// | T0 | `moon check --deny-warn` |
+/// | T1 | `moon test` |
+/// | T2 | `pwsh -File build.ps1 -Task all`（失败再试 `powershell`） |
+///
+/// 非 0 退出 → `(false, "Tn failed …")`；0 → `(true, "Tn passed …")`。
+/// **绝不**在开关打开时返回模拟通过（宁可失败不可假绿）。
 pub async fn real_validation(
   level : @types.ValidationLevelTag,
   _proposal : @types.EvolutionProposal,
 ) -> (Bool, String) {
-  // 检查环境变量
   let use_real = match @env.get_env_var("HARNESS_EVOLUTION_REAL_VALIDATION") {
     Some(val) => val == "true"
     None => false
   }
-
-  if use_real {
-    // X10: 开关打开但真实验证未就绪 —— 显式报错，绝不返回模拟通过。
-    raise Failure("real validation not implemented")
+  if !use_real {
+    return simulated_validation(level, _proposal)
   }
-  // 回退到模拟实现
-  simulated_validation(level, _proposal)
+
+  let cwd = match @env.get_env_var("HARNESS_EVOLUTION_WORKDIR") {
+    Some(w) if w.trim() != "" => Some(w)
+    _ => None
+  }
+  let tag = level.wire_name()
+  let (program, args) = match level {
+    @types.ValidationLevelTag::T0 => ("moon", ["check", "--deny-warn"])
+    @types.ValidationLevelTag::T1 => ("moon", ["test"])
+    @types.ValidationLevelTag::T2 =>
+      ("pwsh", ["-File", "build.ps1", "-Task", "all"])
+  }
+  let mut used = "\{program} \{args.join(" ")}"
+  // spawn 失败（假 cwd / 找不到程序）会 raise —— 收口成验证失败，不逃逸。
+  let collect0 : Result[(Int, String, String), String] = Ok(
+    {
+      let t = match cwd {
+        Some(w) =>
+          @process.collect_output(
+            program,
+            args,
+            cwd=w,
+            no_console_window=true,
+          )
+        None =>
+          @process.collect_output(
+            program,
+            args,
+            no_console_window=true,
+          )
+      }
+      (t.0, t.1.text(), t.2.text())
+    },
+  ) catch {
+    e => Err(e.to_string())
+  }
+  let mut ran = match collect0 {
+    Ok(t) => t
+    Err(msg) => return (false, "\{tag} failed via \{used}: \{msg}")
+  }
+  if level == @types.ValidationLevelTag::T2 && ran.0 != 0 {
+    // Windows 常无 pwsh；任意非 0 再回落 powershell（同一任务）
+    let fallback_args = ["-NoProfile", "-File", "build.ps1", "-Task", "all"]
+    let collect_fb : Result[(Int, String, String), String] = Ok(
+      {
+        let t = match cwd {
+          Some(w) =>
+            @process.collect_output(
+              "powershell",
+              fallback_args,
+              cwd=w,
+              no_console_window=true,
+            )
+          None =>
+            @process.collect_output(
+              "powershell",
+              fallback_args,
+              no_console_window=true,
+            )
+        }
+        (t.0, t.1.text(), t.2.text())
+      },
+    ) catch {
+      e => Err(e.to_string())
+    }
+    ran = match collect_fb {
+      Ok(t) => t
+      Err(msg) => return (false, "\{tag} failed via powershell: \{msg}")
+    }
+    used = "powershell \{fallback_args.join(" ")}"
+  }
+  let (exit_code, out_text, err_text) = ran
+  if exit_code == 0 {
+    (true, "\{tag} passed: \{used}")
+  } else {
+    (
+      false,
+      "\{tag} failed (exit \{exit_code}) via \{used}: \{clip_fail(err_text, out_text)}",
+    )
+  }
 }

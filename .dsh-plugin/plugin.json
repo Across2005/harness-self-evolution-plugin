@@ -1,6 +1,6 @@
 {
   "name": "harness-self-evolution",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",
@@ -47,7 +47,9 @@
       "analyze_plugins",
       "evolve_plugin",
       "manage_sub_agent",
-      "get_runtime_snapshot"
+      "get_runtime_snapshot",
+      "record_tool_call",
+      "record_user_feedback"
     ]
   },
   "dependencies": {},

@@ -129,22 +129,31 @@ agents/                  出厂 5 角色模板（Markdown，非 MoonBit，随 lo
   「审批强制」一致，写入动作本身就是显式工具调用（用户可见）。
 - 出厂模板的内容属于插件版本管理；数据目录与用户目录里的定义归用户所有。
 
-## 4. M7 设计草图：真实派发（未实现，路线已铺好）
+## 4. M7 真实派发（v3.2 已实现核心路径）
 
-`UpgradeExecutor` 构造时换掉注入缝即可，`execute` 主体零改动：
+`UpgradeExecutor` 构造时换掉注入缝即可，`execute` 主体零改动（生产装配见
+`mcp/tools.mbt` 的 `ServerState::with_scan_config` / `with_harness_config`）：
 
 ```
 process_task(task) : Json
   1. 命令模板取自环境变量 HARNESS_EVOLUTION_AGENT_CMD
-     （如 "dsh --profile headless \"{prompt}\""），未设置时回退 simulated_task
-  2. @process.collect_output 执行，stdin 喂 task.input，stdout 按 JSONL 收事件
-  3. transcript 逐行落 execution.log 同目录的 transcripts/<task-id>.jsonl（走 store）
-  4. 超时：现有 run_with_timeout / with_timeout_opt 原样生效
-  5. 退出码非 0 或 JSON 缺失 → raise Failure → 现有回滚路径接管
+     （如 "node agent.js --task {prompt}"），未设置时回退 simulated_task
+  2. 占位符 {prompt}/{input} 展开后 tokenize，
+     @process.collect_output 执行（cwd = HARNESS_EVOLUTION_WORKDIR 可选）
+  3. 超时：现有 run_with_timeout / with_timeout_opt 原样生效
+  4. 退出码非 0 → raise Failure → 现有回滚路径接管
+  5. 成功返回 { simulated: false, exit_code, stdout_tail }
+
+real_validation(level, proposal) : (Bool, String)
+  HARNESS_EVOLUTION_REAL_VALIDATION=true 时：
+    T0 = moon check --deny-warn
+    T1 = moon test
+    T2 = pwsh -File build.ps1 -Task all（失败回落 powershell）
+  开关关闭 → simulated_validation
 ```
 
-依赖代价：executor/moon.pkg 增加 `moonbitlang/async/process`（同一外部依赖
-moonbitlang/async 之内，不违反 G6）。T0/T1/T2 同理换真实验证器
-（T0 = `moon check`，T1 = `moon test`，T2 = 全量 `build.ps1 all`），
-失败处理路径现成。**刻意不做**：在工厂里直接派发 —— 创建（管理平面）
+依赖：executor/moon.pkg 增加 `moonbitlang/async/process`（同一外部依赖
+moonbitlang/async 之内，包分层守卫是 **G1** 而非历史草稿里的 G6）。
+**刻意不做**：在工厂里直接派发 —— 创建（管理平面）
 与派发（数据平面）分开，是 defending harness 与本仓分层的一致做法。
+transcript 落盘（transcripts/）仍为后续工作。
