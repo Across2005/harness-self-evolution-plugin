@@ -87,7 +87,7 @@
 - **DSH bundle patch**：`cordis.patch.yml`（顶层 YAML 数组、`- insert:` 形式），是 **loader 挂载行**（`insert: [{id, name, config}]`，`name` = npm 包名），**不是** plugin.json 的元数据翻译——元数据只存在于 `package.json` 与 `.dsh-plugin/plugin.json`。**v3.1 起该行默认 `disabled: true` 且不含机器绝对路径**：由 `scripts/install-dsh.ps1` 在目标树上以 id 定向覆盖行启用并注入本树路径。
 - **安装**（公开渠道）：
   ```sh
-  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v3.1.0"
+  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v3.2.0"
   pwsh -File scripts/install-dsh.ps1 -Profile web     # 注入挂载行（按树解析路径）
   ```
   Linux/macOS 沙箱首次安装可能需要在宿主侧显式放行构建（`allowBuilds`）。

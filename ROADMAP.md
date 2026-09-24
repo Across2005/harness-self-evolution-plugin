@@ -1,7 +1,11 @@
 # ROADMAP — harness-self-evolution-plugin
 
+## 当前版本：v3.2.0
+
 > v2.6.0 已于 2026-09-17 发布（性能优化与缺陷修复：C1 定向重扫 + S1–S6 整改，测试 420→424；同批发布 mooncakes 0.2.6）。
 > v2.5.0 已于 2026-09-16 发布（工程质量版本：全仓评审修复 56 个问题、测试 383→420）。
+>
+> 本地交付：v3.2.0、mooncakes 发布号 0.3.5、工具面 16 个、M7 真实派发与注入面已完成；远端 GitHub / GitLink 与 mooncakes `0.3.5` 待本次确认后发布。
 
 ## v3.1（已完成：启动路径可移植化 A/B/C/E）
 
@@ -31,9 +35,9 @@ G5b 锚点同步；版本五处一并升 **3.1.0**（`moon.mod` 0.3.2）。
 | P0 | 提交安装器回归网与复验报告；DESIGN「启动时扫描」失实纠偏 | ✅ |
 | P1 | 新增 `record_tool_call` / `record_user_feedback`（工具 14→16）；data_gaps/面板文案改为「注入面已暴露」 | ✅ |
 | P2 | `process_task` / `real_validation` 真实实现（`@process.collect_output`）；生产装配注入；X9/X10 测试重写 | ✅ |
-| P3 | 面板 `npm test` 验收；`miniapps/` 残留处置；版本 3.2.0 五处一致 | 见下 |
+| P3 | 面板 `npm test` 验收；`miniapps/` 残留处置；版本 3.2.0 五处一致 | ✅ |
 
-**验证**：`moon check --deny-warn`；`moon test`（G5b 锚点同步）；`pwsh -File scripts/test-install-dsh.ps1` 7/7；`dsh-evolution-panel` `npm test`。
+**验证**：`moon check --deny-warn` 零错零警；`moon test` **457/457**；`pwsh -File scripts/test-install-dsh.ps1` **7/7**；`dsh-evolution-panel` `npm test` **18/18**；`build.ps1 -Task all` EXIT=0。
 
 ## 2026-09-22 复验修复（v3.1.0 补丁线；**产品版本不升** —— 协议与工具面零变更）
 
