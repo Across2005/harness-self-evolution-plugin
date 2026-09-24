@@ -3,7 +3,7 @@ feature: dsh-optimize-p0-p3
 status: delivered
 updated: 2026-09-24
 branch: main
-commits: 2838460..6ad7acb
+commits: 2838460..fce0e07
 ---
 
 # DSH 插件 P0–P3 全量优化
