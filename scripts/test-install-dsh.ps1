@@ -90,6 +90,7 @@ function New-MountBlock([string]$installedDir, [string]$dshHome) {
     "    cwd: '$installedDir'"
     '    env:'
     "      DSH_HOME: '$dshHome'"
+    "      HARNESS_EVOLUTION_HOME: '$dshHome/.harness-evolution/v2'"
     '    failOnStartupError: true'
     '# <<< mcp-harness-evolution (install-dsh.ps1) <<<'
   ) -join "`n"

@@ -2,7 +2,7 @@
 
 > **定位**：回答"DeepSeek Harness 接入一个插件，到底是什么逻辑"。
 > **读者**：给 DSH 写插件的作者、排查 DSH 页面故障的维护者、需要读懂本仓库 DSH 分支的宿主 Agent。
-> **实证基线**：DSH `0.1.6-alpha.1`（web profile），2026-09-18。所有结论取自 DSH runtime 源码、官方产物样例与浏览器/服务端对照实验；未实证的推断均已显式标注。
+> **实证基线**：DSH `0.1.5-rc.2`（当前 GUI runtime，web profile），并以 `0.1.6-alpha.1` 做回归复验。所有结论取自 DSH runtime 源码、官方产物样例与浏览器/服务端对照实验；未实证的推断均已显式标注。
 > **关联文档**：[dsh-compatibility.md](dsh-compatibility.md)（本仓库的兼容修复档案）、[deploy/deepseek-harness.md](deploy/deepseek-harness.md)（部署步骤）、[code-architecture.md](code-architecture.md)（本仓库分路径加载架构）。
 
 ---
@@ -40,7 +40,7 @@
     "manifestVersion": 1,                       // 可选，清单格式版本（当前为 1）
     "bundle": { "patch": "./cordis.patch.yml" } // ★ 声明"我是 profile 的一层"
   },
-  "engines": { "dsh": ">=0.1.6" }               // 可选，作者声明的兼容范围
+  "engines": { "dsh": ">=0.1.5-rc.2 <0.1.6 || >=0.1.6-alpha.1 <0.2.0" } // 可选，作者声明的兼容范围
 }
 ```
 

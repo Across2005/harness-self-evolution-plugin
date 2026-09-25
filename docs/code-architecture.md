@@ -7,8 +7,10 @@ was an over-declaration — DSH's own source has no such host concept — and ha
 
 ## The one-line principle
 
-User-scope paths resolve through a single helper. The data root (`$HARNESS_EVOLUTION_HOME`,
-default `~/.harness-evolution/v2`) is per-deployment; the user-scope sub-agent directory is
+User-scope paths resolve through a single helper. The data root is `$HARNESS_EVOLUTION_HOME`
+when explicitly set, otherwise `<DSH home>/.harness-evolution/v2` (with a legacy user-home
+fallback only when no DSH tree can be resolved), so separate deployments do not share data;
+the user-scope sub-agent directory is
 `<DSH home>/skills/`, and the DSH home mirrors the host's `resolveDshHome` via `dsh_home()`.
 
 ## Host-agnostic core
@@ -60,7 +62,10 @@ A host is verified when, on a fresh install, the following loop completes withou
 4. `execute_evolution` runs the proposal to `completed`
 5. `create_sub_agent(scope=user)` writes a file that the host actually loads in a subsequent session
 
-DSH 0.1.6-alpha.1 has this. Nothing is shipped on code paths alone.
+DSH 0.1.6-alpha.1 has this in the historical 2026-09-22 verification recorded in
+`docs/dsh-compatibility.md`; that is a regression target, not evidence for the current
+`0.1.5-rc.2` baseline. The current M7 path intentionally fails closed until a transactional
+sandbox adapter is available. Nothing is shipped on code paths alone.
 
 ## Anti-patterns to avoid
 

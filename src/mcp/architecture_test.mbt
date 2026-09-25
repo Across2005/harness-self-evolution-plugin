@@ -801,8 +801,10 @@ async test "G5b: MoonBit test suite maintains minimum size" {
   // 454 为上一锚点——v3.2（缺陷 9 注入面 + M7 真实派发）：executor_wbtest
   // 将原 4 条 X9/X10 改写为 5 条，净 +1 → 455；
   // 审查补网：tools_wbtest 注入面写穿 +1、executor fake-cwd 失败 +1 → 457。
+  // 459 为本次修复锚点——T2 lazy fallback 新增主命令成功不调用 fallback 与
+  // 主命令失败仍调用 fallback 两条回归用例，457→459。
   // 这个数字变了说明测试增删，必须重新核对。
-  assert_eq(mb_names.length(), 457)
+  assert_eq(mb_names.length(), 459)
 }
 
 ///|

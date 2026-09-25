@@ -73,6 +73,7 @@
 #       cwd:     '<profile>/node_modules/@across2005/harness-self-evolution'
 #       env:
 #         DSH_HOME: '<DSH_HOME>'
+#         HARNESS_EVOLUTION_HOME: '<DSH_HOME>/.harness-evolution/v2'
 #       failOnStartupError: true
 #
 # 为什么是「标记块 + 文本替换」而不是 YAML 解析/重排：PowerShell 没有内置 YAML 解析器，
@@ -315,6 +316,7 @@ $block = @(
   "    cwd: $(Quote-Yaml $installedDir)"
   "    env:"
   "      DSH_HOME: $(Quote-Yaml $DshHomeAbs)"
+  "      HARNESS_EVOLUTION_HOME: $(Quote-Yaml (Join-Path $DshHomeAbs '.harness-evolution/v2'))"
   "    failOnStartupError: true"
   $MarkerClose
 ) -join "`n"

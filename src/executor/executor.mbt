@@ -138,6 +138,26 @@ pub async fn UpgradeExecutor::execute(
 
 ///|
 /// 任务分层执行 + 三级验证。取代 TS L69-119。
+///|
+/// 给每个真实 runner 补上提案级目标上下文。旧版只把 change items 传给
+/// code-generator，真实的进程/Agent 不知道对应插件是谁；这里用执行信封
+/// 补齐 plugin_id、proposal_id 和完整变更集，同时保留 task_input 以便
+/// 兼容已经依赖旧形状的 runner。
+fn with_proposal_context(
+  task : @types.SubAgentTask,
+  proposal : @types.EvolutionProposal,
+) -> @types.SubAgentTask {
+  {
+    ..task,
+    input: {
+      "plugin_id": Json::string(proposal.plugin_id),
+      "proposal_id": Json::string(proposal.proposal_id),
+      "proposed_changes": ToJson::to_json(proposal.proposed_changes),
+      "task_input": task.input,
+    },
+  }
+}
+
 async fn UpgradeExecutor::run_pipeline(
   self : UpgradeExecutor,
   proposal : @types.EvolutionProposal,
@@ -174,7 +194,7 @@ async fn UpgradeExecutor::run_pipeline(
     let jobs : Array[async () -> @types.SubAgentResult] = []
     for index in layer {
       let task = tasks[index]
-      jobs.push(() => run_with_timeout(runner, task))
+      jobs.push(() => run_with_timeout(runner, with_proposal_context(task, proposal)))
     }
     let layer_results = @async.all(jobs, max_concurrent=self.max_parallel)
     for r in layer_results {
@@ -399,33 +419,23 @@ fn first_failure(
 ///|
 /// 回滚。取代 TS L409-418。
 ///
-/// **行为边界说明**：TS 的实现只写一行日志，注释里列了三件该做的事
-/// （revert file changes / restore from backup / clean temp files）却一件没做。
-/// 这不是遗漏 —— 本仓的 Sub-Agent 执行是**模拟**的，从来没有真的改写过
-/// 任何插件文件，因此确实无文件可回滚。新版保持同样的行为，
-/// 但把这一点写在明处，而不是藏在一段 "In production, this would: ..." 里。
-/// 真正的状态回滚（提案回到 pending）由 `execute` 的调用点负责，
-/// 那是有实际效果的部分。
+/// **行为边界说明**：模拟/试运行路径没有文件写入，真实子进程路径则在
+/// `process_task` 入口 fail closed（见 runner.mbt）。因此这里不能声称已
+/// 恢复文件；只记录状态回滚这一真实发生的动作。事务性 adapter 接入前，
+/// 这条事件是诚实的诊断信息，而不是虚假的文件回滚承诺。
 ///
-/// 将来接入真实 Sub-Agent 时，这里就是挂「恢复备份」逻辑的位置。
-///
-/// ★ M-4（v2.5）接线预告：本包已有的 `sandbox_restore_all(PreCheckResult)`
-/// 提供了完整的备份回滚能力，但它需要一个 `PreCheckResult`，而目前
-/// `run_pipeline` 从头到尾没有调用过 `sandbox_pre_check`（因为 runner
-/// 不真写文件）。接入真实 Sub-Agent 时的三步接线：
-///   1. `run_pipeline` 开头 `sandbox_pre_check`，拿到的 result 传递到 rollback 上下文；
-///   2. `rollback` 里 `sandbox_restore_all(result)`，将已写入的文件从备份恢复；
-///   3. 失败时验证链路不阻断（保留现有 note_event + 日志行为）。
-/// TODO(v2.5): wire `sandbox_pre_check` + `sandbox_restore_all` into executor pipeline.
+/// 真正的状态回滚（提案回到 pending）由 `execute` 的调用点负责。
+/// 未来接入 transactional runner 时，必须在这里接收并恢复完整的
+/// mutation manifest，同时保留主错误，不允许静默吞掉恢复失败。
 async fn UpgradeExecutor::rollback(
   self : UpgradeExecutor,
   proposal : @types.EvolutionProposal,
 ) -> Unit {
-  @util.log_info("Executor", "Rolling back changes...")
+  @util.log_info("Executor", "Rolling back proposal state; no file restore is available")
   self.note_event(
     proposal.proposal_id,
     @store.ExecEvent::Rollback,
-    "Changes rolled back",
+    "Proposal state rolled back; no transactional file restore",
   )
 }
 

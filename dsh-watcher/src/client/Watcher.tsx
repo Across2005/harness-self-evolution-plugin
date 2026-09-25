@@ -25,6 +25,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { createFollow } from '../hub/follow.ts'
 import type { CompleteHistoryResult } from '../hub/history.ts'
 import {
@@ -1083,7 +1084,7 @@ function PhaseOverview({
 
 /** Native session-header utility: exact work picture, typed evidence, no steering. */
 export function Watcher(props: WatcherProps) {
-  const conversation = props.useConversation(state => state)
+  const conversation = props.useConversation((state: any) => state)
   const chat = conversation?.views?.get('chat')
   if (chat === undefined) return <span role="status">Watcher 正在等待会话记录…</span>
   return <ReadyWatcher {...props} chat={chat} views={conversation.views} />
@@ -1098,8 +1099,8 @@ function ReadyWatcher({
   chat,
   views,
 }: WatcherProps & Pick<WatcherSnapshot, 'chat' | 'views'>) {
-  const sessionSnapshot = useSession(state => state)
-  const pending = useSessionPendingInteraction(state => state.get(sessionId))
+  const sessionSnapshot = useSession((state: any) => state)
+  const pending = useSessionPendingInteraction((state: any) => state.get(sessionId))
   const snapshot = useMemo<WatcherSnapshot>(() => ({
     views,
     chat,

@@ -37,18 +37,20 @@ Then restart that DSH Host and reload the page. `dsh plugin add` writes the prof
 dsh plugin --profile web remove dsh-watcher
 ```
 
-DeepSeek Harness `0.1.2-rc.1`. Node `^22.19.0` or `>=24`.
+DeepSeek Harness `0.1.5-rc.2` (with `0.1.6-alpha.1` as a regression target). Node `^22.19.0` or `>=24`.
 
 The interaction contract lives in [DESIGN.md](./DESIGN.md). MIT.
 
 ## Build from source
 
-Use a prepared DSH 0.1.2-rc.1 checkout. The plugin may live outside the Harness tree.
+Use published DSH 0.1.5-rc.2 dependencies (or a prepared 0.1.6-alpha.1 regression checkout). The plugin may live outside the Harness tree. `build` embeds the client CSS inside the Lazy-CJS factory; it does not publish a `lib/style.css` sidecar.
 
 ```sh
-node scripts/link-harness-dependencies.mjs /path/to/harness
-DSHX_HARNESS=/path/to/harness npm run build
-npm test
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm test
 ```
+
+For a local DSH checkout, run `node scripts/link-harness-dependencies.mjs /path/to/harness` before the commands above.
 
 Watcher waits for the Chat projection on cold sessions before mounting its panel.

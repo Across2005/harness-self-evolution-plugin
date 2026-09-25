@@ -1,7 +1,7 @@
 {
   "name": "@across2005/harness-self-evolution",
-  "version": "3.2.0",
-  "description": "Benchmark-driven self-evolution plugin for DeepSeek Harness: iterate on a frozen benchmark, accept only when strictly better, roll back deterministically from verified snapshots.",
+  "version": "3.2.1",
+  "description": "Benchmark-driven self-evolution plugin for DeepSeek Harness: iterate on a frozen benchmark and accept only when strictly better; real execution remains fail-closed until transactional sandbox support.",
   "author": {
     "name": "Across2005",
     "email": "Across2005@users.noreply.github.com"
@@ -33,6 +33,10 @@
     }
   },
   "engines": {
-    "dsh": ">=0.1.6"
+    "dsh": ">=0.1.5-rc.2 <0.1.6 || >=0.1.6-alpha.1 <0.2.0"
+  },
+  "scripts": {
+    "prepack": "node scripts/verify-workspace.mjs",
+    "test:dsh-coexistence": "node scripts/test-dsh-mcp-coexistence.mjs"
   }
 }

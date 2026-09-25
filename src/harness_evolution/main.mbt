@@ -3,7 +3,7 @@
 /// 与其 SIGINT/SIGTERM 处理。
 ///
 /// 启动序列：
-/// 1. 定位数据目录（`$HARNESS_EVOLUTION_HOME` 或 `~/.harness-evolution/v2`）
+/// 1. 定位数据目录（`$HARNESS_EVOLUTION_HOME` 或 `<DSH_HOME>/.harness-evolution/v2`）
 /// 2. 若发现 v1 遗留目录 → stderr 提示一行（只提示、不迁移，见 store/paths.mbt）
 /// 3. 读取 `.dsh-plugin/plugin.json` 的 `evolution_config`（修配置孤岛）
 /// 4. 装配 `ServerState`（ProposalStore 只构造一次，三方共享）

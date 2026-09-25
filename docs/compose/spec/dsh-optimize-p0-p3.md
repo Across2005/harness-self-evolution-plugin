@@ -8,11 +8,16 @@ commits: 2838460..fce0e07
 
 # DSH 插件 P0–P3 全量优化
 
+> **2026-09-25 安全修订**：M7 的 `process_task` 真实进程路径在事务性 sandbox
+> adapter 落地前改为 fail closed；`real_validation` 仍保留。该修订优先保证
+> 不把无法追踪新文件/删除/并发写入的执行误报为可回滚，后续 adapter 完成后再
+> 重新开放进程派发。
+
 ## Report
 
-**What was built** — v3.2.0：① 安装器回归网/复验报告入库 + DESIGN「启动时扫描」失实纠偏；② 新增 `record_tool_call`/`record_user_feedback` 注入面（工具 14→16），data_gaps/面板文案改为「注入面已暴露」；③ `process_task`/`real_validation` 经 `@process.collect_output` 真实执行（env 驱动、哨兵单 argv、spawn 失败收口），生产装配注入；④ 面板 npm test 18/18、删除 `miniapps/` 残留、版本五处一致。两轴 code-review 硬伤已修（CONTEXT 注入面词条、AGENTS 日期、G1 引用、假 cwd、写穿测试、历史 14/16 区分）。
+**What was built** — v3.2.0：① 安装器回归网/复验报告入库 + DESIGN「启动时扫描」失实纠偏；② 新增 `record_tool_call`/`record_user_feedback` 注入面（工具 14→16），data_gaps/面板文案改为「注入面已暴露」；③ `real_validation` 保留经 `@process.collect_output` 的显式验证路径，但 `process_task` 在事务性 sandbox adapter 落地前 fail closed；生产装配不再把不可追踪的裸进程写入伪装成可回滚执行；④ 面板 npm test **20/20**、删除 `miniapps/` 残留、版本五处一致。两轴 code-review 硬伤已修（CONTEXT 注入面词条、AGENTS 日期、G1 引用、假 cwd、写穿测试、历史 14/16 区分）。
 
-**Verification** — `moon check --deny-warn` 零错零警；`moon test` **457/457**；`scripts/test-install-dsh.ps1` 7/7；`dsh-evolution-panel` npm test 18/18；`build.ps1 -Task all` EXIT=0 并刷新 `bin/harness-evolution.exe`（1,697,792 B）。
+**Verification** — `moon check --deny-warn` 零错零警；`moon test` **457/457**；`scripts/test-install-dsh.ps1` 7/7；`dsh-evolution-panel` npm test **20/20**；`dsh-watcher` pnpm test **88 passed / 0 failed / 2 skipped**；`build.ps1 -Task all` EXIT=0 并刷新 `bin/harness-evolution.exe`（当前构建产物大小以实测为准）。
 
 **Journey log** — ① PowerShell 批量字符串替换破坏 UTF-8，已用 `git show` 按字节恢复后改用 Edit 工具重做；② MoonBit 本版本 async **无 `await` 关键字**、`replace` 需 `old~/new~` 标签、`cwd?` 不接受 `String?`、`Ok(expr) catch` 必须与返回类型对齐；③ G5b 锚点 454→**457**（审查补网：写穿 +1、fake-cwd +1）。
 
@@ -22,7 +27,7 @@ commits: 2838460..fce0e07
 
 1. **P0 卫生**：安装器回归网与复验报告未入库；DESIGN 等文档仍有「启动时扫描」失实；全门禁未在当前工作树复跑。
 2. **P1 缺陷 9**：监控链只有本插件自测量，宿主/Agent **没有** 向 `metrics`/`signals` 注入其他插件事件的 MCP 面；`data_gaps` 只能点名「未上报」。
-3. **P2 M7**：`process_task` / `real_validation` 在开关打开时显式 `raise "not implemented"`，三级验证与子 Agent 仍是模拟。
+3. **P2 M7**：`real_validation` 已有显式开关；`process_task` 的裸进程路径因无法提供完整 mutation manifest/回滚，在 2026-09-25 修订为 fail closed，三级验证与子 Agent 默认仍走模拟。
 4. **P3 面板**：`dsh-evolution-panel` 有测试但「可视化验收」未在本轮闭环；`miniapps/` 为已取消的 MiniMax 打包残留。
 
 ## [S2] Design
@@ -101,8 +106,8 @@ commits: 2838460..fce0e07
 - [x] T1: P0 提交未跟踪回归网与复验报告并纠 DESIGN 文档 — acceptance: `git status` 无上述 untracked；DESIGN 无「启动时扫描」能力声明；安装器 7/7（covers: S2-P0）
 - [x] T2: P1 新增 `record_tool_call`/`record_user_feedback` 工具与 schema/handler — acceptance: `tools/list` 16 个；两工具可写入 metrics/signals（covers: S2-P1; depends: T1）
 - [x] T3: P1 同步清单/文档/data_gaps/面板文案/G5b — acceptance: 三方清单均 16；data_gaps 提到注入面（covers: S2-P1; depends: T2）
-- [x] T4: P2 实现 `process_task` 真实执行 — acceptance: 配置 env 时执行真命令并按退出码成败；未配置回退模拟（covers: S2-P2; depends: T1）
+- [~] T4: P2 实现 `process_task` 真实执行 — **blocked by safety gate**：当前配置 env 时 fail closed，直到 transactional adapter 提供完整 mutation manifest 与回滚；未配置仍回退模拟（covers: S2-P2; depends: T1）
 - [x] T5: P2 实现 `real_validation` 三级真实验证 — acceptance: 开关开时 T0 跑 moon check；假 cwd 失败（covers: S2-P2; depends: T4）
-- [x] T6: P2 生产装配注入 process/real + 更新 X9/X10 测试 — acceptance: ServerState 默认走 process/real 缝；测试改绿（covers: S2-P2; depends: T4 T5）
+- [~] T6: P2 生产装配注入 process/real + 更新 X9/X10 测试 — **safety-gated**：ServerState 仍注入 `process_task`/`real_validation` 缝，但前者默认 fail closed；测试改绿（covers: S2-P2; depends: T4 T5）
 - [x] T7: P3 面板 npm test + 残留处理 + ROADMAP/CONTEXT 更新 — acceptance: panel 测试通过；残留有明确处置；ROADMAP 反映本切片（covers: S2-P3; depends: T3）
 - [x] T8: 全门禁 + 版本 3.2.0 五处一致 — acceptance: build.ps1 -Task all 绿；版本号一致（covers: S2; depends: T1 T2 T3 T4 T5 T6 T7）

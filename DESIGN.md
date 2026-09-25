@@ -45,7 +45,7 @@
         ▼                     ▼                     ▼
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
 │   Scanner    │    │   Monitor    │    │   Engine     │
-│  (启动扫描)   │    │  (实时监控)   │    │  (进化引擎)   │
+│  (按需扫描)   │    │  (实时监控)   │    │  (进化引擎)   │
 └──────────────┘    └──────────────┘    └──────────────┘
         │                     │                     │
         │                     │                     │
@@ -86,8 +86,8 @@
 ### 2.3 数据流向
 
 ```
-启动阶段：
-用户启动 → Scanner 扫描 → Plugin Registry 初始化 → 就绪
+工具调用阶段：
+用户调用 `scan_plugins` → Scanner 扫描 → Plugin Registry 初始化
 
 运行阶段：
 用户对话 → Monitor 监控 → 收集性能数据 → 更新 Registry
@@ -260,7 +260,7 @@
   "validation_plan": {
     "test_scenarios": ["form_filling", "web_scraping"],
     "success_criteria": "成功率 >= 95%，延迟 < 1s",
-    "rollback_strategy": "保留原工具 30 天"
+    "rollback_strategy": "仅回滚提案状态；文件回滚待 transactional adapter"
   },
   "risk_assessment": {
     "breaking_changes": false,
@@ -356,7 +356,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 // .dsh-plugin/plugin.json
 {
   "name": "harness-self-evolution",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",
@@ -403,13 +403,15 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
       "analyze_plugins",
       "evolve_plugin",
       "manage_sub_agent",
-      "get_runtime_snapshot"
+      "get_runtime_snapshot",
+      "record_tool_call",
+      "record_user_feedback"
     ]
   },
   "dependencies": {},
   "devDependencies": {},
   "engines": {
-    "deepseek-harness": ">=0.1.6"
+    "dsh": ">=0.1.5-rc.2 <0.1.6 || >=0.1.6-alpha.1 <0.2.0"
   },
   "evolution_config": {
     "intensity": "50%",
@@ -748,7 +750,7 @@ version: 1.0.0
 
 | 风险 | 影响 | 概率 | 缓解措施 |
 |------|------|------|---------|
-| 进化导致功能回退 | 高 | 中 | 三级验证 + 回滚机制 |
+| 进化导致功能回退 | 高 | 中 | 三级验证 + 提案状态回滚；文件回滚待 transactional adapter |
 | 过度进化（噪音） | 中 | 中 | 信号强度阈值 + 冷却期 |
 | Sub-Agent 协同失败 | 中 | 低 | 任务重试 + 降级方案 |
 | 性能监控开销 | 低 | 高 | 采样率调整 + 异步记录 |
@@ -758,7 +760,7 @@ version: 1.0.0
 
 - **只读扫描**：Scanner 不修改任何插件代码
 - **审批强制**：所有进化必须用户确认
-- **回滚保留**：原版本保留 30 天
+- **回滚边界**：当前只回滚提案状态；原版本文件回滚与保留待 transactional adapter
 - **沙箱测试**：升级在隔离环境验证
 - **权限最小**：仅访问必要目录和事件
 

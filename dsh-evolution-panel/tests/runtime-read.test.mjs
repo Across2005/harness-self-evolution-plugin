@@ -10,6 +10,7 @@ import {
   readEvolutionView,
   rootSignature,
 } from '../lib/host/runtime-read.js'
+import { defaultDataRoot, installedDshHome } from '../lib/evolution-core.js'
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'evo-panel-'))
 
@@ -134,4 +135,22 @@ test('rootSignature changes only when watched files change', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('defaultDataRoot follows an explicit DSH tree and honors the data override', () => {
+  assert.equal(
+    defaultDataRoot({ DSH_HOME: 'C:\\dsh-tree', HARNESS_EVOLUTION_HOME: '' }),
+    'C:/dsh-tree/.harness-evolution/v2',
+  )
+  assert.equal(
+    defaultDataRoot({ DSH_HOME: 'C:\\dsh-tree', HARNESS_EVOLUTION_HOME: 'C:\\explicit\\data' }),
+    'C:/explicit/data',
+  )
+  assert.equal(
+    defaultDataRoot({ DSH_HOME: 'relative', HARNESS_EVOLUTION_HOME: '~' }),
+    process.cwd().replace(/\\/g, '/'),
+  )
+  assert.equal(defaultDataRoot({ HARNESS_EVOLUTION_HOME: '/' }), '/')
+  assert.equal(installedDshHome(['/profiles/web/node_modules/pkg']), '/')
+  assert.equal(installedDshHome(['C:/profiles/web/node_modules/pkg']), 'C:/')
 })

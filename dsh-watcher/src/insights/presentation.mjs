@@ -39,6 +39,7 @@ export function mergeModels(views) {
  * RC1 follow() can promote a cold Session after its first yielded snapshot.
  * Do NOT use follow() to scan sessions, even with early abort.
  * list() provides attached projections and cold hints without Agent activation.
+ * @returns {Promise<{rows: any[], total: number, selected: number}>}
  * @param {any} remote
  * @param {{signal?:AbortSignal,limit?:number,onProgress?:(value:any)=>void}} options
  */

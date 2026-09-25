@@ -146,8 +146,9 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
    `util → types → store → {scanner, monitor} → {engine, executor, factory} → mcp → harness_evolution`。
    分层是**构造性**无环证明：比跑 DFS 更强，任何新增反向边立刻变红。
    *守卫 G1 / G1b*
-9. **默认数据目录只有一处定义** — `.harness-evolution` 字面量只允许出现在
-   `store/paths.mbt`。　*守卫 G4 / G4b*
+9. **默认数据目录只有一处写入定义** — MoonBit 数据写入端的 `.harness-evolution`
+   字面量只允许出现在 `store/paths.mbt`；只读 host adapter（`dsh-evolution-panel`）可
+   镜像该后缀以解析宿主树，并由 panel parity tests 锁定行为。　*守卫 G4 / G4b*
 10. **写进 DSH 树的文件必须是宿主能解析的**（2026-09-22 复验新增）——
     `scripts/install-dsh.ps1` 产出的是 DSH 的 **profile patch 层**，宿主解析失败是
     `throw`（`dsh-app-boot/lib/index.js::parsePatchList` :2158-2163），一路上抛到
@@ -165,7 +166,7 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
 ## 数据文件布局
 
 ```
-~/.harness-evolution/v2/          # 可用 $HARNESS_EVOLUTION_HOME 覆盖
+<DSH_HOME>/.harness-evolution/v2/ # 默认按 DSH tree 隔离；可用 $HARNESS_EVOLUTION_HOME 覆盖
 ├── plugin-cache.json   # 扫描缓存（每条带 DirFingerprint）
 ├── metrics.jsonl       # 性能事件（monitor）※ 受 max_log_bytes 窗口裁剪
 ├── signals.jsonl       # 进化信号（monitor 写 / engine 读）※ 同上

@@ -9,8 +9,8 @@ name = "Across2005/harness-self-evolution"
 //        扫描根随 dsh_home 派生，出厂清单去 scan_targets，cache_version 3→4）；
 // 0.3.3 ↔ 产品 v3.1.0 仅更新 mooncakes 包简介（description），源码与行为不变。
 // 0.3.4 ↔ 产品 v3.1.0 同上：0.3.3 已在 registry，仅递增号位以完成该简介发布，源码与行为不变。
-// 0.3.5 ↔ 产品 v3.2.0：record_* 注入面（工具 14→16）+ M7 真实派发（process_task/real_validation）。
-version = "0.3.5"
+// 0.3.6 ↔ 产品 v3.2.1：维护更新与发布门禁修复；工具面与注入面保持 16 个。
+version = "0.3.6"
 
 readme = "README.md"
 

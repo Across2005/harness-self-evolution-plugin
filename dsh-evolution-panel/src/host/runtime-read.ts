@@ -9,7 +9,7 @@ import {
 
 /**
  * Pure-filesystem reader for the harness-evolution data root
- * (`~/.harness-evolution/v2` by default; `$HARNESS_EVOLUTION_HOME` respected).
+ * (`<DSH_HOME>/.harness-evolution/v2` by default; `$HARNESS_EVOLUTION_HOME` overrides it).
  *
  * No cordis imports here on purpose: this module is the unit-tested core,
  * exercised by `node --test` against fixture dirs before any injection

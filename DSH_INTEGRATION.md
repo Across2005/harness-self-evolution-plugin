@@ -1,6 +1,7 @@
-# DSH 集成指南（0.1.6 兼容 · 修正版）
+# DSH 集成指南（0.1.5-rc.2 基线 · 0.1.6-alpha.1 回归）
 
-> 本文档说明本插件在 DeepSeek Harness（DSH）0.1.6-alpha.1 上的真实挂载方式与工具边界。
+> 本文档说明本插件在 DeepSeek Harness（DSH）0.1.5-rc.2 上的真实挂载方式与工具边界；
+> 0.1.6-alpha.1 保留为独立回归目标。
 > 上一版曾描述 `report_task_result` / `finalize_execution` 等**从未注册**的 MCP 工具，
 > 以及「宿主 `subagent()` 编排 task DAG」等 web profile 默认不成立的能力 —— 均已更正。
 
@@ -25,6 +26,7 @@
       # 只有挂载行 env 里的字面量能在清洗**之后**被合并（dsh-mcp-client 的 buildChildEnv）。
       # 值由安装器按目标树计算 —— 插件侧另有「从安装路径推导」兜底档，漏配也不会写错树。
       DSH_HOME: '<DSH_HOME>'
+      HARNESS_EVOLUTION_HOME: '<DSH_HOME>/.harness-evolution/v2'
     failOnStartupError: true
 # <<< mcp-harness-evolution (install-dsh.ps1) <<<
 ```

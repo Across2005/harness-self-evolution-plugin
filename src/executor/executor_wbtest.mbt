@@ -842,12 +842,11 @@ fn restore_env(name : String, saved : String?) -> Unit {
 }
 
 ///|
-/// M7：配置了 HARNESS_EVOLUTION_AGENT_CMD 时执行真实进程；
-/// 坏命令必须失败（不返回模拟成功）。
-async test "process_task raises when the configured agent command fails" {
+/// 真实进程路径在事务性 adapter 落地前必须 fail closed：即使命令看起来
+/// 合法，也不能把它当成可回滚执行。
+async test "process_task fails closed when a real agent command is configured" {
   let saved = @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD")
-  // Windows 下用 cmd /c exit 1 保证可执行且必失败
-  @env.set_env_var("HARNESS_EVOLUTION_AGENT_CMD", "cmd.exe /c exit 1")
+  @env.set_env_var("HARNESS_EVOLUTION_AGENT_CMD", "cmd.exe /c echo ok")
   defer restore_env("HARNESS_EVOLUTION_AGENT_CMD", saved)
   let task : @types.SubAgentTask = {
     id: "cg-real",
@@ -861,33 +860,33 @@ async test "process_task raises when the configured agent command fails" {
     e => Err(e.to_string())
   }
   match outcome {
-    Err(msg) => assert_true(msg.contains("agent process failed"))
-    Ok(_) =>
-      abort("process_task must not fake success when the agent command fails")
+    Err(msg) => assert_true(msg.contains("transactional sandbox adapter"))
+    Ok(_) => abort("process_task must fail closed before spawning a real agent")
   }
 }
 
 ///|
-/// M7 正例：配置成功命令时返回非模拟结果（exit_code=0、simulated=false）。
-async test "process_task succeeds with a configured working agent command" {
-  let saved = @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD")
-  @env.set_env_var("HARNESS_EVOLUTION_AGENT_CMD", "cmd.exe /c echo ok")
-  defer restore_env("HARNESS_EVOLUTION_AGENT_CMD", saved)
+/// 执行信封必须把目标插件与完整提案变更传给每个 runner；旧版只传
+/// code-generator 的裸 change items，真实 Agent 不知道要修改哪个插件。
+async test "proposal context is attached to the execution task" {
+  let proposal = make_proposal()
   let task : @types.SubAgentTask = {
-    id: "cg-ok",
+    id: "cg-context",
     agent: @types.AgentType::CodeGenerator,
     task: "t",
-    input: Json::null(),
+    input: { "changes": Json::array([]) },
     deps: [],
     timeout_ms: 5000,
   }
-  let result = process_task(task)
-  match result {
-    Object(o) => {
-      assert_eq(o.get("simulated"), Some(Json::boolean(false)))
-      assert_eq(o.get("exit_code"), Some(Json::number(0.0)))
+  let contextual = with_proposal_context(task, proposal)
+  match contextual.input {
+    Object(input) => {
+      assert_eq(input.get("plugin_id"), Some(Json::string("test-plugin-1.0.0")))
+      assert_eq(input.get("proposal_id"), Some(Json::string("evo-test-1")))
+      assert_true(input.contains("proposed_changes"))
+      assert_true(input.contains("task_input"))
     }
-    _ => abort("process_task must return an object result")
+    _ => abort("contextual task input must be an object")
   }
 }
 
@@ -976,4 +975,47 @@ async test "real_validation falls back to the simulated implementation when the 
   )
   assert_true(ok)
   assert_true(message.contains("Syntax"))
+}
+
+///|
+/// T2 fallback must be lazy: a successful primary command must not launch the
+/// fallback process. The injected thunk makes the side effect observable.
+#warnings("-unused_async")
+async test "T2 fallback thunk is not evaluated after a successful primary command" {
+  let calls : Array[String] = []
+  let fallback = async fn() {
+    calls.push("fallback")
+    Ok((0, "fallback", ""))
+  }
+  let (result, used_fallback) = choose_t2_result(
+    Ok((0, "primary", "")),
+    fallback,
+  )
+  assert_false(used_fallback)
+  assert_eq(calls.length(), 0)
+  match result {
+    Ok(t) => assert_eq(t.1, "primary")
+    Err(_) => abort("successful primary result must be preserved")
+  }
+}
+
+///|
+/// A non-zero primary command still uses the fallback.
+#warnings("-unused_async")
+async test "T2 fallback thunk runs after a non-zero primary command" {
+  let calls : Array[String] = []
+  let fallback = async fn() {
+    calls.push("fallback")
+    Ok((0, "fallback", ""))
+  }
+  let (result, used_fallback) = choose_t2_result(
+    Ok((1, "primary failed", "")),
+    fallback,
+  )
+  assert_true(used_fallback)
+  assert_eq(calls.length(), 1)
+  match result {
+    Ok(t) => assert_eq(t.1, "fallback")
+    Err(_) => abort("fallback result must be returned")
+  }
 }

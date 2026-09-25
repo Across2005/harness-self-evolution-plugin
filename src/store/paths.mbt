@@ -38,7 +38,7 @@ pub struct DataPaths {
 }
 
 ///|
-/// 默认布局：`$HARNESS_EVOLUTION_HOME`，否则 `~/.harness-evolution/v2`。
+/// 默认布局：`$HARNESS_EVOLUTION_HOME`，否则 `<DSH home>/.harness-evolution/v2`。
 ///
 /// **为什么是 `v2` 子目录**：本次移植重新设计了数据结构（时间戳从 ISO 字符串
 /// 改为 Int64 毫秒、`event_type`+`event_data` 合并为单一枚举、`ProposedChanges`
@@ -51,8 +51,11 @@ pub struct DataPaths {
 /// 而那个缓存丢弃重扫比迁移更安全。故：**只提示，不迁移**。
 pub fn DataPaths::default() -> DataPaths {
   let root = match @env.get_env_var("HARNESS_EVOLUTION_HOME") {
-    Some(h) if h.length() > 0 => @util.expand_home(h)
-    _ => @util.expand_home("~/.harness-evolution/v2")
+    Some(h) if h.trim().length() > 0 => @util.expand_home(h.trim().to_owned())
+    // 未显式指定时按 DSH tree 隔离，而不是让所有 profile 共用用户目录下的
+    // ~/.harness-evolution。安装器也会把 HARNESS_EVOLUTION_HOME 显式写入挂载行；
+    // 这一层是漏配/手工启动时的同一语义的兜底。
+    _ => @util.path_join(@util.path_join(dsh_home(), ".harness-evolution"), "v2")
   }
   { root: @util.path_normalize(root), }
 }
@@ -246,8 +249,9 @@ fn dsh_home_from_profile_path(p : String) -> String? {
     }
   }
   // 需要 `<home…> / profiles / <name> / node_modules / <pkg…>`：
-  // 故 i ≥ 1（home 至少一段）且 i + 3 < length（node_modules 之后**还有**一段包名）。
-  for i = 1; i + 3 < segs.length(); i = i + 1 {
+  // home 可以是 POSIX 根 `/` 或盘符根 `C:/`，所以从 i=0 开始；
+  // i + 3 < length 保证 node_modules 之后**还有**一段包名。
+  for i = 0; i + 3 < segs.length(); i = i + 1 {
     if segs[i] == "profiles" && segs[i + 1] != "node_modules" &&
       segs[i + 2] == "node_modules" {
       let parts : Array[String] = []
@@ -257,7 +261,8 @@ fn dsh_home_from_profile_path(p : String) -> String? {
       let body = parts.join("/")
       // 还原绝对前缀：盘符（`C:`）不带引导斜杠，UNC 带 `//`，其余带 `/`。
       let home = if segs[0].length() == 2 && segs[0][1:2].to_owned() == ":" {
-        body
+        // 盘符根必须保留引导斜杠；body 为空时也要得到 `C:/`。
+        if body.length() == 0 || body == segs[0] { segs[0] + "/" } else { body }
       } else if s.has_prefix("//") {
         "//" + body
       } else {

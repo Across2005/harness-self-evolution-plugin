@@ -6,6 +6,7 @@
 - **宿主实际启动树（DSH_HOME）**：`C:/Users/19207/.minimax/v2/plugin-data/local-minimax/dsh/dsh-home`（Mavis 托管，非默认树）
 - **挂载方式**：profile `web` 的 `dsh.profile.bundles` 含 `@across2005/harness-self-evolution`（pnpm link → Junction → 本工作区）+ `dsh-evolution-panel`；插件自带 `cordis.patch.yml` 作为 bundle patch 提供 `mcp-harness-evolution` 挂载行（`@deepseek-ai/dsh-mcp-client`，stdio，`failOnStartupError: true`）
 - **数据根**：`C:/Users/19207/.harness-evolution/v2`
+- **历史快照说明**：本报告记录 2026-09-20 的 v3.0/v3.1 实测；当前工作树以 `DSH_INTEGRATION.md`、`.dsh-plugin/plugin.json` 和 `docs/dsh-compatibility.md` 的 16 工具清单为准。
 
 ---
 

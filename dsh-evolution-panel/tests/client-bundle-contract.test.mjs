@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -112,4 +112,21 @@ test('client bundle inlines every production dependency', () => {
       `${name} is declared in dependencies but no inlined region of it exists in the bundle`,
     )
   }
+})
+
+test('package exports the clean tsc client declaration, not a wrapper-shaped fake', () => {
+  const clientTypes = pkg.exports['./client'].types
+  const declarationPath = join(panelDir, clientTypes)
+  assert.ok(existsSync(declarationPath), `missing exported declaration: ${clientTypes}`)
+  const declaration = readFileSync(declarationPath, 'utf8')
+  assert.doesNotMatch(
+    declaration,
+    /window\.__ModuleLoader__/,
+    'the public client declaration must not contain the runtime loader wrapper',
+  )
+  assert.equal(
+    existsSync(join(panelDir, 'lib/client.d.ts')),
+    false,
+    'the stale wrapper-shaped top-level client declaration must not be packaged',
+  )
 })

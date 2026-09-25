@@ -31,14 +31,14 @@
 | MSVC `cl.exe` + Windows SDK | VS 2019/2022/18 任一 + SDK 10.x | 单元 A native 链接 | 仅 Windows；`build.ps1` 自动探测并注入 `INCLUDE`/`LIB`/`PATH`（等价 `vcvars64.bat`，无需 cmd.exe） |
 | Node.js | `^22.19.0 \|\| >=24` | 单元 B 构建/测试 | 本机实测 v26.4.0 可用 |
 | npm（或 pnpm） | 随 Node | 单元 B 脚本 | `dsh-watcher/package.json` 的 scripts 用 npm 语法；DESIGN.md 里写的 `pnpm typecheck` 与 `npm run typecheck` 等价 |
-| DSH CLI `dsh` | 生态 `0.1.2-rc.1` | 两个单元的插件安装 | `dsh plugin --profile web add/list/remove` |
-| DSH 源码 checkout | `0.1.2-rc.1`（已构建） | 仅单元 B **从源码构建**时需要 | 判定标准：checkout 内存在 `tools/dshx/src/client-build.js` |
+| DSH CLI `dsh` | `0.1.5-rc.2`（回归：`0.1.6-alpha.1`） | 两个单元的插件安装 | `dsh plugin --profile web add/list/remove` |
+| DSH 依赖包 | 已发布 `0.1.5-rc.2` | 单元 B 干净构建 | 回归时切换到已发布的 `0.1.6-alpha.1`；源码 checkout 仅在本地链接流程需要 |
 
 **本机（Windows）实测事实**：
 
 - 仓库工作目录：`D:\Agent设计\harness-self-evolution-plugin`。
-- 本机 DSH 运行时目录 `C:\Users\19207\.minimax\v2\plugin-data\local-minimax\dsh\runtime` 只有 `node_modules`（包名 `dsh-runtime` 0.0.0），**不是源码 checkout** —— 不能直接喂给 `link-harness-dependencies.mjs`。要从源码构建单元 B（含 `typecheck`/`test`），需另备一份 `0.1.2-rc.1` 源码 checkout。
-- `dsh-watcher/lib/` 已包含**可安装的**预构建产物：`dsh-watcher.js`、`client.js`、`client.js.map`（注意：`lib/types/` 下的 d.ts 与 `dsh-watcher.js.map` 不在仓库里，需重新构建生成；这只影响 TS 类型消费，不影响安装运行）。`dsh-watcher/node_modules` **不存在**——没有 checkout 就无法跑 `typecheck`/`test`（devDeps 全部由 link 脚本从 checkout 符号链接而来）。
+- 本机 DSH 运行时目录 `C:\Users\19207\.minimax\v2\plugin-data\local-minimax\dsh\runtime` 只有 `node_modules`，**不是源码 checkout** —— 不能直接喂给 `link-harness-dependencies.mjs`。从已发布依赖做干净构建不需要 checkout；只有使用本地 link 脚本时才需另备源码。
+- `dsh-watcher/lib/` 的已提交预构建产物只证明历史产物的 Lazy-CJS 形状；clean build 现在必须同时产出 `lib/types` 声明树，不能把旧 bundle 当作可重建证据。
 
 ---
 
@@ -65,9 +65,11 @@
 | `.\build.ps1 fmt` | `moon fmt` | — | — |
 | `pwsh -File scripts/test-install-dsh.ps1` | 同上（在临时树上跑**真实**安装器 7 场景） | `PASS: 7/7 scenarios` | T1（安装器专项） |
 
-> **写就时点实测（2026-09-24 v3.2 + 审查补网）**：T0 零错零警（`moon check --deny-warn --target native`）；
+> **写就时点实测（2026-09-25 v3.2 + 审查补网）**：T0 零错零警（`moon check --deny-warn --target native`）；
 > T1 `Total tests: 457, passed: 457, failed: 0`；安装器回归 `PASS: 7/7 scenarios`；
-> 面板 `npm test` 全绿（18 用例）。
+> 面板 `npm test` 全绿（20 用例）；watcher `pnpm test` 88 passed / 0 failed / 2 skipped。
+> 隔离桌面 DSH smoke（`node scripts/test-dsh-mcp-coexistence.mjs`）在 `0.1.5-rc.2`
+> 与回归运行时 `0.1.6-alpha.1` 均通过，浏览器不打开。
 > 测试输出里的 `Parse error` / `OSError(...Incorrect function.)` 等行是**负向路径用例的预期日志**
 > （store/monitor/mcp 的容错测试），不是失败。
 
@@ -78,6 +80,10 @@
 > 正是如此（出厂空模板的 `[]` 后面被追加了块序列项），故这条不变量必须机器化：
 > 套件用**宿主的 `js-yaml`**（不是「看起来对」）验证产物，且只写临时树。
 > 详见 `docs/dsh-compatibility.md` §2.6。
+>
+> **发布总门禁**：`package.json` 的 `prepack` 调用 `scripts/verify-workspace.mjs`，串行执行
+> MoonBit T0/T1/T2、安装器回归、panel/watcher clean build + tests + `pack --dry-run`；
+> **必须同时设置 `DSH_CLI`（0.1.5-rc.2）与 `DSH_REGRESSION_CLI`（0.1.6-alpha.1）**，以串行执行两次 `--no-open` 桌面双 MCP smoke（不打开浏览器）；缺少任一变量时门禁失败而不静默跳过。
 
 产物落点：`_build\native\release\build\**\harness_evolution.exe` → 由脚本复制为 `bin\harness-evolution.exe`（**不要**手工去 `target\` 找，native 后端产物在 `_build\`）。
 
@@ -87,12 +93,12 @@
 - **DSH bundle patch**：`cordis.patch.yml`（顶层 YAML 数组、`- insert:` 形式），是 **loader 挂载行**（`insert: [{id, name, config}]`，`name` = npm 包名），**不是** plugin.json 的元数据翻译——元数据只存在于 `package.json` 与 `.dsh-plugin/plugin.json`。**v3.1 起该行默认 `disabled: true` 且不含机器绝对路径**：由 `scripts/install-dsh.ps1` 在目标树上以 id 定向覆盖行启用并注入本树路径。
 - **安装**（公开渠道）：
   ```sh
-  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v3.2.0"
+  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v3.2.1"
   pwsh -File scripts/install-dsh.ps1 -Profile web     # 注入挂载行（按树解析路径）
   ```
   Linux/macOS 沙箱首次安装可能需要在宿主侧显式放行构建（`allowBuilds`）。
 - **配置链**：`$HARNESS_EVOLUTION_CONFIG` → `<cwd>/.dsh-plugin/plugin.json` → `.dsh-plugin/plugin.json`（相对插件根兜底）→ 内置默认。`AGENTS.md` 不参与配置解析。**破坏性变更（v2.7.0，开发中）**：旧布局 `<cwd>/.zcode-plugin/plugin.json` 的回退已移除，该文件不再被读取；已部署实例需把它改名为 `.dsh-plugin/plugin.json`（内容无需改），否则其中的 `evolution_config` / `scan_targets` 静默失效、回落内置默认。
-- **数据目录**：唯一 `~/.harness-evolution/v2/`（`$HARNESS_EVOLUTION_HOME` 可覆盖），内含 `plugin-cache.json` / `metrics.jsonl` / `signals.jsonl` / `proposals.jsonl` / `execution.log` / `execution.jsonl`（v2.7 结构化执行事件镜像，与 execution.log 同源双写）/ `sandbox/` / `agents/`。
+- **数据目录**：默认按 DSH tree 隔离为 `<DSH_HOME>/.harness-evolution/v2/`；`$HARNESS_EVOLUTION_HOME` 可显式覆盖，未设置 DSH tree 时才回落用户目录。内含 `plugin-cache.json` / `metrics.jsonl` / `signals.jsonl` / `proposals.jsonl` / `execution.log` / `execution.jsonl`（v2.7 结构化执行事件镜像，与 execution.log 同源双写）/ `sandbox/` / `agents/`。
 - **宿主**：自 v3.0.0 起仅支持 DeepSeek Harness（DSH）单一宿主；多宿主开关 `HARNESS_EVOLUTION_HOST` 已移除，用户级目录可用 `HARNESS_EVOLUTION_USER_DIR` 显式覆盖。
 
 ### 2.4 修改禁区（架构不变量）
@@ -133,7 +139,7 @@ DSH Web 的**只读 client 插件**：会话标题栏"眼睛"按钮 → Portal �
 
 ### 3.2 从源码构建
 
-前置：一份**已构建完成的** DSH `0.1.2-rc.1` 源码 checkout（判定：存在 `tools/dshx/src/client-build.js`）。
+前置：使用已发布的 DSH `0.1.5-rc.2` 依赖；若走本地 link 流程，则需要已构建完成的 DSH checkout（判定：存在 `tools/dshx/src/client-build.js`）。`0.1.6-alpha.1` 作为回归切换目标。
 
 ```sh
 cd dsh-watcher
@@ -142,22 +148,25 @@ cd dsh-watcher
 #    指向 Harness checkout —— 不下载任何包、不改动 checkout
 node scripts/link-harness-dependencies.mjs /path/to/harness
 
-# 2) 构建（tsc 类型检查 + tsdown 打包，双入口 → lib/）
-DSHX_HARNESS=/path/to/harness npm run build
+# 2) 构建（tsc 类型检查 + tsdown 打包 + 客户端 CSS 注入，双入口 → lib/）
+DSHX_HARNESS=/path/to/harness pnpm run build
 
-# 3) 测试（tsc + node --test tests/*.test.mjs，含 golden-replay 回放）
-npm test
+# 3) 测试（tsc + tsdown + CSS 注入 + node --test tests/*.test.mjs）
+pnpm test
 ```
 
 可用脚本（`dsh-watcher/package.json`）：
 
 | 脚本 | 作用 |
 |---|---|
-| `npm run build` | `tsc -p tsconfig.json && tsdown` → `lib/` |
-| `npm run typecheck` | 仅类型检查（不产出） |
-| `npm test` | `tsc` + `node --test tests/*.test.mjs` |
+| `pnpm run build` | `tsc -p tsconfig.json && tsdown && node scripts/embed-client-css.mjs` → `lib/`（CSS 内嵌，不发布 sidecar） |
+| `pnpm run typecheck` | 仅类型检查（不产出） |
+| `pnpm test` | `build` + `node --test tests/*.test.mjs` |
 
-> **依赖来源的唯一路径是 link 脚本**：`dsh-watcher` 的 devDeps（`typescript`、`tsdown`、`react`、`@types/*`）和全部 `@deepseek-ai/*` peer 包都由 `link-harness-dependencies.mjs` 从 checkout **符号链接**进 `node_modules`——不执行它，`typecheck`/`test`/`build` 一条都跑不了（写就时点 `dsh-watcher/node_modules` 不存在），也没有 registry 安装的后备路径。
+> **依赖来源**：通常在 `dsh-watcher/` 用 `pnpm install --frozen-lockfile` 按锁文件安装；只有在需要
+> 本地 DSH checkout 的开发链路时才运行 `link-harness-dependencies.mjs` 把官方包符号链接到
+> `node_modules`。两种路径都必须以 `pnpm run typecheck`、`pnpm test` 的实际结果为准；不能把
+> 旧的 `lib/` 预构建产物当作 clean build 证据。
 
 冷启动校验可用 `dshx start` / `dshx verify-boot`（走 `cordis.patch.yml`，**不要**用裸 pnpm/npm 直接拉起）。DESIGN.md 的质量门：`typecheck`、聚焦测试、`build`、`dshx check` 全过才可声明可用。
 
@@ -211,7 +220,7 @@ Session 事件流（assistant/chunk·reasoning-delta 等）
 
 1. **验收现状**（先证明你拿到的基线是绿的，再动手）：
    - 单元 A：`.\build.ps1 all` → 三步全绿，`bin\harness-evolution.exe` 生成（写就时点 T0/T1 已实测全绿，见 §2.2）。
-   - 单元 B：**有 checkout** → 按 §3.2 link 依赖后 `npm run typecheck && npm test`；**无 checkout** → 直接用预构建 `lib/` 走 §3.3 安装并验证 marker 与眼睛按钮（跳过 typecheck/test，并在交接记录里注明验证级别）。
+   - 单元 B：**有 checkout** → 按 §3.2 准备依赖后 `pnpm run typecheck && pnpm test`；**无 checkout** → 在有锁文件/网络的前提下 `pnpm install --frozen-lockfile` 后执行同样命令，或明确记录只使用预构建 `lib/` 的验证级别。
 2. **读契约**：根 `AGENTS.md`（角色边界）→ `CONTEXT.md`（词汇表/守卫/配置来源）→ 改 A 看 `DESIGN.md`；改 B 看 `dsh-watcher/DESIGN.md`。
 3. **改代码**：遵守 §2.4 架构不变量；A 侧任何变更跑三级验证，B 侧跑 §3.2 三条命令。
 4. **文档同步**：工具数量、用例数、默认值等数字改后逐字核对；发现新偏差登记进 §5。
@@ -224,12 +233,12 @@ Session 事件流（assistant/chunk·reasoning-delta 等）
 写就时点逐项核实过的偏差与陷阱。**修掉一项就删一项，新增一项就补一项。**
 
 1. **~~`cordis.patch.yml` 版本滞后~~（已修复）**：旧 patch 写 `version: "2.4.0"` 且整块是元数据映射（会触发 DSH `patch.insert?.forEach` 崩溃，ISSUE-01）。现改为挂载行方言（`insert: [{id, name, config}]`），不再携带版本/元数据，漂移随之消除。
-2. **~~`DSH_INTEGRATION.md` 描述的 3 个 MCP 工具未注册~~（已修复）**：`get_execution_plan` / `report_task_result` / `finalize_execution` 从未注册，`DSH_INTEGRATION.md` 已重写为真实挂载方式与 14 工具清单。`execute_evolution` 是**自包含**工具（内部跑完 DAG，返回 `{success, proposal_id, results}`，**不**返回 `task_dag` 供宿主编排），不要假设上述 3 个工具存在，也不要假设「宿主 subagent() 编排 task DAG」。
-3. **`record_tool_call` / `record_user_feedback` 是 monitor 内部 API**（`src/monitor/monitor.mbt`），**不是** MCP 工具；根 README「已知限制」一节所说的"无生产调用方"指的是这两个内部 API 的调用路径，不是注册工具。
+2. **~~`DSH_INTEGRATION.md` 描述的 3 个 MCP 工具未注册~~（已修复）**：`get_execution_plan` / `report_task_result` / `finalize_execution` 从未注册，`DSH_INTEGRATION.md` 已重写为真实挂载方式与 16 工具清单。`execute_evolution` 是**自包含**工具（内部跑完 DAG，返回 `{success, proposal_id, results}`，**不**返回 `task_dag` 供宿主编排），不要假设上述 3 个工具存在，也不要假设「宿主 subagent() 编排 task DAG」。
+3. **`record_tool_call` / `record_user_feedback` 是已注册的 MCP 注入面**（同时落到 `src/monitor/monitor.mbt` 的 monitor API）；它们不是“内部且未暴露”的 API，工具清单与面板/文档均按 16 个工具维护。
 4. **moon 多版本共存陷阱**：PATH 上可能并存旧版 moon（如 `0.1.20260713`，按旧布局找 `~/.moon/lib/runtime.c` 会直接报 `input ... runtime.c missing`）。`build.ps1` 已锚定 `~\.moon\bin\moon.exe` 并打印实际版本；绕过脚本裸跑 `moon` 时自行注意，必要时设 `MOON_EXE`。
 5. **PowerShell「假红」陷阱**（`build.ps1` 内注释有完整分析）：moon 把进度信息写 stderr，PS 在 `$ErrorActionPreference='Stop'` 下会把成功运行也包成终止错误；`| Select-Object -First 1` 会提前终止管道、掐断原生进程造成非零退出码。复刻脚本行为时以 `$LASTEXITCODE` 为唯一成败依据。
 6. **async 0.21.x 解析错误**：升级 `moonbitlang/async` 前见 §2.1；工具链升级后先复测 `moon check --deny-warn`。
-7. **本机无 DSH 源码 checkout**：`dsh-watcher` 从源码构建需自备 `0.1.2-rc.1` checkout；否则用预构建 `lib/`。`link-harness-dependencies.mjs` 对 checkout 是**只读**的（符号链接），但要求路径里存在 `tools/dshx/src/client-build.js`。
+7. **本机无 DSH 源码 checkout**：`dsh-watcher` 干净构建可使用已发布的 DSH `0.1.5-rc.2` 依赖；只有使用 `link-harness-dependencies.mjs` 的本地链接流程才需要 checkout（并可用 `0.1.6-alpha.1` 做回归）。该脚本对 checkout 是**只读**的，但要求路径里存在 `tools/dshx/src/client-build.js`。
 8. **`moon check` 必须带 `--deny-warn --target native`**：任何新警告都算 T0 失败（Validator 约定），不要为了绿灯去掉 `--deny-warn`。
 
 9. **HEAD 不是 fmt-clean**：当前工具链（moon 0.1.20260904）的 `moon fmt` 会重排全仓约 50 个未改动文件（换行样式、结构体字面量尾逗号等）——v2.6 提交时的「fmt 零 churn」结论对新工具链已失效。混跑 `moon fmt` 前先把功能 diff 提交干净，或事后回退无关 churn（v2.7 可视化首批即按此处理）；全仓统一格式化应单独走一个 `chore: fmt` 提交。
@@ -256,9 +265,12 @@ Session 事件流（assistant/chunk·reasoning-delta 等）
 | [`scripts/install-dsh.ps1`](scripts/install-dsh.ps1) | 安装入口（按树注入挂载行；**改它必跑下面的回归**） |
 | [`scripts/test-install-dsh.ps1`](scripts/test-install-dsh.ps1) | 安装器回归套件（7 场景，临时树；`PASS: 7/7`） |
 | [`scripts/test-patch-layer.mjs`](scripts/test-patch-layer.mjs) | patch 层合法性验证器（用**宿主的 `js-yaml`**） |
+| [`scripts/verify-workspace.mjs`](scripts/verify-workspace.mjs) | 全工作区 clean/test/package/桌面共存总门禁 |
+| [`scripts/test-dsh-mcp-coexistence.mjs`](scripts/test-dsh-mcp-coexistence.mjs) | 隔离桌面 DSH 双 MCP namespace smoke（`--no-open`，不启动浏览器；用 `DSH_CLI` / `DSH_REGRESSION_CLI` 指定两版 CLI） |
 
 ---
 
-*本文由接手交接流程生成于 v2.6.0 基线；2026-09-22 兼容性复验后刷新了 §2.2 的门禁基线与守卫表。
+*本文由接手交接流程生成于 v2.6.0 基线；2026-09-25 兼容性修复后刷新了桌面 smoke、面板/watcher 产物契约与门禁基线。
 文中所有命令、路径、版本均按写就时点仓库实况逐项核实。当前实测：单元 A 的 T0
-（`moon check --deny-warn --target native`）零错零警、T1（454/454）、安装器回归（7/7）。*
+（`moon check --deny-warn --target native`）零错零警、T1（457/457）、安装器回归（7/7）、
+面板 20/20、watcher 88 passed / 0 failed / 2 skipped。*

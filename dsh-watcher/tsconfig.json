@@ -3,6 +3,8 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
@@ -12,7 +14,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "outDir": "./lib",
+    "outDir": "./lib/types",
     "rootDir": "./src",
     "types": ["react", "react-dom"]
   },

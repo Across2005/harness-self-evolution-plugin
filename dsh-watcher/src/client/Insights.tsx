@@ -7,6 +7,11 @@ import css from './Insights.module.css'
 import { TimingPanel } from './TimingPanel.tsx'
 
 type Limits = { silenceSeconds: number; reasoningSeconds: number }
+type ScanSessionsResult = { rows: any[]; total: number; selected: number }
+const scanSessionsTyped = scanSessions as unknown as (
+  remote: unknown,
+  options?: { signal?: AbortSignal; limit?: number },
+) => Promise<ScanSessionsResult>
 const STORAGE = 'dsh-watcher:insights-display:v1'
 
 function readLimits(): Limits {
@@ -168,7 +173,7 @@ export function InsightsSettings(props: { remote?: any }) {
     if (!props.remote) return
     let active = true
     setLoading(true)
-    scanSessions(props.remote, { limit: 100 })
+    scanSessionsTyped(props.remote, { limit: 100 })
       .then(res => {
         if (active) {
           setSessions(res)
@@ -194,7 +199,7 @@ export function InsightsSettings(props: { remote?: any }) {
   const refresh = () => {
     if (!props.remote || loading) return
     setLoading(true)
-    scanSessions(props.remote, { limit: 100 })
+    scanSessionsTyped(props.remote, { limit: 100 })
       .then(setSessions)
       .catch(console.error)
       .finally(() => setLoading(false))

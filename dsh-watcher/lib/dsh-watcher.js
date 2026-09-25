@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
 //#region src/insights/engine.mjs
-/** Read-only DSH 0.1.2-rc.1 log fold. No prompt, reasoning or tool body is retained. */
+/** Read-only DSH 0.1.5-rc.2 log fold (0.1.6-alpha.1 regression). No prompt, reasoning or tool body is retained. */
 const record = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const count = (v) => Number.isSafeInteger(v) && v >= 0;
 const elapsed = (start, end) => start === null ? 0 : Math.max(0, end - start);
@@ -166,7 +166,7 @@ function settle(s, time, usage, source) {
 	}
 	s.open = null;
 }
-const interesting = new Set([
+const interesting = /* @__PURE__ */ new Set([
 	"request/header",
 	"user/message",
 	"turn/start",
@@ -235,16 +235,17 @@ function reduceEvent(state, event) {
 		if (s.open) settle(s, event.time, null, null);
 		begin(s, d, event.time);
 		if (s.turn) s.turn.steps++;
-	} else if (event.type === "assistant/chunk") if (c.type === "usage") s.open.usage = normalizeUsage(c.usage);
-	else {
-		s.open.first ??= event.time;
-		s.open.lastContentAt = event.time;
-		if (c.type === "reasoning-delta") {
-			s.open.reasoningFirst ??= event.time;
-			s.open.reasoningLast = event.time;
+	} else if (event.type === "assistant/chunk") {
+		if (c.type === "usage") s.open.usage = normalizeUsage(c.usage);
+		else {
+			s.open.first ??= event.time;
+			s.open.lastContentAt = event.time;
+			if (c.type === "reasoning-delta") {
+				s.open.reasoningFirst ??= event.time;
+				s.open.reasoningLast = event.time;
+			}
 		}
-	}
-	else if (event.type === "assistant/message") {
+	} else if (event.type === "assistant/message") {
 		if (s.open?.turn === d.turn && s.open.step === d.step) settle(s, event.time, d.usage, d.message?.source);
 	} else if (event.type === "llm/retry") {
 		if (s.open?.turn === d.turn && s.open.step === d.step) {
@@ -507,3 +508,5 @@ function apply(ctx) {
 }
 //#endregion
 export { apply, inject, name };
+
+//# sourceMappingURL=dsh-watcher.js.map

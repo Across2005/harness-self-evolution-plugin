@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { readEvolutionView, rootSignature, type ReadOptions } from './host/runtime-read.ts'
 import type { EvolutionView } from './host/view.ts'
 
@@ -51,8 +52,55 @@ export function createRuntimePoller(
 
 /** Default data root, mirroring unit A store/paths.mbt (single source of truth). */
 export function defaultDataRoot(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.HARNESS_EVOLUTION_HOME
-  if (override !== undefined && override !== '') return override
-  const home = env.HOME ?? env.USERPROFILE ?? '~'
-  return `${home.replace(/\\/g, '/')}/.harness-evolution/v2`
+  const home = homeDirectory(env)
+  const override = expandHome(env.HARNESS_EVOLUTION_HOME?.trim() ?? '', home)
+  if (override !== '') return normalizePath(override)
+
+  // MCP children and the panel host must resolve the same tree. The installer
+  // writes HARNESS_EVOLUTION_HOME explicitly; the remaining fallback mirrors
+  // paths.mbt: DSH_HOME, profile-install path arithmetic, then ~/.dsh.
+  const configured = expandHome(env.DSH_HOME?.trim() ?? '', home)
+  const dshHome = isAbsolutePath(configured)
+    ? normalizePath(configured)
+    : installedDshHome() ?? `${normalizePath(home)}/.dsh`
+  // Read-only host adapter; the MoonBit writer remains the single write-side
+  // definition in store/paths.mbt. Keep this suffix mirrored and covered by
+  // runtime-read parity tests so both sides resolve the same DSH tree.
+  return `${dshHome}/.harness-evolution/v2`
+}
+
+function homeDirectory(env: NodeJS.ProcessEnv): string {
+  return env.HOME || env.USERPROFILE || process.cwd()
+}
+
+function expandHome(path: string, home: string): string {
+  if (path === '~') return home
+  if (path.startsWith('~/') || path.startsWith('~\\')) {
+    return `${home}/${path.slice(2)}`
+  }
+  return path
+}
+
+export function installedDshHome(
+  candidates: string[] = [process.cwd(), fileURLToPath(import.meta.url)],
+): string | undefined {
+  for (const candidate of candidates) {
+    const match = normalizePath(candidate).match(/^(.*?)\/profiles\/[^/]+\/node_modules\/.+(?:\/|$)/)
+    if (!match) continue
+    const prefix = match[1] || '/'
+    if (isAbsolutePath(prefix)) return prefix
+    if (/^[A-Za-z]:$/.test(prefix)) return `${prefix}/`
+  }
+  return undefined
+}
+
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
+}
+
+function normalizePath(path: string): string {
+  const slashed = path.replace(/\\/g, '/')
+  const prefix = slashed.startsWith('//') ? '//' : slashed.startsWith('/') ? '/' : ''
+  const segments = slashed.split('/').filter((segment) => segment.length > 0)
+  return prefix + segments.join('/')
 }

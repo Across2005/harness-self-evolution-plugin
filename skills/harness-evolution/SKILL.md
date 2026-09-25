@@ -1,7 +1,7 @@
 ---
 name: harness-evolution
 description: DeepSeek Harness 全盘自进化升级插件。扫描所有插件，监控性能，基于 Matt Pocock 原则生成进化提案，通过子 Agent 协同完成升级。当用户需要优化插件性能、简化接口、改进文档或扩展能力时使用。
-version: 3.2.0
+version: 3.2.1
 ---
 
 # Harness Self-Evolution
@@ -20,7 +20,7 @@ version: 3.2.0
 - **信号触发**：检测到强信号或累积中信号时，经 `propose_evolution` 生成提案（信号强度门槛由 `intensity` 配置决定）
 
 > ⚠️ **启动时并不会自动扫描**。本插件是 stdio MCP 服务器，只在被调用时工作：
-> 扫描靠 `scan_plugins` 工具（客户端启动时调一次即可建立档案），
+> 扫描靠 `scan_plugins` 工具（首次工具调用时建立档案），
 > 不存在「启动即扫描全部插件」的自动行为。
 
 ### 手动触发
@@ -31,7 +31,7 @@ version: 3.2.0
 
 ## 工作流程
 
-### Phase 1 - 启动扫描 (Scanner)
+### Phase 1 - 工具触发扫描 (Scanner)
 
 **目标**：发现并分析所有 harness 插件
 
@@ -453,7 +453,7 @@ browser-use-0.4.1 进化分析：
 
 - **只读扫描**：Scanner 不修改任何插件代码
 - **审批强制**：所有进化必须用户确认
-- **回滚保留**：原版本保留 30 天
+- **回滚边界**：当前只回滚提案状态；原版本文件回滚与保留待 transactional adapter
 - **沙箱测试**：升级在隔离环境验证
 - **权限最小**：仅访问必要目录和事件
 

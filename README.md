@@ -1,6 +1,6 @@
 # Harness Self-Evolution Plugin
 
-A MoonBit-native plugin that scans, monitors, proposes, and rolls back evolutions for the DeepSeek Harness (DSH) plugin ecosystem. Version 3.2.0. MIT.
+A MoonBit-native plugin that scans, monitors, proposes, and validates evolutions for the DeepSeek Harness (DSH) plugin ecosystem. Version 3.2.1. MIT.
 
 This plugin targets DeepSeek Harness. Deployment hinges on how DSH launches the binary, where data is read and written, and which files (patches, manifests, panels) sit alongside the binary.
 
@@ -8,7 +8,7 @@ This plugin targets DeepSeek Harness. Deployment hinges on how DSH launches the 
 
 DSH resolves its home via `$DSH_HOME` (`~/.dsh` by default; a managed launcher may point it
 elsewhere). The plugin mirrors that: user-scope sub-agent definitions land under
-`<DSH home>/skills/`. Full install, verification, and rollback:
+`<DSH home>/skills/`. Full install, verification, and recovery guidance:
 [docs/deploy/deepseek-harness.md](docs/deploy/deepseek-harness.md).
 
 Since v3.0.0 the plugin is **DSH-only**: the earlier claim of MiniMax Code compatibility was a
@@ -23,7 +23,7 @@ If you are **writing or debugging a DSH plugin** rather than deploying this one,
 - **Identify** strong signals (user override, three consecutive failures, > 20% latency regression) and medium signals (repeated parameter misuses, loop detection, repeated preferences)
 - **Propose** benchmark-driven evolutions bound to Matt Pocock engineering principles
 - **Approve** is always a human step. `auto_approve` is `false` by default and stays `false` — the only gate against "code changes itself into a wall"
-- **Execute** with state machine `pending → approved → executing → completed`, with deterministic rollback from a verified snapshot on validator failure
+- **Execute** with state machine `pending → approved → executing → completed`; real execution stays fail-closed until a transactional sandbox adapter exists, while failed validation returns the proposal to `pending`
 - **Sub-agent factory** persists Markdown + YAML frontmatter definitions; scope `plugin` lives under the plugin's data root, scope `user` lives under `<DSH home>/skills/` (see the deploy guide)
 
 ## Architecture in one paragraph
@@ -45,9 +45,17 @@ See [docs/code-architecture.md](docs/code-architecture.md) for the path-resoluti
 
 Build prerequisites: MoonBit `>=0.1.20260904`, MSVC or Clang on Linux/macOS. The current binary in `bin/harness-evolution.exe` is Windows-native; rebuilding on the target platform produces a native binary for that platform.
 
+The complete workspace gate also runs panel/watcher builds and an isolated desktop coexistence smoke without opening a browser:
+
+```powershell
+$env:DSH_CLI = 'C:\\path\\to\\dsh-0.1.5-rc.2\\lib\\bin.js'
+$env:DSH_REGRESSION_CLI = 'C:\\path\\to\\dsh-0.1.6-alpha.1\\lib\\bin.js'
+node scripts/verify-workspace.mjs
+```
+
 ## Data and configuration
 
-The plugin stores proposals, metrics, signals, cache, and execution log under `$HARNESS_EVOLUTION_HOME` (default `~/.harness-evolution/v2/`). Override with the env var to keep dev/test data separate.
+The plugin stores proposals, metrics, signals, cache, and execution log under `$HARNESS_EVOLUTION_HOME` when set; otherwise it uses the current DSH tree at `<DSH_HOME>/.harness-evolution/v2/` (with the host-compatible `~/.dsh` fallback only when no DSH tree can be resolved). Override the env var to keep dev/test data separate.
 
 Configuration is read in this order, first file that exists wins:
 
@@ -96,7 +104,7 @@ own tree from the install path, so `create_sub_agent scope=user` lands in `<DSH 
 > pwsh -File scripts/test-install-dsh.ps1     # 7 scenarios; writes only to a temp tree
 > ```
 
-Full install, verification, and rollback: [docs/deploy/deepseek-harness.md](docs/deploy/deepseek-harness.md);
+Full install, verification, and recovery guidance: [docs/deploy/deepseek-harness.md](docs/deploy/deepseek-harness.md);
 the live-install practice (multi-home reality, `.dsh-module-fallback` pitfalls):
 [docs/dsh-compatibility.md](docs/dsh-compatibility.md).
 

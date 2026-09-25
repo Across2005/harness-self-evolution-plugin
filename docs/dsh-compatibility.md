@@ -1,8 +1,8 @@
 # DSH 插件兼容性：成功实践、兼容原理与路径收拢方法论
 
 > 本文档沉淀 2026-09-17 对 `harness-self-evolution-plugin`（MoonBit 编译的原生 stdio MCP
-> server，v2.6.0）与 DeepSeek Harness 0.1.6-alpha.1 的兼容性修复全过程，
-> 并在 **2026-09-22 独立复验**后补入三处新接缝（§2.5–2.7）与一条阻塞缺陷的修复记录（§5.5）。
+> server，v2.6.0）的兼容性修复过程；当前基线为 DSH `0.1.5-rc.2`，
+> `0.1.6-alpha.1` 作为回归目标保留。2026-09-22 的独立复验仍作为历史记录保留。
 >
 > 七部分：① 成功实践记录（2026-09-17 的三处接缝修复）；② 为什么兼容（DSH 底层契约，
 > 含 2026-09-22 新增的启动成败分级 / 安装器产物合法性 / 包元数据声明性）；
@@ -28,7 +28,7 @@
 | # | 严重度 | 问题 | 根因（一句话） |
 |---|--------|------|----------------|
 | ISSUE-01 | P0 | `dsh plugin add` 后整个 profile 崩溃 | 根 `cordis.patch.yml` 把「元数据映射」塞进 `insert`，`patch.insert?.forEach` 抛 TypeError |
-| ISSUE-02 | P1 | patch 与 plugin.json 元数据漂移 | patch 写 v2.4.0/10 工具，实际 v2.6.0/14 工具 |
+| ISSUE-02（历史） | P1 | patch 与 plugin.json 元数据漂移 | patch 写 v2.4.0/10 工具，实际 v2.6.0/14 工具 |
 | ISSUE-03 | P1 | 宿主目录模型错位 | 假设 `~/.deepseek/harness/**`，真实是 `~/.dsh/**` |
 | ISSUE-04 | P1 | 能力模型与 README 承诺不符 | 文档虚构「subagent 三件套」等不存在的 DSH 能力 |
 | ISSUE-05 | P2 | watcher/panel 两个 TS 子插件未测 | 从未参与实测 |
@@ -44,11 +44,11 @@
 2. **宿主目录模型修正**（ISSUE-03）：`src/store/paths.mbt` 把 DSH user 作用域目录从
    `~/.deepseek/harness/agents/` 改为 `<DSH home>/skills/`（现由 `dsh_agents_dir()`/`dsh_home()` 解析）；
    新增 `HARNESS_EVOLUTION_USER_DIR` 显式覆盖；扫描根 `~/.deepseek/harness/*` → `~/.dsh/profiles/`。
-3. **元数据对齐**（ISSUE-02/04）：`engines` 键统一为 DSH 自己的 `engines.dsh`（`>=0.1.6`，
+3. **元数据对齐**（ISSUE-02/04）：`engines` 键统一为 DSH 自己的 `engines.dsh`（`>=0.1.5-rc.2 <0.1.6 || >=0.1.6-alpha.1 <0.2.0`，
    `package.json` 与 `.dsh-plugin/plugin.json` 一致；见 §2.7），`files` 补上 exe 与配置；
    `plugin.json` 的 `scan_targets` 对齐。
 4. **文档对齐**（ISSUE-04/06）：README / DSH_INTEGRATION / BUILD / CONTEXT / DESIGN / SKILL /
-   docs 全部改为「14 工具 + 真实挂载方式 + 监控边界如实声明」，删除虚构的
+   docs 全部改为「16 工具 + 真实挂载方式 + 监控边界如实声明」，删除虚构的
    `get_execution_plan` / `report_task_result` / `finalize_execution` 三件套。
 5. **回归测试同步**（ISSUE-03）：`store_wbtest.mbt` S6 网改断言并新增
    `HARNESS_EVOLUTION_USER_DIR` 覆盖用例；`architecture_test.mbt` G5b 守卫 432→434（S14 用例 + 验证矩阵用例）。
@@ -79,7 +79,7 @@ delete_sub_agent(user)→ 清理成功
 
 ---
 
-## 二、为什么兼容（DSH 0.1.6 底层契约）
+## 二、为什么兼容（DSH 0.1.5-rc.2 基线，0.1.6-alpha.1 回归）
 
 兼容不是「碰巧能跑」，而是三处接缝与宿主的真实契约对齐。理解这三层，就能判断任何
 DSH 插件的兼容性。
@@ -240,13 +240,14 @@ YAML 不允许同一层级上 flow 序列后接**块序列项**；旧代码把 `
 | 字段 | 真实地位 | 依据 |
 |---|---|---|
 | `dsh.bundle.patch` | **唯一**让包进入 profile 层栈的钥匙，宿主**真的读** | `dsh-app-boot` 的 `loadProfileDirectory` → `resolveBundleDir` |
-| `engines.dsh` | **声明性**，宿主**不校验**。名字以 DSH 自己的 `DshEnginesManifest.dsh` 为准 | `@deepseek-ai/dsh-package-manifest/lib/types/types.d.ts:37-46`；其 README §91 明说「installers and loaders do not enforce … `engines.dsh`」 |
+| `engines.dsh` | app-boot 的 loader/install 路径**不把**它当作挂载门禁；DSH GUI 的 marketplace/plugin upgrade compatibility 检查会调用 `satisfiesRange` 做范围判断 | `@deepseek-ai/dsh-package-manifest/lib/types/types.d.ts:37-46`；GUI `out/main/index.js` 的 `inferPluginRuntimeCompatibility` |
 | `engines.deepseek-harness` | **不是**宿主定义的键名（只是 index signature 兜住的任意键） | 同上 |
 | `.dsh-plugin/plugin.json` 整体 | 本插件**自用**的自描述文件，宿主不读 | 本插件 `src/` 自己解析 |
 
 **纪律**：`engines` 统一写 `dsh`（本仓库 2026-09-22 已从 `deepseek-harness` 改齐），
-并在文档里如实标注「声明性、宿主当前不校验」——**不要**把声明性字段描述成运行时契约。
-这是 §2.5 那条纪律的另一个面：**名字不等于行为**。
+并明确区分两个消费面：profile loader/install 路径不以该字段作挂载门禁；GUI 的
+marketplace/plugin upgrade compatibility 检查会按 `satisfiesRange` 判断范围。不要把
+「loader 不执行」扩大成「整个 DSH 都不读取」——**名字不等于行为**。
 
 ---
 
@@ -303,7 +304,7 @@ dsh plugin --profile web add "<repo>"                     # exit 0
 pwsh -File scripts/install-dsh.ps1 -Profile web            # 注入挂载行（先加 -DryRun 看将写入什么）
 dsh --profile web --dump-config                            # exit 0，无崩溃；该行 disabled 为 false
 # boot 新端口 → stderr 见 "[HarnessEvolution] Server started"
-# 会话内 / 目录含 mcp__harness-evolution__* 14 工具
+# 会话内 / 目录含 mcp__harness-evolution__* 16 工具
 
 # ④ 端到端（宿主 Agent 直调）
 scan_plugins → propose_evolution(带 signals) → approve_proposal → execute_evolution → list_proposals
@@ -398,7 +399,7 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
    面板若破坏合成立即 `remove` 回退（本次未触发）。
 3. **重启 host** 才生效——`bundles` 只在 boot 时读取（见 5.3）。
 4. 生效判据：会话内 16 个 `mcp__harness-evolution__*` 可调；`get_runtime_snapshot` 返回 `root`
-   与 `data_gaps`（本机实测数据根 `~/.harness-evolution/v2`，缓存 61 个插件）。
+   与 `data_gaps`（本机实测数据根 `<DSH_HOME>/.harness-evolution/v2`，缓存 61 个插件）。
 5. 装之前先在**隔离 DSH_HOME** 里预演一遍（含 `--store-dir` 指到工作区内、真 boot 到备用端口），
    确认「插件 + 面板」这个组合能 boot，再动宿主正用的那棵树。
 
@@ -412,8 +413,9 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
    （profile 侧 junction 会悬空）；清悬空链接用 `rmdir`（删链不删目标），不要 `Remove-Item -Recurse`。
 3. **同一个 exe 可能被多个宿主实例同时拉起**：实测本机曾同时存在两个
    `harness-evolution.exe` 进程（一个由 DSH web host 拉起，一个由已移除的 MiniMax Code
-   兼容路径拉起）。两者默认共用同一数据根——需要隔离时给各自设不同的
-   `HARNESS_EVOLUTION_HOME`。（v3.0.0 起只剩 DSH 一条路径。）
+   兼容路径拉起）。在当前实现中，每个宿主树默认使用自己的
+   `<DSH_HOME>/.harness-evolution/v2`；只有显式把多个实例指向同一个
+   `HARNESS_EVOLUTION_HOME` 时才会共用数据根。（v3.0.0 起只剩 DSH 一条路径。）
 
 ### 5.4 判据纪律（本次新增）
 
@@ -422,9 +424,9 @@ dsh plugin --profile web remove "@across2005/harness-self-evolution"
 
 ---
 
-### 5.5 复验记录三（2026-09-22）：一条被漏掉的致命路径
+### 5.5 历史复验记录三（2026-09-22，DSH 0.1.6-alpha.1）：一条被漏掉的致命路径
 
-**复验结论**：协议层、传输层、工具面、构建层与 DSH 0.1.6-alpha.1 完全兼容，
+**历史复验结论（仅适用于当时的 0.1.6-alpha.1 环境）**：协议层、传输层、工具面、构建层与 DSH 0.1.6-alpha.1 完全兼容，
 v3.1 的路径可移植化设计在真实条件下端到端成立。但复验在**安装器**里发现一个阻塞缺陷。
 
 | 项 | 内容 |
@@ -434,6 +436,13 @@ v3.1 的路径可移植化设计在真实条件下端到端成立。但复验在
 | 触发条件 | **默认状态**：`[]` + 注释正是 DSH 为每个新 profile 生成的模板 |
 | 根因 | 把「`[]`」误判为「空文件」（`Test-HasRealContent` 里那句 `if ($t -eq '[]') { continue }`） |
 | 修法 | 先整行删 `[]` 再判定追加/新建；加写前守卫；加 7 场景回归套件（§2.6） |
+
+> **当前基线说明（2026-09-25）**：GUI DSH `0.1.5-rc.2` 是当前基线，`0.1.6-alpha.1` 是回归目标；
+> 两者均由 `scripts/verify-workspace.mjs` 传入 `DSH_CLI` / `DSH_REGRESSION_CLI`，
+> 串行通过 `scripts/test-dsh-mcp-coexistence.mjs` 的隔离桌面启动与双 MCP namespace smoke
+> （`--no-open`，不打开浏览器）。`mcp-headroom` 使用确定性的外部 server stand-in，不宣称
+> 已安装真实 `mcp-headroom` 包。上面的 0.1.6 端到端结论保留为历史记录，不能替代
+> 当前基线的 clean build、panel/watcher 产物契约和安装器回归实测。
 
 **同时更正的两处文档失真**（都是「名字 ≠ 行为」）：
 

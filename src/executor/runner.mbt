@@ -121,82 +121,24 @@ pub async fn hanging_task(task : @types.SubAgentTask) -> Json {
 ///|
 /// 真实进程执行器（环境变量驱动，M7）。
 ///
-/// **环境变量**：
-/// - `HARNESS_EVOLUTION_AGENT_CMD`：命令模板，支持 `{prompt}` 与 `{input}` 占位符。
-///   示例：`node agent.js --task {prompt}`。`{prompt}` 是任务描述，
-///   `{input}` 是任务输入（JSON 序列化）。**未设置时回退模拟实现**。
-/// - `HARNESS_EVOLUTION_WORKDIR`：子进程 cwd（可选；缺省继承本进程 cwd）。
+/// **安全闸门**：当前生产装配仍使用这个兼容入口，但真实子进程没有被
+/// transactional adapter 包住。子进程可以绕过 `sandbox_atomic_write`，
+/// 因此 `PreCheckResult.modified_paths` 不会记录新文件、删除或任意写入。
+/// 在可信 mutation manifest / 临时 worktree 适配器落地前，设置
+/// `HARNESS_EVOLUTION_AGENT_CMD` 会明确失败，而不是把不可回滚的执行伪装成
+/// 「已回滚」。未设置时仍走模拟实现，旧测试与默认行为不变。
 ///
-/// **执行**：`@process.collect_output`；退出码非 0 → `raise Failure`（含 stderr 截断），
-/// 由 executor 既有回滚路径接管。成功返回带 `simulated: false` 的结果摘要。
+/// `HARNESS_EVOLUTION_WORKDIR` 仍被 real_validation 使用；它不代表任务 runner
+/// 已获得写入边界或回滚能力。
 ///
 /// MoonBit async **不用 `await` 关键字**：async 函数直接调用（见 server.mbt）。
 pub async fn process_task(task : @types.SubAgentTask) -> Json {
-  let cmd_template = match @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD") {
-    Some(cmd) if cmd.trim() != "" => cmd
-    _ => return simulated_task(task)
-  }
-
-  // {prompt} = 任务描述 + 换行 + input 的 JSON；哨兵保证多词只占一个 argv 槽
-  let input = task.input.stringify()
-  let prompt_body = task.task + "\n" + input
-  let prompt_sent = "<<EVO_PROMPT>>"
-  let input_sent = "<<EVO_INPUT>>"
-  let prepared = cmd_template.replace(old="{prompt}", new=prompt_sent).replace(
-    old="{input}",
-    new=input_sent,
-  )
-  let (program0, args0) = match tokenize_command(prepared) {
-    Some(pair) => pair
-    None => raise Failure("empty agent command after placeholder expansion")
-  }
-  let program = program0.replace(old=prompt_sent, new=prompt_body).replace(
-    old=input_sent,
-    new=input,
-  )
-  let args : Array[String] = []
-  for a in args0 {
-    args.push(a.replace(old=prompt_sent, new=prompt_body).replace(
-      old=input_sent,
-      new=input,
-    ))
-  }
-  let cwd = match @env.get_env_var("HARNESS_EVOLUTION_WORKDIR") {
-    Some(w) if w.trim() != "" => Some(w)
-    _ => None
-  }
-  let (exit_code, stdout, stderr) = match cwd {
-    Some(w) =>
-      @process.collect_output(
-        program,
-        args,
-        cwd=w,
-        no_console_window=true,
+  match @env.get_env_var("HARNESS_EVOLUTION_AGENT_CMD") {
+    Some(cmd) if cmd.trim() != "" =>
+      raise Failure(
+        "real sub-agent execution is disabled: HARNESS_EVOLUTION_AGENT_CMD requires a transactional sandbox adapter",
       )
-    None =>
-      @process.collect_output(
-        program,
-        args,
-        no_console_window=true,
-      )
-  }
-  let out_text = stdout.text()
-  let err_text = stderr.text()
-  if exit_code != 0 {
-    raise Failure(
-      "agent process failed (exit \{exit_code}): \{clip_fail(err_text, out_text)}",
-    )
-  }
-  let out_clip = if out_text.length() > 2000 {
-    out_text[out_text.length() - 2000 :].to_owned()
-  } else {
-    out_text
-  }
-  {
-    "simulated": false,
-    "exit_code": Json::number(exit_code.to_double()),
-    "task": Json::string(task.task),
-    "stdout_tail": Json::string(out_clip),
+    _ => simulated_task(task)
   }
 }
 
@@ -212,42 +154,16 @@ fn clip_fail(err_text : String, out_text : String) -> String {
 }
 
 ///|
-/// 把展开后的命令行拆成 `(program, args)`：支持双引号包裹的参数。
-/// 找不到 program 时返回 `None`。
-fn tokenize_command(line : String) -> (String, Array[String])? {
-  let tokens : Array[String] = []
-  let mut current = ""
-  let mut in_quotes = false
-  let mut has_token = false
-  for c in line {
-    if c == '"' {
-      in_quotes = !in_quotes
-      has_token = true
-    } else if (c == ' ' || c == '\t') && !in_quotes {
-      if has_token {
-        tokens.push(current)
-        current = ""
-        has_token = false
-      }
-    } else {
-      current = current + c.to_string()
-      has_token = true
-    }
-  }
-  if has_token {
-    tokens.push(current)
-  }
-  if tokens.length() == 0 {
-    None
-  } else {
-    let program = tokens[0]
-    let args : Array[String] = []
-    let mut i = 1
-    while i < tokens.length() {
-      args.push(tokens[i])
-      i = i + 1
-    }
-    Some((program, args))
+/// Choose a T2 result without evaluating the fallback on the success path.
+/// Kept as a small test seam because the production fallback is a process
+/// launch, not a value that can be inspected after eager evaluation.
+async fn choose_t2_result(
+  primary : Result[(Int, String, String), String],
+  fallback : async () -> Result[(Int, String, String), String],
+) -> (Result[(Int, String, String), String], Bool) {
+  match primary {
+    Ok(t) if t.0 == 0 => (Ok(t), false)
+    _ => (fallback(), true)
   }
 }
 
@@ -288,7 +204,7 @@ pub async fn real_validation(
     @types.ValidationLevelTag::T2 =>
       ("pwsh", ["-File", "build.ps1", "-Task", "all"])
   }
-  let mut used = "\{program} \{args.join(" ")}"
+  let initial_used = "\{program} \{args.join(" ")}"
   // spawn 失败（假 cwd / 找不到程序）会 raise —— 收口成验证失败，不逃逸。
   let collect0 : Result[(Int, String, String), String] = Ok(
     {
@@ -312,40 +228,50 @@ pub async fn real_validation(
   ) catch {
     e => Err(e.to_string())
   }
-  let mut ran = match collect0 {
+  let (ran, used) = match level {
+    @types.ValidationLevelTag::T2 => {
+      // Windows 常无 pwsh；命令缺失与任意非 0 都必须再试 powershell。
+      // The fallback is a thunk so a successful pwsh never launches powershell.
+      let fallback_args = ["-NoProfile", "-File", "build.ps1", "-Task", "all"]
+      let (result, used_fallback) = choose_t2_result(
+        collect0,
+        async fn() {
+          let collect_fb : Result[(Int, String, String), String] = Ok(
+            {
+              let t = match cwd {
+                Some(w) =>
+                  @process.collect_output(
+                    "powershell",
+                    fallback_args,
+                    cwd=w,
+                    no_console_window=true,
+                  )
+                None =>
+                  @process.collect_output(
+                    "powershell",
+                    fallback_args,
+                    no_console_window=true,
+                  )
+              }
+              (t.0, t.1.text(), t.2.text())
+            },
+          ) catch {
+            e => Err(e.to_string())
+          }
+          collect_fb
+        },
+      )
+      if used_fallback {
+        (result, "powershell \{fallback_args.join(" ")}")
+      } else {
+        (result, initial_used)
+      }
+    }
+    _ => (collect0, initial_used)
+  }
+  let ran = match ran {
     Ok(t) => t
     Err(msg) => return (false, "\{tag} failed via \{used}: \{msg}")
-  }
-  if level == @types.ValidationLevelTag::T2 && ran.0 != 0 {
-    // Windows 常无 pwsh；任意非 0 再回落 powershell（同一任务）
-    let fallback_args = ["-NoProfile", "-File", "build.ps1", "-Task", "all"]
-    let collect_fb : Result[(Int, String, String), String] = Ok(
-      {
-        let t = match cwd {
-          Some(w) =>
-            @process.collect_output(
-              "powershell",
-              fallback_args,
-              cwd=w,
-              no_console_window=true,
-            )
-          None =>
-            @process.collect_output(
-              "powershell",
-              fallback_args,
-              no_console_window=true,
-            )
-        }
-        (t.0, t.1.text(), t.2.text())
-      },
-    ) catch {
-      e => Err(e.to_string())
-    }
-    ran = match collect_fb {
-      Ok(t) => t
-      Err(msg) => return (false, "\{tag} failed via powershell: \{msg}")
-    }
-    used = "powershell \{fallback_args.join(" ")}"
   }
   let (exit_code, out_text, err_text) = ran
   if exit_code == 0 {

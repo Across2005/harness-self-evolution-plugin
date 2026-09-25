@@ -589,11 +589,28 @@ test "DataPaths lays out all five files under one root" {
 }
 
 ///|
-/// 默认根目录必须是 `v2` 子目录 —— 决策 D13：
-/// 与 v1 的数据结构不兼容，故并存而不覆盖。
-test "DataPaths::default targets the v2 subdirectory" {
+/// 默认根目录必须是 DSH tree 下的 v2 子目录 —— 决策 D13：
+/// 与 v1 的数据结构不兼容，故并存而不覆盖；显式 HARNESS_EVOLUTION_HOME
+/// 仍可覆盖该树级默认值。
+test "DataPaths::default targets the v2 subdirectory of the DSH tree" {
+  let saved_home = @env.get_env_var("DSH_HOME")
+  let saved_data_home = @env.get_env_var("HARNESS_EVOLUTION_HOME")
+  @env.unset_env_var("HARNESS_EVOLUTION_HOME")
+  @env.set_env_var("DSH_HOME", "C:/tmp/evo-data-home")
   let paths = DataPaths::default()
-  assert_true(paths.root().has_suffix(".harness-evolution/v2"))
+  assert_true(paths.root().has_suffix("/.harness-evolution/v2"))
+  assert_true(paths.root().contains("C:/tmp/evo-data-home"))
+  @env.set_env_var("HARNESS_EVOLUTION_HOME", "C:/tmp/explicit-data-home")
+  let explicit = DataPaths::default()
+  assert_true(explicit.root().has_suffix("/explicit-data-home"))
+  match saved_data_home {
+    Some(v) => @env.set_env_var("HARNESS_EVOLUTION_HOME", v)
+    None => @env.unset_env_var("HARNESS_EVOLUTION_HOME")
+  }
+  match saved_home {
+    Some(v) => @env.set_env_var("DSH_HOME", v)
+    None => @env.unset_env_var("DSH_HOME")
+  }
 }
 
 ///|
@@ -1154,6 +1171,15 @@ async test "dsh home is derived from an install path under profiles" {
   assert_eq(
     dsh_home_from_profile_path("//server/share/.dsh/profiles/web/node_modules/pkg"),
     Some("//server/share/.dsh"),
+  )
+  // POSIX 根与盘符根也必须保留根语义
+  assert_eq(
+    dsh_home_from_profile_path("/profiles/web/node_modules/pkg"),
+    Some("/"),
+  )
+  assert_eq(
+    dsh_home_from_profile_path("C:/profiles/web/node_modules/pkg"),
+    Some("C:/"),
   )
   // 宿主树本身也可以是多段（managed launcher 的 `<pluginData>/dsh-home`）
   assert_eq(

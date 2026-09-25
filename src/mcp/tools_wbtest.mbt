@@ -1615,6 +1615,7 @@ async test "unknown evolve/manage actions become isError with wire-driven hints"
 async test "v2.3 merged tools fall back to their schema defaults when arguments are omitted" {
   let tmp = @fs.tmpdir(prefix="evo-mcp-")
   defer @fs.rmdir(tmp, recursive=true)
+  seed_plugin(tmp)
   let state = isolated_state(tmp)
   // factory 重指向临时目录：缺省 list 会扫两个作用域，不能碰真实宿主用户目录
   let state = {
@@ -1649,6 +1650,55 @@ async test "v2.3 merged tools fall back to their schema defaults when arguments 
   assert_eq(
     obj(tool_payload(analyzed)).get("error"),
     Some(Json::string("plugin_id is required for metrics/both mode")),
+  )
+
+  // analyze_plugins 不能丢掉 scan_plugins 的完整响应：scan 直接透传
+  // success/plugin_count 与插件元数据，而不是只回一个 id/name/version 列表。
+  let scanned = send(
+    state,
+    call_line(4, "analyze_plugins", { "mode": "scan", "force_rescan": true }),
+  )
+  assert_false(is_tool_error(scanned))
+  let scan_body = obj(tool_payload(scanned))
+  assert_eq(scan_body.get("success"), Some(Json::boolean(true)))
+  assert_eq(scan_body.get("plugin_count"), Some(Json::number(1.0)))
+  let scan_items = match scan_body.get("plugins") {
+    Some(Array(items)) => items
+    _ => abort("analyze_plugins scan must return plugins")
+  }
+  assert_eq(scan_items.length(), 1)
+  let scan_plugin = obj(scan_items[0])
+  assert_eq(
+    scan_plugin.get("plugin_id"),
+    Some(Json::string("demo-plugin-1.2.3")),
+  )
+  assert_true(scan_plugin.contains("type"))
+  assert_true(scan_plugin.contains("tools_count"))
+
+  // both 保持旧的顶层 metrics 形状，同时把完整扫描结果挂在 scan 键。
+  let both = send(
+    state,
+    call_line(5, "analyze_plugins", {
+      "mode": "both",
+      "plugin_id": "demo-plugin-1.2.3",
+      "force_rescan": true,
+    }),
+  )
+  assert_false(is_tool_error(both))
+  let both_body = obj(tool_payload(both))
+  assert_true(both_body.contains("statistics"))
+  let both_scan = match both_body.get("scan") {
+    Some(Object(scan_object)) => scan_object
+    _ => abort("both must include the complete scan result")
+  }
+  assert_eq(both_scan.get("plugin_count"), Some(Json::number(1.0)))
+  let both_items = match both_scan.get("plugins") {
+    Some(Array(items)) => items
+    _ => abort("both.scan.plugins must be an array")
+  }
+  assert_eq(
+    obj(both_items[0]).get("plugin_id"),
+    Some(Json::string("demo-plugin-1.2.3")),
   )
 }
 
@@ -1723,6 +1773,50 @@ async test "manage_sub_agent forwards color and tools to the create path" {
     abort("tools must be forwarded to the create path")
   }
   assert_eq(tools.length(), 2)
+
+  // 合并入口的 list 必须透传 scope；None 仍表示同时列两个作用域。
+  let created_user = send(
+    state,
+    call_line(3, "manage_sub_agent", {
+      "action": "create",
+      "name": "user-helper",
+      "description": "用户级助手",
+      "system_prompt": "Help the user.",
+      "scope": "user",
+    }),
+  )
+  assert_false(is_tool_error(created_user))
+  let plugin_list = send(
+    state,
+    call_line(4, "manage_sub_agent", { "action": "list", "scope": "plugin" }),
+  )
+  let user_list = send(
+    state,
+    call_line(5, "manage_sub_agent", { "action": "list", "scope": "user" }),
+  )
+  let both_list = send(
+    state,
+    call_line(6, "manage_sub_agent", { "action": "list" }),
+  )
+  assert_false(is_tool_error(plugin_list))
+  assert_false(is_tool_error(user_list))
+  assert_false(is_tool_error(both_list))
+  let plugin_body = obj(tool_payload(plugin_list))
+  let user_body = obj(tool_payload(user_list))
+  let both_body = obj(tool_payload(both_list))
+  assert_eq(plugin_body.get("count"), Some(Json::number(1.0)))
+  assert_eq(user_body.get("count"), Some(Json::number(1.0)))
+  assert_eq(both_body.get("count"), Some(Json::number(2.0)))
+  let plugin_agents = match plugin_body.get("agents") {
+    Some(Array(items)) => items
+    _ => abort("plugin list must return agents")
+  }
+  let user_agents = match user_body.get("agents") {
+    Some(Array(items)) => items
+    _ => abort("user list must return agents")
+  }
+  assert_eq(obj(plugin_agents[0]).get("name"), Some(Json::string("doc-writer")))
+  assert_eq(obj(user_agents[0]).get("name"), Some(Json::string("user-helper")))
 }
 
 ///|

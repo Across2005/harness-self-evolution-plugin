@@ -15,10 +15,10 @@
 | 候选 | 判定 |
 |------|------|
 | A 会话投影附着（watcher 先例） | 语义错位：投影是 per-session 事件折叠，进化数据是全局文件态。仅作退路。 |
-| **B Typert Gateway（采纳）** | Host 侧 `TypertRemoteService` + `@Remote` 注册 `evolution/snapshot` 与 `evolution/watch`（logical stream）；client 经 `ctx.remote.evolution.*` 消费。编译链已在 0.1.6-alpha.1 的 d.ts 上验证。**运行时可见性（网关是否放行插件贡献的服务）待 S5 实机验证**，失败则回退 A。 |
+| **B Typert Gateway（采纳）** | Host 侧 `TypertRemoteService` + `@Remote` 注册 `evolution/snapshot` 与 `evolution/watch`（logical stream）；client 经 `ctx.remote.evolution.*` 消费。编译链已在 0.1.5-rc.2 的 d.ts 上验证，0.1.6-alpha.1 作为回归目标。**运行时可见性（网关是否放行插件贡献的服务）待 S5 实机验证**，失败则回退 A。 |
 | C 事件转发白名单 | 白名单固定（`API_REMOTE_FORWARDED_EVENTS`），无自定义事件位。不可行。 |
 
-- 版本基线：peer 钉 `@deepseek-ai/* 0.1.6-alpha.1`（对齐投放的 runtime），cordis 4.0.2。宿主升级属新决策。
+- 版本基线：peer/dev 钉 `@deepseek-ai/* 0.1.5-rc.2`，接受 `0.1.6-alpha.1` 回归范围；cordis 4.0.2。宿主升级属新决策。
 - 轮询：Host 侧 5s mtime/size 签名变化才重读；数据根不可读时保留上一视图，不闪空。
 
 ## 三视区语义

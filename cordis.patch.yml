@@ -1,6 +1,6 @@
 # cordis.patch.yml — DSH bundle patch（loader patch list）。
 #
-# DSH 方言（实测 0.1.6-alpha.1，见 dsh-app-boot 的 anchorInsertedPluginNames）：
+# DSH 方言（已在 0.1.5-rc.2 实测；0.1.6-alpha.1 回归，见 dsh-app-boot 的 anchorInsertedPluginNames）：
 # 顶层必须是 YAML 数组；每个元素是「loader patch entry」，其 `insert` 的值必须是
 # **挂载行数组** `[{id, name, config?}]`。`name` = 要挂载的 npm 包名（Loader 解析），
 # `id` = 后续 patch 层（profile 的 cordis.patch.yml 或 `--patch` overlay）定位该行的目标。
@@ -35,7 +35,7 @@
 #
 # 谁来激活：`scripts/install-dsh.ps1` 在**目标树**上解析
 # `<DSH_HOME>/profiles/<name>/node_modules/@across2005/harness-self-evolution`，
-# 把安装位绝对路径与 `env.DSH_HOME` 以 **id 定向覆盖行**写进该 profile 的
+# 把安装位绝对路径、DSH_HOME 以及按树隔离的数据根写进该 profile 的
 # `cordis.patch.yml`（DSH 的 patch 语义：id 命中即 `target[key] = value`，逐字段替换，
 # 故覆盖行重述整个 `config`）。于是「启动路径」由**安装期按树计算**，不再出厂写死。
 #
@@ -71,6 +71,7 @@
         cwd: ''
         env:
           DSH_HOME: ''
+          HARNESS_EVOLUTION_HOME: ''
         # 握手/工具发现失败时**拒绝本插件激活**（一行 warning，不中止 harness ——
         # 本行 id 不在 requiredStartupEntryIds 里，见文件头更正说明）。
         # 它的价值是「把 MCP 握手 + 工具发现纳入启动诊断」，而不是「让 boot 失败」。

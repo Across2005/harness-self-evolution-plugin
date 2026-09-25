@@ -1,6 +1,6 @@
 # Deploy on DeepSeek Harness (DSH)
 
-Verified against DSH 0.1.6-alpha.1 web profile on 2026-09-17, and re-verified on 2026-09-18 against a **running** web profile (install into the host's own tree → restart → all fourteen tools callable in-session; see [docs/dsh-compatibility.md](../dsh-compatibility.md) §5). The patch dialect, the `dsh-mcp-client` schema, the `~/.dsh` user directory, and the four host-related facts below are from DSH 0.1.6 source bundles (`@deepseek-ai/dsh-app-boot`, `dsh-mcp-client`, `dsh-home-paths`, `dsh-skill`) — not from documentation, which can drift.
+Verified against DSH 0.1.5-rc.2 web profile on 2026-09-25, with 0.1.6-alpha.1 retained as a regression target. The patch dialect, the `dsh-mcp-client` schema, the `~/.dsh` user directory, and the four host-related facts below are from the packaged DSH runtime (`@deepseek-ai/dsh-app-boot`, `dsh-mcp-client`, `dsh-home-paths`, `dsh-skill`) — not from documentation, which can drift.
 
 > **v3.2 note**: the tool surface is now **sixteen** (added `record_tool_call` / `record_user_feedback`); the 2026-09-18 end-to-end run above observed fourteen at that time.
 
@@ -193,7 +193,7 @@ $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersio
 $note = '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 $list = '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 $init, $note, $list | & bin\harness-evolution.exe 2>$null
-# expect: serverInfo {name: harness-self-evolution, version: 3.2.0}, then tools[] with 16 entries
+# expect: serverInfo {name: harness-self-evolution, version: 3.2.1}, then tools[] with 16 entries
 
 # 2. The host actually mounted it — check the process parent, not just the config
 Get-CimInstance Win32_Process -Filter "Name='harness-evolution.exe'" |
@@ -214,8 +214,9 @@ Get-ChildItem "$env:DSH_HOME\skills" -ErrorAction SilentlyContinue | Select-Obje
 
 Since v3.0.0 the plugin targets DSH only (the earlier MiniMax Code host claim was an
 over-declaration and has been removed). The default data root is
-`~/.harness-evolution/v2`; set a distinct `HARNESS_EVOLUTION_HOME` if you run
-multiple plugin instances and want their data isolated.
+`<DSH_HOME>/.harness-evolution/v2` so separate DSH trees do not share data; set a distinct
+`HARNESS_EVOLUTION_HOME` if you run multiple instances in one tree and want their data
+isolated.
 
 If the browser surface shows the chat panel but `/` reports `dsh web authentication required`, you opened the bare URL. The startup log prints `dsh web: http://127.0.0.1:<port>/?token=<token>`; open that URL once and the token sticks.
 
@@ -232,7 +233,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 
 | 项 | 要求 |
 |---|---|
-| DSH | ≥ 0.1.6（实测 0.1.6-alpha.1） |
+| DSH | `0.1.5-rc.2`（回归：`0.1.6-alpha.1`） |
 | Node | ≥ 18（DSH runtime 要求） |
 | 仓库 | 已 `build.ps1 -Task all` 通过（产出 `bin/harness-evolution.exe`） |
 | Profile | `web`（DSH web profile 默认无 `dsh-mcp-client`，需 `--patch` overlay） |
@@ -243,7 +244,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 | # | 动作 | 期望输出 | 失败时排查 |
 |---|---|---|---|
 | 1 | `dsh --profile web --dump-config` | exit 0；输出含 `mcp-harness-evolution` mount row | 路径未替换（见 § Path substitution） |
-| 2 | `node <DSH runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js --version` | `0.1.6-alpha.1` 或更高 | DSH 版本过低；升级或换符合要求的 profile |
+| 2 | `node <DSH runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js --version` | `0.1.5-rc.2`；回归验收使用 `0.1.6-alpha.1` | DSH 版本过低；升级或换符合要求的 profile |
 | 3 | `dsh --profile web web --port 39402 --no-open` | 日志含 `[HarnessEvolution]` 与 `Server started (data root: ...)` | exe 启动失败：`Get-Content bin/harness-evolution.exe` 是否 > 1MB；`HARNESS_EVOLUTION_HOME` 是否设 |
 | 4 | 从 startup 日志末尾读 `dsh web: http://127.0.0.1:39402/?token=<token>` | URL 带 token 段 | MCP `deepseek_harness_start` 只返回裸 URL，token 在日志里 |
 | 5 | 浏览器打开 `http://127.0.0.1:39402/?token=<token>` | 主 UI 真实加载，无 `authentication required` | URL 缺 token；从日志拿 |
@@ -274,7 +275,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 ### 部署判据
 
 v3.0.0 起启动日志不再按宿主点名验证状态（多宿主抽象已移除）。以本节步骤的实际结果为准：
-`tools/list` 回显 `version: 3.2.0` + 16 个工具、`create_sub_agent scope=user` 落进
+`tools/list` 回显 `version: 3.2.1` + 16 个工具、`create_sub_agent scope=user` 落进
 `<DSH_HOME>/skills/`、宿主重启后能看到 `mcp__harness-evolution__*` 工具 —— 三条齐即
 说明 DSH 部署已实证。
 

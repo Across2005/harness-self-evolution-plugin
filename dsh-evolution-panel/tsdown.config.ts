@@ -3,7 +3,7 @@ import { defineConfig } from 'tsdown'
 /**
  * 浏览器半的注册包装 —— DSH `dsh-client-modules` 的 Lazy-CJS 契约。
  *
- * 契约来源（实证 0.1.6-alpha.1）：
+ * 契约来源（基线 DSH 0.1.5-rc.2；0.1.6-alpha.1 为回归目标）：
  *   - `dsh-client-modules/lib/types/client/manifest.d.ts`：`window.__ModuleLoader__.load({id, factory})`
  *     是唯一合法的注册形态；宿主把每个插件的 `lib/client.js` 拼进 `/plugins/??...` combo，
  *     浏览器按 **classic script** 解析——出现任何顶层 `export` 会让整条 combo 解析失败，
@@ -50,7 +50,9 @@ export default defineConfig([
     entry: { client: './src/client/index.tsx' },
     format: 'cjs',
     target: 'es2022',
-    dts: true,
+    // Declarations are emitted by tsc to lib/client/index.d.ts.  Running dts
+    // through the CJS wrapper config produces a runtime-shaped fake .d.ts.
+    dts: false,
     sourcemap: true,
     outDir: './lib',
     clean: false,

@@ -888,6 +888,64 @@ async fn handle_delete_sub_agent(state : ServerState, args : Json) -> Json {
 /// `analyze_plugins`（v2.3 合并工具）。
 /// 合并了 `scan_plugins` 和 `get_plugin_metrics` 的功能。
 /// mode="scan" 执行扫描，mode="metrics" 获取指标，mode="both" 两者都做。
+async fn analyze_plugins_scan(state : ServerState, a : AnalyzePluginsArgs) -> Json {
+  let force_val = a.force_rescan.unwrap_or(default_force_rescan)
+  // 按参数组合构建 scan_args
+  let has_ids = match a.plugin_ids {
+    Some(ids) if !ids.is_empty() => true
+    _ => false
+  }
+  let has_paths = match a.target_paths {
+    Some(ps) if !ps.is_empty() => true
+    _ => false
+  }
+  let scan_args : Json = if has_ids && has_paths {
+    {
+      "force_rescan": Json::boolean(force_val),
+      "plugin_ids": Json::array(
+        a.plugin_ids.unwrap().map(fn(s) { Json::string(s) }),
+      ),
+      "target_paths": Json::array(
+        a.target_paths.unwrap().map(fn(s) { Json::string(s) }),
+      ),
+    }
+  } else if has_ids {
+    {
+      "force_rescan": Json::boolean(force_val),
+      "plugin_ids": Json::array(
+        a.plugin_ids.unwrap().map(fn(s) { Json::string(s) }),
+      ),
+    }
+  } else if has_paths {
+    {
+      "force_rescan": Json::boolean(force_val),
+      "target_paths": Json::array(
+        a.target_paths.unwrap().map(fn(s) { Json::string(s) }),
+      ),
+    }
+  } else {
+    { "force_rescan": Json::boolean(force_val) }
+  }
+  handle_scan_plugins(state, scan_args)
+}
+
+async fn analyze_plugins_metrics(state : ServerState, a : AnalyzePluginsArgs) -> Json {
+  // metrics 与 both 对缺 plugin_id 一致报错：both 静默跳过指标
+  // 会让调用方把「扫描成功」误当成「全部完成」。
+  match a.plugin_id {
+    Some(plugin_id) => {
+      let metrics_args : Json = {
+        "plugin_id": Json::string(plugin_id),
+        "time_range": Json::string(
+          a.time_range.unwrap_or(default_time_range).wire_name(),
+        ),
+      }
+      handle_get_plugin_metrics(state, metrics_args)
+    }
+    None => raise Failure("plugin_id is required for metrics/both mode")
+  }
+}
+
 async fn handle_analyze_plugins(state : ServerState, args : Json) -> Json {
   let a : AnalyzePluginsArgs = @json.from_json(args)
   // mode 缺省取 schema 声明的默认值（default_analyze_mode，唯一定义处），
@@ -901,81 +959,17 @@ async fn handle_analyze_plugins(state : ServerState, args : Json) -> Json {
       )
   }
 
-  // scan / both 模式：委托给 handle_scan_plugins
+  // each mode dispatches once; both preserves scan output and the existing
+  // top-level metrics shape instead of rebuilding an incomplete result.
   match mode {
-    @types.ScanMode::Scan | @types.ScanMode::Both => {
-      let force_val = a.force_rescan.unwrap_or(default_force_rescan)
-      // 按参数组合构建 scan_args
-      let has_ids = match a.plugin_ids {
-        Some(ids) if !ids.is_empty() => true
-        _ => false
-      }
-      let has_paths = match a.target_paths {
-        Some(ps) if !ps.is_empty() => true
-        _ => false
-      }
-      let scan_args : Json = if has_ids && has_paths {
-        {
-          "force_rescan": Json::boolean(force_val),
-          "plugin_ids": Json::array(
-            a.plugin_ids.unwrap().map(fn(s) { Json::string(s) }),
-          ),
-          "target_paths": Json::array(
-            a.target_paths.unwrap().map(fn(s) { Json::string(s) }),
-          ),
-        }
-      } else if has_ids {
-        {
-          "force_rescan": Json::boolean(force_val),
-          "plugin_ids": Json::array(
-            a.plugin_ids.unwrap().map(fn(s) { Json::string(s) }),
-          ),
-        }
-      } else if has_paths {
-        {
-          "force_rescan": Json::boolean(force_val),
-          "target_paths": Json::array(
-            a.target_paths.unwrap().map(fn(s) { Json::string(s) }),
-          ),
-        }
-      } else {
-        { "force_rescan": Json::boolean(force_val) }
-      }
-      ignore(handle_scan_plugins(state, scan_args))
+    @types.ScanMode::Scan => analyze_plugins_scan(state, a)
+    @types.ScanMode::Metrics => analyze_plugins_metrics(state, a)
+    @types.ScanMode::Both => {
+      let scan_result = analyze_plugins_scan(state, a)
+      let metrics_result = analyze_plugins_metrics(state, a)
+      with_key(metrics_result, "scan", scan_result)
     }
-    @types.ScanMode::Metrics => ()
   }
-
-  // metrics / both 模式：委托给 handle_get_plugin_metrics
-  match mode {
-    @types.ScanMode::Metrics | @types.ScanMode::Both =>
-      // metrics 与 both 对缺 plugin_id 一致报错：both 静默跳过指标
-      // 会让调用方把「扫描成功」误当成「全部完成」。
-      match a.plugin_id {
-        Some(plugin_id) => {
-          let metrics_args : Json = {
-            "plugin_id": Json::string(plugin_id),
-            "time_range": Json::string(
-              a.time_range.unwrap_or(default_time_range).wire_name(),
-            ),
-          }
-          return handle_get_plugin_metrics(state, metrics_args)
-        }
-        None => raise Failure("plugin_id is required for metrics/both mode")
-      }
-    @types.ScanMode::Scan => ()
-  }
-
-  // scan 模式返回扫描结果
-  let plugins : Array[Json] = []
-  for p in state.registry {
-    plugins.push({
-      "plugin_id": Json::string(p.plugin_id),
-      "name": Json::string(p.name),
-      "version": Json::string(p.version),
-    })
-  }
-  { "plugins": Json::array(plugins) }
 }
 
 ///|
@@ -1082,7 +1076,12 @@ async fn handle_manage_sub_agent(state : ServerState, args : Json) -> Json {
           )
       }
     @types.ManageAction::List => {
-      let list_args : Json = Json::empty_object()
+      // None 必须继续表示同时列出 plugin/user；只有显式 scope 才透传，
+      // 否则合并工具会把合法的 user/plugin 过滤静默变成全量列表。
+      let list_args : Json = match a.scope {
+        Some(scope) => { "scope": Json::string(scope.wire_name()) }
+        None => Json::empty_object()
+      }
       return handle_list_sub_agents(state, list_args)
     }
     @types.ManageAction::Delete =>

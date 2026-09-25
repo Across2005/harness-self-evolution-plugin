@@ -1,11 +1,11 @@
 # ROADMAP — harness-self-evolution-plugin
 
-## 当前版本：v3.2.0
+## 当前版本：v3.2.1
 
 > v2.6.0 已于 2026-09-17 发布（性能优化与缺陷修复：C1 定向重扫 + S1–S6 整改，测试 420→424；同批发布 mooncakes 0.2.6）。
 > v2.5.0 已于 2026-09-16 发布（工程质量版本：全仓评审修复 56 个问题、测试 383→420）。
 >
-> 远端与发布状态：v3.2.0 已发布到 GitHub、GitLink 与 mooncakes `0.3.5`；工具面 16 个、M7 真实派发与注入面已完成。
+> 远端与发布状态：v3.2.1 准备发布到 GitHub、GitLink；Mooncakes `0.3.6` 暂缓（基线 DSH CLI 缺失，双版本门禁无法完成）。工具面 16 个、注入面已完成。M7 真实派发在事务性 sandbox adapter 落地前 fail closed。
 
 ## v3.1（已完成：启动路径可移植化 A/B/C/E）
 
@@ -28,16 +28,16 @@
 G5b 锚点同步；版本五处一并升 **3.1.0**（`moon.mod` 0.3.2）。
 **未做**：缺陷 9 生态数据源、`dsh-watcher` 挂载（D/F 本轮不碰）。
 
-## v3.2（2026-09-24：缺陷 9 注入面 + M7 真实派发 + 文档纠偏）
+## v3.2（2026-09-25：缺陷 9 注入面 + M7 fail-closed 闸门 + 文档纠偏）
 
 | 切片 | 内容 | 状态 |
 |------|------|------|
 | P0 | 提交安装器回归网与复验报告；DESIGN「启动时扫描」失实纠偏 | ✅ |
 | P1 | 新增 `record_tool_call` / `record_user_feedback`（工具 14→16）；data_gaps/面板文案改为「注入面已暴露」 | ✅ |
-| P2 | `process_task` / `real_validation` 真实实现（`@process.collect_output`）；生产装配注入；X9/X10 测试重写 | ✅ |
+| P2 | `process_task` / `real_validation` 真实实现（`@process.collect_output`）；生产装配注入；X9/X10 测试重写 | ⚠ `real_validation` 保留；`process_task` 改为事务性 adapter 前的 fail-closed 安全闸门 |
 | P3 | 面板 `npm test` 验收；`miniapps/` 残留处置；版本 3.2.0 五处一致 | ✅ |
 
-**验证**：`moon check --deny-warn` 零错零警；`moon test` **457/457**；`pwsh -File scripts/test-install-dsh.ps1` **7/7**；`dsh-evolution-panel` `npm test` **18/18**；`build.ps1 -Task all` EXIT=0。
+**验证**：`moon check --deny-warn` 零错零警；`moon test` **457/457**；`pwsh -File scripts/test-install-dsh.ps1` **7/7**；`dsh-evolution-panel` `npm test` **20/20**；`dsh-watcher` `pnpm test` **88 passed / 0 failed / 2 skipped**；隔离桌面 DSH **0.1.5-rc.2** 与回归运行时 **0.1.6-alpha.1** 的双 MCP namespace smoke 均通过；`build.ps1 -Task all` EXIT=0。
 
 ## 2026-09-22 复验修复（v3.1.0 补丁线；**产品版本不升** —— 协议与工具面零变更）
 
@@ -103,7 +103,7 @@ G5b 锚点同步；版本五处一并升 **3.1.0**（`moon.mod` 0.3.2）。
 | 缺陷 3c | 双 profile 树 `$DSH_HOME` 路由收敛：`paths.mbt` 新增 `dsh_home()`（`$DSH_HOME` → `~/.dsh`，空/空白视为未设置，相对路径不采用），DSH 的 user 作用域随之落到宿主真正在读的那棵树；挂载行 `env` 显式转发（宿主 `scrubbedParentEnv` 丢弃全部 `DSH_*`，继承拿不到） | ✅ |
 | 客户端产物契约 | `dsh-evolution-panel` client 入口加 `deps.onlyBundle`（防误内联）+ 新增产物契约测试（防漏内联）；两条修复方向互补，前者单独拦不住本次「zod 未内联」回归 | ✅ |
 
-**候选（先 grill 对齐再立项）**：monitor 数据源接通（缺陷 9，依赖宿主回调）、M7 真实派发（`docs/subagent-factory.md` §4 设计就绪）。
+**候选（先 grill 对齐再立项）**：monitor 数据源接通（缺陷 9，依赖宿主回调）、M7 真实派发（待事务性 sandbox adapter；`docs/subagent-factory.md` §4 当前仅保留设计与 fail-closed 约束）。
 
 ## 已取消：ZCode 宿主支持（2026-09-18 决策）
 
