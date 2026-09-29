@@ -319,6 +319,11 @@ const tasks = [
 await Promise.all(tasks.map(t => spawnAgent(t)));
 ```
 
+实际 executor 传给 runner 的对象型 `input` 会**保留上例的全部旧键**，并叠加
+`plugin_id`、`proposal_id`、`proposed_changes` 与 `task_input`。新键覆盖同名旧键，
+因此旧 runner 读取 `input.changes` / `input.merge_tools` 的方式继续有效；需要完整
+提案上下文的 runner 则读取四个新增键。
+
 #### 3.4.3 验证机制
 
 **三级验证**（借鉴 defending-code-reference-harness）：
@@ -356,7 +361,7 @@ await Promise.all(tasks.map(t => spawnAgent(t)));
 // .dsh-plugin/plugin.json
 {
   "name": "harness-self-evolution",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "description": "DeepSeek Harness 全盘自进化升级插件 - 插件扫描、实时监控、智能进化、协同升级（MoonBit native）",
   "author": {
     "name": "AI Agent Designer",

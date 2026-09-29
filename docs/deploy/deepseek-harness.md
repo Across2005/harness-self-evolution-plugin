@@ -193,7 +193,7 @@ $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersio
 $note = '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 $list = '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 $init, $note, $list | & bin\harness-evolution.exe 2>$null
-# expect: serverInfo {name: harness-self-evolution, version: 3.2.1}, then tools[] with 16 entries
+# expect: serverInfo {name: harness-self-evolution, version: 3.2.2}, then tools[] with 16 entries
 
 # 2. The host actually mounted it — check the process parent, not just the config
 Get-CimInstance Win32_Process -Filter "Name='harness-evolution.exe'" |
@@ -275,7 +275,7 @@ If the browser surface shows the chat panel but `/` reports `dsh web authenticat
 ### 部署判据
 
 v3.0.0 起启动日志不再按宿主点名验证状态（多宿主抽象已移除）。以本节步骤的实际结果为准：
-`tools/list` 回显 `version: 3.2.1` + 16 个工具、`create_sub_agent scope=user` 落进
+`tools/list` 回显 `version: 3.2.2` + 16 个工具、`create_sub_agent scope=user` 落进
 `<DSH_HOME>/skills/`、宿主重启后能看到 `mcp__harness-evolution__*` 工具 —— 三条齐即
 说明 DSH 部署已实证。
 

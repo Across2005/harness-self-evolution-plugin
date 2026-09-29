@@ -1,7 +1,7 @@
 ---
 name: harness-evolution
 description: DeepSeek Harness 全盘自进化升级插件。扫描所有插件，监控性能，基于 Matt Pocock 原则生成进化提案，通过子 Agent 协同完成升级。当用户需要优化插件性能、简化接口、改进文档或扩展能力时使用。
-version: 3.2.1
+version: 3.2.2
 ---
 
 # Harness Self-Evolution
@@ -259,9 +259,9 @@ version: 3.2.1
 | `create_sub_agent` | 写子 Agent 定义文件（`scope=plugin` 数据根 / `scope=user` 宿主用户级定义目录，默认宿主 DSH 为 `<DSH home>/skills/`（home 由 `$DSH_HOME` → 安装路径推导 → `~/.dsh` 解析），以 skill 形式落盘） |
 | `list_sub_agents` | 列出子 Agent 定义（缺省列出两个作用域） |
 | `delete_sub_agent` | 删除子 Agent 定义（只删两个可写目录，出厂模板不受影响） |
-| `analyze_plugins` | 分析插件：`mode=scan` 仅扫描 / `mode=metrics` 仅取指标 / `mode=both` 两者；支持 `plugin_ids` 定向重扫、`target_paths` 路径重定向 |
+| `analyze_plugins` | 分析插件：`mode=scan` 返回完整扫描结果 / `mode=metrics` 仅取指标 / `mode=both` 保留顶层指标并附带 `scan` 结果；支持 `plugin_ids` 定向重扫、`target_paths` 路径重定向 |
 | `evolve_plugin` | 进化插件：`action=propose` 生成提案 / `action=execute` 执行已审批提案 |
-| `manage_sub_agent` | 管理子 Agent：`action=create` / `list` / `delete`（三个子 Agent 工具的聚合入口） |
+| `manage_sub_agent` | 管理子 Agent：`action=create` / `list` / `delete`（三个子 Agent 工具的聚合入口）；`list` 省略 `scope` 时列出两个作用域 |
 | `get_runtime_snapshot` | 只读运行时快照：数据根回显、扫描缓存摘要、提案按状态计数、execution.log 尾窗，以及数据缺口如实点名 —— 外部可视化统一数据入口 |
 | `record_tool_call` | 注入工具调用事件（缺陷 9 宿主注入面；参数体不落盘） |
 | `record_user_feedback` | 注入用户反馈（negative → strong/correction 信号） |

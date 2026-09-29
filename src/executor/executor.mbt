@@ -141,21 +141,41 @@ pub async fn UpgradeExecutor::execute(
 ///|
 /// 给每个真实 runner 补上提案级目标上下文。旧版只把 change items 传给
 /// code-generator，真实的进程/Agent 不知道对应插件是谁；这里用执行信封
-/// 补齐 plugin_id、proposal_id 和完整变更集，同时保留 task_input 以便
-/// 兼容已经依赖旧形状的 runner。
+/// 补齐 plugin_id、proposal_id 和完整变更集。
+///
+/// 兼容约束：旧 runner 可能直接读取 `input.changes` 等原始键，因此对象型
+/// `task.input` 的键必须原样保留；`task_input` 另存一份未改写输入。新增的
+/// 提案级键最后覆盖同名旧键，避免旧载荷伪造 plugin_id / proposal_id。
+fn json_object_merge(base : Json, overrides : Json) -> Json {
+  let merged : Map[String, Json] = Map([])
+  for source in [base, overrides] {
+    match source {
+      Object(fields) =>
+        for pair in fields {
+          let (key, value) = pair
+          merged.set(key, value)
+        }
+      _ => ()
+    }
+  }
+  Json::object(merged)
+}
+
 fn with_proposal_context(
   task : @types.SubAgentTask,
   proposal : @types.EvolutionProposal,
 ) -> @types.SubAgentTask {
-  {
-    ..task,
-    input: {
-      "plugin_id": Json::string(proposal.plugin_id),
-      "proposal_id": Json::string(proposal.proposal_id),
-      "proposed_changes": ToJson::to_json(proposal.proposed_changes),
-      "task_input": task.input,
-    },
+  let context : Json = {
+    "plugin_id": Json::string(proposal.plugin_id),
+    "proposal_id": Json::string(proposal.proposal_id),
+    "proposed_changes": ToJson::to_json(proposal.proposed_changes),
+    "task_input": task.input,
   }
+  let input = match task.input {
+    Object(_) => json_object_merge(task.input, context)
+    _ => context
+  }
+  { ..task, input }
 }
 
 async fn UpgradeExecutor::run_pipeline(

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { sanitizedNodeEnv } from './dsh-env.mjs'
 
 /**
  * Workspace release gate.
@@ -13,17 +13,7 @@ import { fileURLToPath } from 'node:url'
  * the baseline and DSH_REGRESSION_CLI is the alpha runtime.
  */
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const env = {
-  ...process.env,
-  // Keep package-manager bootstrap diagnostics out of the release gate unless
-  // the caller explicitly asks for a different npm log level.
-  NPM_CONFIG_LOGLEVEL: process.env.NPM_CONFIG_LOGLEVEL ?? 'silent',
-}
-// npm 24 warns about this legacy key even when it is inherited from the host.
-// It is not used by this workspace; do not pass it to npm, pnpm, or DSH children.
-for (const key of ['npm_config_side_effects_cache', 'pnpm_config_side_effects_cache']) {
-  delete env[key]
-}
+const env = sanitizedNodeEnv()
 const powershell = process.platform === 'win32' ? 'pwsh.exe' : 'pwsh'
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
@@ -57,8 +47,9 @@ function run(label, command, args, options = {}) {
 }
 
 run('MoonBit T0/T1/T2', powershell, ['-NoProfile', '-File', 'build.ps1', '-Task', 'all'])
+run('release gate regression', process.execPath, ['--test', 'scripts/test-verify-release.mjs'])
 run('native release metadata', process.execPath, ['scripts/verify-release.mjs'])
-run('DSH version matcher tests', process.execPath, ['--test', 'scripts/test-dsh-version.mjs'])
+run('DSH support tests', process.execPath, ['--test', 'scripts/test-dsh-version.mjs', 'scripts/test-dsh-env.mjs'])
 run('installer patch regression', powershell, ['-NoProfile', '-File', 'scripts/test-install-dsh.ps1'])
 const panelDir = join(root, 'dsh-evolution-panel')
 const watcherDir = join(root, 'dsh-watcher')
@@ -81,7 +72,4 @@ run('desktop MCP coexistence — DSH 0.1.6-alpha.1 regression', process.execPath
   capture: true,
 })
 
-if (!existsSync(join(root, 'bin', 'harness-evolution.exe'))) {
-  throw new Error('workspace gate completed without the native release binary')
-}
 console.log('\n[workspace-gate] PASS: all available workspace contracts passed')

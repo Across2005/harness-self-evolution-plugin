@@ -1,6 +1,6 @@
 # Harness Self-Evolution Plugin
 
-A MoonBit-native plugin that scans, monitors, proposes, and validates evolutions for the DeepSeek Harness (DSH) plugin ecosystem. Version 3.2.1. MIT.
+A MoonBit-native plugin that scans, monitors, proposes, and validates evolutions for the DeepSeek Harness (DSH) plugin ecosystem. Version 3.2.2. MIT.
 
 This plugin targets DeepSeek Harness. Deployment hinges on how DSH launches the binary, where data is read and written, and which files (patches, manifests, panels) sit alongside the binary.
 

@@ -59,14 +59,14 @@
 | 命令 | 等价裸命令 | 验收标准 | 对应验证级 |
 |---|---|---|---|
 | `.\build.ps1 check` | `moon check --deny-warn --target native` | **零错零警**（任何新警告都算失败） | T0 语法 |
-| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 **457**，以实际输出为准），内含架构守卫 G1–G10 | T1 功能 |
+| `.\build.ps1 test` | `moon test --target native` | 全部用例通过（当前基线 **459**，以实际输出为准），内含架构守卫 G1–G10 | T1 功能 |
 | `.\build.ps1 build` | `moon build --target native --release` + 产物复制 | 生成 `bin\harness-evolution.exe` | — |
 | `.\build.ps1 all` | check → test → build 依次执行、逐步核对退出码 | 三步全绿 | T2 回归 |
 | `.\build.ps1 fmt` | `moon fmt` | — | — |
 | `pwsh -File scripts/test-install-dsh.ps1` | 同上（在临时树上跑**真实**安装器 7 场景） | `PASS: 7/7 scenarios` | T1（安装器专项） |
 
-> **写就时点实测（2026-09-25 v3.2 + 审查补网）**：T0 零错零警（`moon check --deny-warn --target native`）；
-> T1 `Total tests: 457, passed: 457, failed: 0`；安装器回归 `PASS: 7/7 scenarios`；
+> **写就时点实测（2026-09-25 v3.2.1 + 审查补网）**：T0 零错零警（`moon check --deny-warn --target native`）；
+> T1 `Total tests: 459, passed: 459, failed: 0`；安装器回归 `PASS: 7/7 scenarios`；
 > 面板 `npm test` 全绿（20 用例）；watcher `pnpm test` 88 passed / 0 failed / 2 skipped。
 > 隔离桌面 DSH smoke（`node scripts/test-dsh-mcp-coexistence.mjs`）在 `0.1.5-rc.2`
 > 与回归运行时 `0.1.6-alpha.1` 均通过，浏览器不打开。
@@ -93,7 +93,7 @@
 - **DSH bundle patch**：`cordis.patch.yml`（顶层 YAML 数组、`- insert:` 形式），是 **loader 挂载行**（`insert: [{id, name, config}]`，`name` = npm 包名），**不是** plugin.json 的元数据翻译——元数据只存在于 `package.json` 与 `.dsh-plugin/plugin.json`。**v3.1 起该行默认 `disabled: true` 且不含机器绝对路径**：由 `scripts/install-dsh.ps1` 在目标树上以 id 定向覆盖行启用并注入本树路径。
 - **安装**（公开渠道）：
   ```sh
-  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v3.2.1"
+  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v3.2.2"
   pwsh -File scripts/install-dsh.ps1 -Profile web     # 注入挂载行（按树解析路径）
   ```
   Linux/macOS 沙箱首次安装可能需要在宿主侧显式放行构建（`allowBuilds`）。
@@ -272,5 +272,5 @@ Session 事件流（assistant/chunk·reasoning-delta 等）
 
 *本文由接手交接流程生成于 v2.6.0 基线；2026-09-25 兼容性修复后刷新了桌面 smoke、面板/watcher 产物契约与门禁基线。
 文中所有命令、路径、版本均按写就时点仓库实况逐项核实。当前实测：单元 A 的 T0
-（`moon check --deny-warn --target native`）零错零警、T1（457/457）、安装器回归（7/7）、
+（`moon check --deny-warn --target native`）零错零警、T1（459/459）、安装器回归（7/7）、
 面板 20/20、watcher 88 passed / 0 failed / 2 skipped。*

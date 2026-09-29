@@ -84,9 +84,9 @@ pwsh -File scripts/test-install-dsh.ps1     # 7 个场景，全绿才算通过
 | `create_sub_agent` | 创建子 Agent 定义文件 |
 | `list_sub_agents` | 列出子 Agent 定义 |
 | `delete_sub_agent` | 删除子 Agent 定义 |
-| `analyze_plugins` | 合并工具：扫描并/或取指标 |
+| `analyze_plugins` | 合并工具：`scan` 返回完整扫描结果，`metrics` 返回指标，`both` 保留顶层指标并附带 `scan` 结果 |
 | `evolve_plugin` | 合并工具：生成或执行提案 |
-| `manage_sub_agent` | 合并工具：管理子 Agent 定义 |
+| `manage_sub_agent` | 合并工具：管理子 Agent 定义；`action=list` 可显式传 `scope`，省略时列出两个作用域 |
 | `get_runtime_snapshot` | 只读运行时快照 |
 | `record_tool_call` | 注入工具调用事件（缺陷 9 宿主注入面） |
 | `record_user_feedback` | 注入用户反馈（negative → strong 信号） |

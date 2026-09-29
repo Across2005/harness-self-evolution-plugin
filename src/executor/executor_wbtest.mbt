@@ -883,6 +883,7 @@ async test "proposal context is attached to the execution task" {
     Object(input) => {
       assert_eq(input.get("plugin_id"), Some(Json::string("test-plugin-1.0.0")))
       assert_eq(input.get("proposal_id"), Some(Json::string("evo-test-1")))
+      assert_eq(input.get("changes"), Some(Json::array([])))
       assert_true(input.contains("proposed_changes"))
       assert_true(input.contains("task_input"))
     }

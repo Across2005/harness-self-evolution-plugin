@@ -17,9 +17,9 @@ commits: 2838460..fce0e07
 
 **What was built** — v3.2.0：① 安装器回归网/复验报告入库 + DESIGN「启动时扫描」失实纠偏；② 新增 `record_tool_call`/`record_user_feedback` 注入面（工具 14→16），data_gaps/面板文案改为「注入面已暴露」；③ `real_validation` 保留经 `@process.collect_output` 的显式验证路径，但 `process_task` 在事务性 sandbox adapter 落地前 fail closed；生产装配不再把不可追踪的裸进程写入伪装成可回滚执行；④ 面板 npm test **20/20**、删除 `miniapps/` 残留、版本五处一致。两轴 code-review 硬伤已修（CONTEXT 注入面词条、AGENTS 日期、G1 引用、假 cwd、写穿测试、历史 14/16 区分）。
 
-**Verification** — `moon check --deny-warn` 零错零警；`moon test` **457/457**；`scripts/test-install-dsh.ps1` 7/7；`dsh-evolution-panel` npm test **20/20**；`dsh-watcher` pnpm test **88 passed / 0 failed / 2 skipped**；`build.ps1 -Task all` EXIT=0 并刷新 `bin/harness-evolution.exe`（当前构建产物大小以实测为准）。
+**Verification** — `moon check --deny-warn` 零错零警；`moon test` **459/459**；`scripts/test-install-dsh.ps1` 7/7；`dsh-evolution-panel` npm test **20/20**；`dsh-watcher` pnpm test **88 passed / 0 failed / 2 skipped**；`build.ps1 -Task all` EXIT=0 并刷新 `bin/harness-evolution.exe`（当前构建产物大小以实测为准）。
 
-**Journey log** — ① PowerShell 批量字符串替换破坏 UTF-8，已用 `git show` 按字节恢复后改用 Edit 工具重做；② MoonBit 本版本 async **无 `await` 关键字**、`replace` 需 `old~/new~` 标签、`cwd?` 不接受 `String?`、`Ok(expr) catch` 必须与返回类型对齐；③ G5b 锚点 454→**457**（审查补网：写穿 +1、fake-cwd +1）。
+**Journey log** — ① PowerShell 批量字符串替换破坏 UTF-8，已用 `git show` 按字节恢复后改用 Edit 工具重做；② MoonBit 本版本 async **无 `await` 关键字**、`replace` 需 `old~/new~` 标签、`cwd?` 不接受 `String?`、`Ok(expr) catch` 必须与返回类型对齐；③ G5b 锚点 454→**457**（审查补网：写穿 +1、fake-cwd +1），随后 T2 lazy-fallback 回归再 +2 → **459**。
 
 ## [S1] Problem
 
@@ -58,13 +58,11 @@ commits: 2838460..fce0e07
 
 依赖：`executor/moon.pkg` 增加 `"moonbitlang/async/process"`（同一 `moonbitlang/async@0.20.1`，不新增外部包）。
 
-**`process_task`**（`HARNESS_EVOLUTION_AGENT_CMD` 已设置时）：
+**`process_task`**（安全修订后的当前契约）：
 
-1. 模板支持 `{prompt}`、`{input}` 占位符；未含 `{prompt}` 时整串作 shell 命令亦可（Windows：`cmd /c` 或拆词）。
-2. 实际实现：将模板中的 `{prompt}` 替换为 `task.task + "\n" + task.input` 的 JSON 字符串（`{input}` 单独时为 input 的 JSON），经 `@process.collect_output` 执行。
-3. 拆词策略：简单空白分词 + 引号保留；`{prompt}`/`{input}` 先换成**无空白哨兵**再分词，回填后各占**单个 argv**。整串模板不含 `{prompt}` 时按普通 argv 直接执行（**不做**额外 shell 包装——调用方需 shell 语义时应显式写 `cmd.exe /c …`）。
-4. 退出码 ≠ 0 → `raise Failure`（含 stderr 截断）；退出码 0 → 返回 `{simulated:false, exit_code, stdout_tail}`。
-5. 未设置 env → 仍回退 `simulated_task`（保持既有语义）。
+1. `HARNESS_EVOLUTION_AGENT_CMD` 已设置 → 在创建任何子进程前 `raise Failure`，错误明确指出需要 transactional sandbox adapter；不得派发不可追踪写入，也不得声称可回滚。
+2. 未设置 env → 仍回退 `simulated_task`（保持既有语义）。
+3. 模板占位符、命令拆词、退出码/stdout 尾处理等旧派发实现已删除，不属于当前接口；transactional adapter 落地时再作为新能力单独设计与验收。
 
 **`real_validation`**（`HARNESS_EVOLUTION_REAL_VALIDATION=true` 时）：
 
@@ -80,7 +78,7 @@ commits: 2838460..fce0e07
 
 **装配**：`ServerState::with_scan_config` / `with_harness_config` 改为注入 `run_task=process_task, validate_level=real_validation`（二者内部按 env 自选真实/模拟），测试构造器可继续用默认模拟注入缝。
 
-更新 X9/X10 回归：开关打开时**不再** expect “not implemented”，改为可测行为（真命令成功 / 假命令失败）。
+更新 X9/X10 回归：配置真实 Agent 命令时必须在 spawn 前 fail closed；未配置时仍走模拟任务。`real_validation` 的真命令成功/假命令失败另行覆盖。
 
 ### P3 面板验收与残留
 
@@ -91,7 +89,7 @@ commits: 2838460..fce0e07
 
 ### 版本
 
-功能面 +2 工具 + 真实派发 → **3.2.0**（minor）：`moon.mod` 发布号 0.3.5、`package.json`、`.dsh-plugin/plugin.json`、`jsonrpc.server_version`、`SKILL` frontmatter、`DESIGN` 镜像。
+功能面 +2 工具 + 安全闸门首发于 **3.2.0**；当前维护版本为 **3.2.2**，`moon.mod` 发布号 0.3.7。`package.json`、`.dsh-plugin/plugin.json`、`jsonrpc.server_version`、`SKILL` frontmatter、`DESIGN` 镜像保持一致。
 
 ## [S3] Out of Scope
 
@@ -110,4 +108,4 @@ commits: 2838460..fce0e07
 - [x] T5: P2 实现 `real_validation` 三级真实验证 — acceptance: 开关开时 T0 跑 moon check；假 cwd 失败（covers: S2-P2; depends: T4）
 - [~] T6: P2 生产装配注入 process/real + 更新 X9/X10 测试 — **safety-gated**：ServerState 仍注入 `process_task`/`real_validation` 缝，但前者默认 fail closed；测试改绿（covers: S2-P2; depends: T4 T5）
 - [x] T7: P3 面板 npm test + 残留处理 + ROADMAP/CONTEXT 更新 — acceptance: panel 测试通过；残留有明确处置；ROADMAP 反映本切片（covers: S2-P3; depends: T3）
-- [x] T8: 全门禁 + 版本 3.2.0 五处一致 — acceptance: build.ps1 -Task all 绿；版本号一致（covers: S2; depends: T1 T2 T3 T4 T5 T6 T7）
+- [x] T8: 全门禁 + 当前版本 3.2.2 五处一致 — acceptance: build.ps1 -Task all 绿；版本号一致（covers: S2; depends: T1 T2 T3 T4 T5 T6 T7）

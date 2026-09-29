@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { sanitizedNodeEnv } from './dsh-env.mjs'
 import { isExactDshVersion } from './dsh-version.mjs'
 
 /**
@@ -36,17 +37,10 @@ const patchPath = join(profileDir, 'cordis.patch.yml')
 const toolMarker = join(root, 'tool-namespaces.jsonl')
 const headroomRoot = join(root, '.harness-evolution-headroom', 'v2')
 const harnessRoot = join(root, '.harness-evolution', 'v2')
-const env = {
-  ...process.env,
+const env = sanitizedNodeEnv({
   DSH_HOME: root,
   DSH_TELEMETRY_MODE: 'OFF',
-  // DSH's bundled package bootstrap passes vendor-specific npm keys that npm
-  // reports as unknown; keep the coexistence smoke focused on its own result.
-  NPM_CONFIG_LOGLEVEL: process.env.NPM_CONFIG_LOGLEVEL ?? 'silent',
-}
-for (const key of ['npm_config_side_effects_cache', 'pnpm_config_side_effects_cache']) {
-  delete env[key]
-}
+})
 
 const q = (value) => `'${String(value).replaceAll('\\', '/').replaceAll("'", "''")}'`
 const native = (value) => String(value).replaceAll('\\', '/')
@@ -98,7 +92,7 @@ function install(args) {
   ])
 }
 
-function waitForToolMarker(timeoutMs = 45_000) {
+function waitForToolMarker(timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (existsSync(toolMarker)) {
