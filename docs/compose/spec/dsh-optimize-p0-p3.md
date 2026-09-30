@@ -1,9 +1,9 @@
 ---
 feature: dsh-optimize-p0-p3
 status: delivered
-updated: 2026-09-24
+updated: 2026-09-29
 branch: main
-commits: 2838460..fce0e07
+commits: 11e9243..884d65e
 ---
 
 # DSH 插件 P0–P3 全量优化
@@ -89,7 +89,7 @@ commits: 2838460..fce0e07
 
 ### 版本
 
-功能面 +2 工具 + 安全闸门首发于 **3.2.0**；当前维护版本为 **3.2.2**，`moon.mod` 发布号 0.3.7。`package.json`、`.dsh-plugin/plugin.json`、`jsonrpc.server_version`、`SKILL` frontmatter、`DESIGN` 镜像保持一致。
+功能面 +2 工具 + 安全闸门首发于 **3.2.0**；当前维护版本为 **3.2.3**，`moon.mod` 发布号 0.3.8。`package.json`、`.dsh-plugin/plugin.json`、`jsonrpc.server_version`、`SKILL` frontmatter、`DESIGN` 镜像保持一致。
 
 ## [S3] Out of Scope
 
@@ -108,4 +108,4 @@ commits: 2838460..fce0e07
 - [x] T5: P2 实现 `real_validation` 三级真实验证 — acceptance: 开关开时 T0 跑 moon check；假 cwd 失败（covers: S2-P2; depends: T4）
 - [~] T6: P2 生产装配注入 process/real + 更新 X9/X10 测试 — **safety-gated**：ServerState 仍注入 `process_task`/`real_validation` 缝，但前者默认 fail closed；测试改绿（covers: S2-P2; depends: T4 T5）
 - [x] T7: P3 面板 npm test + 残留处理 + ROADMAP/CONTEXT 更新 — acceptance: panel 测试通过；残留有明确处置；ROADMAP 反映本切片（covers: S2-P3; depends: T3）
-- [x] T8: 全门禁 + 当前版本 3.2.2 五处一致 — acceptance: build.ps1 -Task all 绿；版本号一致（covers: S2; depends: T1 T2 T3 T4 T5 T6 T7）
+- [x] T8: 全门禁 + 当前版本 3.2.3 五处一致 — acceptance: build.ps1 -Task all 绿；版本号一致（covers: S2; depends: T1 T2 T3 T4 T5 T6 T7）

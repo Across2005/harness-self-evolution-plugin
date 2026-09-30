@@ -148,7 +148,8 @@ pending ──approve──▶ approved ──execute──▶ executing ──�
    *守卫 G1 / G1b*
 9. **默认数据目录只有一处写入定义** — MoonBit 数据写入端的 `.harness-evolution`
    字面量只允许出现在 `store/paths.mbt`；只读 host adapter（`dsh-evolution-panel`）可
-   镜像该后缀以解析宿主树。两端实现由各自测试固定，跨语言一致性是显式维护的契约，
+   镜像该后缀以解析宿主树。安装器在目标树写入该字面量时是**显式 per-tree override**，
+   不是第二个运行时默认定义。两端实现由各自测试固定，跨语言一致性是显式维护的契约，
    不是由同一份测试自动证明的派生关系。　*守卫 G4 / G4b*
 10. **写进 DSH 树的文件必须是宿主能解析的**（2026-09-22 复验新增）——
     `scripts/install-dsh.ps1` 产出的是 DSH 的 **profile patch 层**，宿主解析失败是

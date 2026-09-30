@@ -21,12 +21,12 @@ function makeFixture(t, dshRange = DSH_RANGE) {
 
   writeJson(join(root, 'package.json'), {
     name: '@across2005/harness-self-evolution',
-    version: '3.2.2',
+    version: '3.2.3',
     files: ['bin/harness-evolution.exe'],
     engines: { dsh: DSH_RANGE },
   })
   writeJson(join(root, '.dsh-plugin', 'plugin.json'), {
-    version: '3.2.2',
+    version: '3.2.3',
     engines: { dsh: DSH_RANGE },
   })
   for (const packageDir of ['dsh-evolution-panel', 'dsh-watcher']) {

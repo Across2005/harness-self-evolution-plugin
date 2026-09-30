@@ -9,8 +9,11 @@ was an over-declaration — DSH's own source has no such host concept — and ha
 
 User-scope paths resolve through a single helper. The data root is `$HARNESS_EVOLUTION_HOME`
 when explicitly set, otherwise `<DSH home>/.harness-evolution/v2` (with a legacy user-home
-fallback only when no DSH tree can be resolved), so separate deployments do not share data;
-the user-scope sub-agent directory is
+fallback only when no DSH tree can be resolved), so separate deployments do not share data.
+The installer may emit the same literal as an explicit per-tree override in the DSH profile;
+that is deployment wiring, not a second runtime default definition. The G4 guard therefore
+scans the `src/` tree and intentionally does not treat the installer's explicit override as
+a competing default. The user-scope sub-agent directory is
 `<DSH home>/skills/`, and the DSH home mirrors the host's `resolveDshHome` via `dsh_home()`.
 
 ## Host-agnostic core

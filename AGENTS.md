@@ -287,7 +287,7 @@ single-context：根 `CONTEXT.md` 是词汇表与架构不变量的单一事实�
 
 ## 版本信息
 
-- **当前版本**：3.2.2（2026-09-29：执行器 task.input 合并兼容 + 发布门禁产物新鲜度与 DSH 范围校验 + 统一 sanitized env）
-- **最后更新**：2026-09-29
+- **当前版本**：3.2.3（2026-09-30：文档与 Mooncakes 简介纠偏——回滚语义改为 fail-closed 事实描述、安装器 per-tree override 架构说明、实测日期与 commit 区间同步；源码与工具面未变）
+- **最后更新**：2026-09-30
 - **维护者**：AI Agent Designer
 - **许可证**：MIT

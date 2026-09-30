@@ -65,7 +65,7 @@
 | `.\build.ps1 fmt` | `moon fmt` | — | — |
 | `pwsh -File scripts/test-install-dsh.ps1` | 同上（在临时树上跑**真实**安装器 7 场景） | `PASS: 7/7 scenarios` | T1（安装器专项） |
 
-> **写就时点实测（2026-09-25 v3.2.1 + 审查补网）**：T0 零错零警（`moon check --deny-warn --target native`）；
+> **写就时点实测（2026-09-29 v3.2.2 + 审查补网）**：T0 零错零警（`moon check --deny-warn --target native`）；
 > T1 `Total tests: 459, passed: 459, failed: 0`；安装器回归 `PASS: 7/7 scenarios`；
 > 面板 `npm test` 全绿（20 用例）；watcher `pnpm test` 88 passed / 0 failed / 2 skipped。
 > 隔离桌面 DSH smoke（`node scripts/test-dsh-mcp-coexistence.mjs`）在 `0.1.5-rc.2`
@@ -93,7 +93,7 @@
 - **DSH bundle patch**：`cordis.patch.yml`（顶层 YAML 数组、`- insert:` 形式），是 **loader 挂载行**（`insert: [{id, name, config}]`，`name` = npm 包名），**不是** plugin.json 的元数据翻译——元数据只存在于 `package.json` 与 `.dsh-plugin/plugin.json`。**v3.1 起该行默认 `disabled: true` 且不含机器绝对路径**：由 `scripts/install-dsh.ps1` 在目标树上以 id 定向覆盖行启用并注入本树路径。
 - **安装**（公开渠道）：
   ```sh
-  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v3.2.2"
+  dsh plugin --profile web add "github:Across2005/harness-self-evolution-plugin#v3.2.3"
   pwsh -File scripts/install-dsh.ps1 -Profile web     # 注入挂载行（按树解析路径）
   ```
   Linux/macOS 沙箱首次安装可能需要在宿主侧显式放行构建（`allowBuilds`）。
